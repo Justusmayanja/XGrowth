@@ -49,6 +49,15 @@ class AuthController extends Controller
 
         /** @var User $user */
         $user = Auth::user();
+
+        if ($user->is_blocked) {
+            Auth::logout();
+
+            throw ValidationException::withMessages([
+                'email' => ['This account has been suspended. Contact support for help.'],
+            ]);
+        }
+
         $token = $user->createToken('api')->plainTextToken;
 
         return response()->json([
@@ -66,7 +75,10 @@ class AuthController extends Controller
 
     public function me(Request $request): JsonResponse
     {
-        $user = $request->user()->load(['accountProfile', 'connectedAccounts']);
+        $user = $request->user()->load([
+            'accountProfile',
+            'connectedAccounts:id,user_id,platform,username,is_active',
+        ]);
 
         return response()->json(['user' => $user]);
     }

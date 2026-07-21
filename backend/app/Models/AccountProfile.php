@@ -43,6 +43,48 @@ class AccountProfile extends Model
 
     public function resolvedNiche(): string
     {
-        return $this->custom_niche ?: ($this->niche ?? 'general');
+        if ($this->custom_niche) {
+            return $this->custom_niche;
+        }
+
+        return $this->niches()[0] ?? 'general';
+    }
+
+    /** @return list<string> */
+    public function goals(): array
+    {
+        return $this->parseMulti($this->goal);
+    }
+
+    /** @return list<string> */
+    public function niches(): array
+    {
+        return $this->parseMulti($this->niche);
+    }
+
+    /** @return list<string> */
+    public function tones(): array
+    {
+        return $this->parseMulti($this->tone);
+    }
+
+    public function primaryGoal(): string
+    {
+        return $this->goals()[0] ?? 'grow_followers';
+    }
+
+    public function primaryTone(): string
+    {
+        return $this->tones()[0] ?? 'professional';
+    }
+
+    /** @return list<string> */
+    private function parseMulti(?string $value): array
+    {
+        if (! $value) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map('trim', explode(',', $value))));
     }
 }

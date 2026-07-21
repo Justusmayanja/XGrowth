@@ -14,16 +14,21 @@ class OpportunityScorerService
     public function scoreForProfile(Trend $trend, AccountProfile $profile): float
     {
         $base = (float) $trend->score;
-        $niche = $profile->niche ?? 'general';
+        $niches = $profile->niches() ?: ['general'];
         $tags = $trend->niche_tags ?? [];
 
         $score = $base;
+        $nicheBoost = 0;
 
-        if (in_array($niche, $tags, true)) {
-            $score += 12;
-        } elseif ($this->nicheOverlap($niche, $tags)) {
-            $score += 6;
+        foreach ($niches as $niche) {
+            if (in_array($niche, $tags, true)) {
+                $nicheBoost = max($nicheBoost, 12);
+            } elseif ($this->nicheOverlap($niche, $tags)) {
+                $nicheBoost = max($nicheBoost, 6);
+            }
         }
+
+        $score += $nicheBoost;
 
         $growth = (float) $trend->growth_rate;
         if ($growth >= 30) {
@@ -54,10 +59,16 @@ class OpportunityScorerService
      */
     public function rankedForProfile(AccountProfile $profile, int $limit = 10): array
     {
-        $niche = $profile->niche;
+        $niches = $profile->niches();
 
         $trends = Trend::query()
-            ->when($niche, fn ($q) => $q->whereJsonContains('niche_tags', $niche))
+            ->when($niches !== [], function ($query) use ($niches) {
+                $query->where(function ($nested) use ($niches) {
+                    foreach ($niches as $niche) {
+                        $nested->orWhereJsonContains('niche_tags', $niche);
+                    }
+                });
+            })
             ->orderByDesc('score')
             ->limit(20)
             ->get();

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { LegalLayout } from "@/components/landing/LegalLayout";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — Xpulse",
+  title: "Privacy Policy | Xpulse",
   description: "Xpulse privacy policy.",
 };
 

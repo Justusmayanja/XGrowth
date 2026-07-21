@@ -18,7 +18,7 @@ export function ProblemSection() {
               <span className="mt-2 block text-muted">Creators post on opportunity.</span>
             </h2>
             <p className="mt-6 text-lg text-muted">
-              Most tools help you queue tweets. Xpulse helps you show up when it actually matters —
+              Most tools help you queue tweets. Xpulse helps you show up when it actually matters,
               during breaking news, live events, and the conversations your audience cares about.
             </p>
           </div>

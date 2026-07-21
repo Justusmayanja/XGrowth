@@ -20,6 +20,12 @@ class User extends Authenticatable
         'email',
         'password',
         'subscription_plan',
+        'is_admin',
+        'is_blocked',
+        'blocked_at',
+        'blocked_reason',
+        'blocked_by',
+        'admin_notes',
     ];
 
     protected $hidden = [
@@ -32,6 +38,9 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_admin' => 'boolean',
+            'is_blocked' => 'boolean',
+            'blocked_at' => 'datetime',
         ];
     }
 
@@ -53,5 +62,10 @@ class User extends Authenticatable
     public function aiDecisions(): HasMany
     {
         return $this->hasMany(AiDecision::class);
+    }
+
+    public function blockedBy(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(User::class, 'blocked_by');
     }
 }

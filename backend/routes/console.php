@@ -3,6 +3,7 @@
 use App\Jobs\EvaluateAllGrowthOpportunitiesJob;
 use App\Jobs\FetchGlobalTrendsJob;
 use App\Jobs\SafetyResetJob;
+use App\Models\User;
 use App\Services\GrowthAgent\GrowthAgentService;
 use App\Services\GrowthAgent\SafetyEngineService;
 use App\Services\TrendEngine\TrendEngineService;
@@ -28,6 +29,26 @@ Artisan::command('xpulse:reset-safety', function () {
     $deleted = app(SafetyEngineService::class)->resetDailyBudgets();
     $this->info("Removed {$deleted} expired safety budget row(s).");
 })->purpose('Clean up expired daily rate-limit budget rows');
+
+Artisan::command('xpulse:seed-demo {--force : Re-seed demo users even if they already exist}', function () {
+    $result = app(\App\Services\Admin\AdminDemoDataService::class)->seed($this->option('force'));
+    $this->info("Seeded {$result['users']} user(s), {$result['trends']} trend(s), {$result['posts']} post(s), {$result['decisions']} decision(s).");
+})->purpose('Seed demo users, posts, and decisions for admin development');
+
+Artisan::command('xpulse:make-admin {email : User email address}', function (string $email) {
+    $user = User::where('email', $email)->first();
+
+    if (! $user) {
+        $this->error("No user found with email: {$email}");
+
+        return 1;
+    }
+
+    $user->update(['is_admin' => true]);
+    $this->info("{$user->name} ({$user->email}) is now an admin.");
+
+    return 0;
+})->purpose('Grant admin access to a user by email');
 
 // Scheduler: inline calls for SQLite/database queue; Redis jobs when queue worker is available
 if (config('queue.default') === 'redis') {

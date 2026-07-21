@@ -6,7 +6,7 @@ import { useReveal } from "@/hooks/useReveal";
 const faqs = [
   {
     q: "Is Xpulse a tweet scheduler?",
-    a: "No. Schedulers post at fixed times. Xpulse watches your niche and posts when the opportunity is high — during breaking news, live events, or trending debates — and waits when there is nothing worth saying.",
+    a: "No. Schedulers post at fixed times. Xpulse watches your niche and posts when the opportunity is high, during breaking news, live events, or trending debates, and waits when there is nothing worth saying.",
   },
   {
     q: "Will this put my X account at risk?",
@@ -14,7 +14,7 @@ const faqs = [
   },
   {
     q: "Does it work while I'm offline?",
-    a: "Yes. Xpulse runs continuously. Your phone can be off and the dashboard closed — it keeps watching trends and acting based on the settings you choose.",
+    a: "Yes. Xpulse runs continuously. Your phone can be off and the dashboard closed, and it keeps watching trends and acting based on the settings you choose.",
   },
   {
     q: "What happens after I sign up?",

@@ -7,7 +7,7 @@ const features = [
     icon: "📡",
     title: "Trend Radar",
     description:
-      "Tracks what is rising in your niche — breaking stories, live events, and debates before they peak.",
+      "Tracks what is rising in your niche: breaking stories, live events, and debates before they peak.",
     accent: "border-blue-500/30 bg-blue-500/10",
   },
   {
@@ -28,7 +28,7 @@ const features = [
     icon: "🛡️",
     title: "Account Protection",
     description:
-      "Rate limits, natural delays, and duplicate checks — so your account grows without risky behavior.",
+      "Rate limits, natural delays, and duplicate checks, so your account grows without risky behavior.",
     accent: "border-green-500/30 bg-green-500/10",
   },
   {
@@ -59,7 +59,7 @@ export function Features() {
           </p>
           <h2 className="landing-section-title">Everything you need to grow on X</h2>
           <p className="mt-4 text-lg text-muted">
-            For creators, founders, and niche accounts who want momentum — not another calendar full
+            For creators, founders, and niche accounts who want momentum, not another calendar full
             of empty time slots.
           </p>
         </div>

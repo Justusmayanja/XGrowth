@@ -25,7 +25,7 @@ export default function SafetyPage() {
       <div>
         <h1 className="text-2xl font-bold">Safety Center</h1>
         <p className="text-muted-foreground">
-          Account pacing and limits — Xpulse protects you from risky patterns
+          Account pacing and limits. Xpulse protects you from risky patterns
         </p>
       </div>
 
@@ -35,7 +35,7 @@ export default function SafetyPage() {
             Safety score
             {safety && <Badge variant="secondary">{safety.safety_score}/100</Badge>}
           </CardTitle>
-          <CardDescription>Higher is better — means your account is well within safe limits</CardDescription>
+          <CardDescription>Higher is better. It means your account is well within safe limits</CardDescription>
         </CardHeader>
         <CardContent>
           {safety ? (
@@ -59,7 +59,7 @@ export default function SafetyPage() {
                       <Progress value={pct} className="h-2" />
                       {warn && (
                         <p className="mt-2 text-xs text-amber-400">
-                          Approaching daily limit — Xpulse will slow down {action} activity
+                          Approaching daily limit. Xpulse will slow down {action} activity
                         </p>
                       )}
                     </div>
@@ -78,7 +78,7 @@ export default function SafetyPage() {
           <CardTitle>How Xpulse keeps you safe</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>Natural delays between posts and replies — never spammy bursts</p>
+          <p>Natural delays between posts and replies, never spammy bursts</p>
           <p>Duplicate content detection before anything goes live</p>
           <p>Daily caps on posts, replies, follows, and likes</p>
           <p>Growth Engine waits when limits are reached, even if opportunity is high</p>

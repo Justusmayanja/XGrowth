@@ -86,7 +86,7 @@ export default function AnalyticsPage() {
         </div>
         {data.preview_metrics && (
           <Badge variant="outline" className="border-amber-500/40 text-amber-300">
-            Preview data — connect X for live metrics
+            Preview data. Connect X for live metrics
           </Badge>
         )}
       </div>

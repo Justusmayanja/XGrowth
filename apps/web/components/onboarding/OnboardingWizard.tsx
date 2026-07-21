@@ -3,68 +3,72 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BrandLogo } from "@/components/BrandLogo";
+import { MultiSelectCards, SelectionHint } from "@/components/onboarding/MultiSelectCards";
 import { api, getToken } from "@/lib/api";
+import {
+  GOALS,
+  joinMultiValue,
+  MAX_PROFILE_SELECTIONS,
+  NICHES,
+  parseMultiValue,
+  TONES,
+} from "@/lib/profile";
 
 type OnboardingData = {
-  goal: string;
-  niche: string;
+  goals: string[];
+  niches: string[];
   custom_niche: string;
   description: string;
   audience: string;
-  tone: string;
+  tones: string[];
   mode: string;
   automation_level: number;
 };
 
-const GOALS = [
-  { value: "grow_followers", label: "Grow followers", hint: "Build a larger, engaged audience" },
-  { value: "build_brand", label: "Build a brand", hint: "Become known in your space" },
-  { value: "drive_traffic", label: "Drive traffic", hint: "Send people to your site or product" },
-  { value: "promote_business", label: "Promote a business", hint: "Reach customers and clients" },
-  { value: "influencer", label: "Build influence", hint: "Grow authority in your niche" },
-  { value: "monetize", label: "Monetize on X", hint: "Hit impressions and engagement goals" },
-];
-
-const NICHES = [
-  "football",
-  "technology",
-  "business",
-  "crypto",
-  "motivation",
-  "memes",
-  "local_news",
-  "entertainment",
-  "custom",
-];
-
-const NICHE_LABELS: Record<string, string> = {
-  football: "Football & sports",
-  technology: "Technology",
-  business: "Business",
-  crypto: "Crypto & finance",
-  motivation: "Motivation",
-  memes: "Memes & humor",
-  local_news: "Local news",
-  entertainment: "Entertainment",
-  custom: "Something else",
+type XConnectStatus = {
+  available: boolean;
+  connected: boolean;
+  username?: string;
+  authorize_url?: string | null;
+  message: string;
 };
 
-const TONES = [
-  { value: "professional", label: "Professional", hint: "Clear, credible, polished" },
-  { value: "passionate", label: "Passionate", hint: "Bold opinions, high energy" },
-  { value: "funny", label: "Witty", hint: "Light, sharp, entertaining" },
-  { value: "motivational", label: "Motivational", hint: "Inspiring and uplifting" },
-  { value: "news", label: "News-style", hint: "Fast, factual, to the point" },
-];
+type AccountProfile = {
+  goal?: string;
+  niche?: string | null;
+  custom_niche?: string | null;
+  description?: string;
+  audience?: string;
+  tone?: string;
+  mode?: string;
+  automation_level?: number;
+  onboarding_completed?: boolean;
+};
 
 const STEPS = [
-  { title: "Your goal", subtitle: "What do you want from X?" },
-  { title: "Your niche", subtitle: "What topic do you cover?" },
+  { title: "Your goal", subtitle: "What do you want from X? Pick up to 3." },
+  { title: "Your niche", subtitle: "What topics do you cover? Pick up to 3." },
   { title: "Your account", subtitle: "Describe what you're building" },
   { title: "Your audience", subtitle: "Who are you trying to reach?" },
-  { title: "Your voice", subtitle: "How should your posts feel?" },
+  { title: "Your voice", subtitle: "How should your posts feel? Pick up to 3." },
   { title: "Your setup", subtitle: "How should Xpulse work for you?" },
+  { title: "Connect X", subtitle: "Authorize Xpulse to act on your behalf" },
 ];
+
+function profileToOnboardingData(profile: AccountProfile): OnboardingData {
+  const niches = parseMultiValue(profile.niche);
+
+  return {
+    goals: parseMultiValue(profile.goal),
+    niches: profile.custom_niche ? [...niches, "custom"] : niches,
+    custom_niche: profile.custom_niche ?? "",
+    description: profile.description ?? "",
+    audience: profile.audience ?? "",
+    tones: parseMultiValue(profile.tone),
+    mode: profile.mode ?? "reactive",
+    automation_level: profile.automation_level ?? 1,
+  };
+}
 
 export function OnboardingWizard() {
   const router = useRouter();
@@ -72,13 +76,16 @@ export function OnboardingWizard() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [xStatus, setXStatus] = useState<XConnectStatus | null>(null);
+  const [connectingX, setConnectingX] = useState(false);
   const [data, setData] = useState<OnboardingData>({
-    goal: "",
-    niche: "",
+    goals: [],
+    niches: [],
     custom_niche: "",
     description: "",
     audience: "",
-    tone: "professional",
+    tones: [],
     mode: "reactive",
     automation_level: 1,
   });
@@ -91,12 +98,22 @@ export function OnboardingWizard() {
 
     async function checkProfile() {
       try {
-        const me = await api<{ user: { account_profile?: { onboarding_completed?: boolean } } }>(
-          "/auth/me"
-        );
+        const me = await api<{ user: { account_profile?: AccountProfile } }>("/auth/me");
         if (me.user.account_profile?.onboarding_completed) {
           router.replace("/dashboard");
+          return;
         }
+
+        const profileRes = await api<{ profile: AccountProfile | null }>("/account/profile");
+        const profile = profileRes.profile;
+
+        if (profile?.goal) {
+          setData(profileToOnboardingData(profile));
+          setProfileSaved(true);
+          setStep(STEPS.length - 1);
+        }
+
+        await loadXStatus();
       } catch {
         router.replace("/login");
       } finally {
@@ -107,6 +124,29 @@ export function OnboardingWizard() {
     checkProfile();
   }, [router]);
 
+  async function loadXStatus() {
+    try {
+      const status = await api<XConnectStatus>("/connected-accounts/x/status");
+      setXStatus(status);
+    } catch {
+      setXStatus({
+        available: false,
+        connected: false,
+        message: "Could not check X connection status.",
+      });
+    }
+  }
+
+  useEffect(() => {
+    if (step === STEPS.length - 1 && !xStatus) {
+      loadXStatus();
+    }
+  }, [step, xStatus]);
+
+  function showLimitError() {
+    setError(`You can select at most ${MAX_PROFILE_SELECTIONS} options.`);
+  }
+
   function updateField<K extends keyof OnboardingData>(key: K, value: OnboardingData[K]) {
     setData((current) => ({ ...current, [key]: value }));
     setError("");
@@ -115,40 +155,81 @@ export function OnboardingWizard() {
   function canContinue() {
     switch (step) {
       case 0:
-        return !!data.goal;
+        return data.goals.length >= 1;
       case 1:
-        return data.niche && (data.niche !== "custom" || data.custom_niche.trim().length > 2);
+        return (
+          data.niches.length >= 1 &&
+          (!data.niches.includes("custom") || data.custom_niche.trim().length > 2)
+        );
       case 2:
         return data.description.trim().length >= 20;
       case 3:
         return data.audience.trim().length >= 10;
       case 4:
-        return !!data.tone;
+        return data.tones.length >= 1;
       case 5:
+        return true;
+      case 6:
         return true;
       default:
         return false;
     }
   }
 
+  function buildProfilePayload(completeOnboarding: boolean) {
+    const presetNiches = data.niches.filter((niche) => niche !== "custom");
+
+    return {
+      goal: joinMultiValue(data.goals),
+      niche: presetNiches.length > 0 ? joinMultiValue(presetNiches) : null,
+      custom_niche: data.niches.includes("custom") ? data.custom_niche : null,
+      description: data.description,
+      audience: data.audience,
+      tone: joinMultiValue(data.tones),
+      mode: data.mode,
+      automation_level: data.automation_level,
+      complete_onboarding: completeOnboarding,
+    };
+  }
+
+  async function saveProfile(completeOnboarding: boolean) {
+    await api("/account/profile", {
+      method: "POST",
+      body: JSON.stringify(buildProfilePayload(completeOnboarding)),
+    });
+    setProfileSaved(true);
+  }
+
+  async function connectX() {
+    if (!xStatus?.authorize_url) {
+      return;
+    }
+    setConnectingX(true);
+    window.location.href = xStatus.authorize_url;
+  }
+
   async function finish() {
     setSubmitting(true);
     setError("");
     try {
-      await api("/account/profile", {
-        method: "POST",
-        body: JSON.stringify({
-          goal: data.goal,
-          niche: data.niche === "custom" ? null : data.niche,
-          custom_niche: data.niche === "custom" ? data.custom_niche : null,
-          description: data.description,
-          audience: data.audience,
-          tone: data.tone,
-          mode: data.mode,
-          automation_level: data.automation_level,
-        }),
-      });
+      if (!profileSaved) {
+        await saveProfile(false);
+      }
+      await saveProfile(true);
       router.push("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not finish setup");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function advanceFromSetup() {
+    setSubmitting(true);
+    setError("");
+    try {
+      await saveProfile(false);
+      setStep((current) => current + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save your answers");
     } finally {
@@ -159,6 +240,10 @@ export function OnboardingWizard() {
   function next() {
     if (!canContinue()) {
       setError("Please complete this step before continuing.");
+      return;
+    }
+    if (step === STEPS.length - 2) {
+      advanceFromSetup();
       return;
     }
     if (step === STEPS.length - 1) {
@@ -212,44 +297,27 @@ export function OnboardingWizard() {
           )}
 
           {step === 0 && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {GOALS.map((goal) => (
-                <button
-                  key={goal.value}
-                  type="button"
-                  onClick={() => updateField("goal", goal.value)}
-                  className={`rounded-xl border p-4 text-left transition ${
-                    data.goal === goal.value
-                      ? "border-accent bg-accent/10"
-                      : "border-border hover:border-accent/40"
-                  }`}
-                >
-                  <div className="font-semibold">{goal.label}</div>
-                  <div className="mt-1 text-sm text-muted">{goal.hint}</div>
-                </button>
-              ))}
-            </div>
+            <>
+              <SelectionHint selectedCount={data.goals.length} />
+              <MultiSelectCards
+                options={GOALS}
+                selected={data.goals}
+                onChange={(goals) => updateField("goals", goals)}
+                onLimitReached={showLimitError}
+              />
+            </>
           )}
 
           {step === 1 && (
             <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                {NICHES.map((niche) => (
-                  <button
-                    key={niche}
-                    type="button"
-                    onClick={() => updateField("niche", niche)}
-                    className={`rounded-xl border p-4 text-left transition ${
-                      data.niche === niche
-                        ? "border-accent bg-accent/10"
-                        : "border-border hover:border-accent/40"
-                    }`}
-                  >
-                    {NICHE_LABELS[niche]}
-                  </button>
-                ))}
-              </div>
-              {data.niche === "custom" && (
+              <SelectionHint selectedCount={data.niches.length} />
+              <MultiSelectCards
+                options={NICHES}
+                selected={data.niches}
+                onChange={(niches) => updateField("niches", niches)}
+                onLimitReached={showLimitError}
+              />
+              {data.niches.includes("custom") && (
                 <div>
                   <label htmlFor="custom_niche">Your niche</label>
                   <input
@@ -274,7 +342,7 @@ export function OnboardingWizard() {
                 placeholder="Example: A fan account focused on transfer news, match reactions, and honest opinions about Manchester United. I want to be first on breaking stories and spark real debate."
               />
               <p className="mt-2 text-xs text-muted">
-                {data.description.length}/20 characters minimum — the more detail, the better Xpulse
+                {data.description.length}/20 characters minimum. The more detail, the better Xpulse
                 understands you.
               </p>
             </div>
@@ -282,7 +350,7 @@ export function OnboardingWizard() {
 
           {step === 3 && (
             <div>
-              <label htmlFor="audience">Who follows you — or who do you want to reach?</label>
+              <label htmlFor="audience">Who follows you, or who do you want to reach?</label>
               <textarea
                 id="audience"
                 rows={4}
@@ -294,23 +362,16 @@ export function OnboardingWizard() {
           )}
 
           {step === 4 && (
-            <div className="grid gap-3">
-              {TONES.map((tone) => (
-                <button
-                  key={tone.value}
-                  type="button"
-                  onClick={() => updateField("tone", tone.value)}
-                  className={`rounded-xl border p-4 text-left transition ${
-                    data.tone === tone.value
-                      ? "border-accent bg-accent/10"
-                      : "border-border hover:border-accent/40"
-                  }`}
-                >
-                  <div className="font-semibold">{tone.label}</div>
-                  <div className="mt-1 text-sm text-muted">{tone.hint}</div>
-                </button>
-              ))}
-            </div>
+            <>
+              <SelectionHint selectedCount={data.tones.length} />
+              <MultiSelectCards
+                options={TONES}
+                selected={data.tones}
+                onChange={(tones) => updateField("tones", tones)}
+                onLimitReached={showLimitError}
+                columns={1}
+              />
+            </>
           )}
 
           {step === 5 && (
@@ -322,8 +383,8 @@ export function OnboardingWizard() {
                   value={data.mode}
                   onChange={(e) => updateField("mode", e.target.value)}
                 >
-                  <option value="reactive">Reactive — news, events, and trends first</option>
-                  <option value="proactive">Proactive — original posts when things are quiet</option>
+                  <option value="reactive">Reactive: news, events, and trends first</option>
+                  <option value="proactive">Proactive: original posts when things are quiet</option>
                 </select>
               </div>
               <div>
@@ -333,16 +394,65 @@ export function OnboardingWizard() {
                   value={data.automation_level}
                   onChange={(e) => updateField("automation_level", Number(e.target.value))}
                 >
-                  <option value={0}>Suggest only — I approve everything</option>
-                  <option value={1}>Semi-auto — Xpulse drafts, I decide what goes live</option>
-                  <option value={2}>Mostly auto — post when opportunity is high</option>
-                  <option value={3}>Full auto — handle growth while I focus elsewhere</option>
+                  <option value={0}>Suggest only: I approve everything</option>
+                  <option value={1}>Semi-auto: Xpulse drafts, I decide what goes live</option>
+                  <option value={2}>Mostly auto: post when opportunity is high</option>
+                  <option value={3}>Full auto: handle growth while I focus elsewhere</option>
                 </select>
               </div>
               <div className="rounded-xl border border-accent/20 bg-accent/5 p-4 text-sm text-muted">
-                You&apos;re all set. Xpulse will use these answers to tailor trends, timing, and
-                content to your account.
+                Almost done. Next you&apos;ll connect your X account so Xpulse can read metrics and
+                post on your behalf when you approve.
               </div>
+            </div>
+          )}
+
+          {step === 6 && (
+            <div className="space-y-5">
+              <div className="rounded-xl border border-border bg-surface-2 p-5">
+                <p className="text-sm text-muted">
+                  Xpulse needs your permission to act on your X account. You&apos;ll be redirected
+                  to X to review and approve access — we never see your password.
+                </p>
+                <ul className="mt-4 space-y-2 text-sm text-muted">
+                  <li>Read your profile and public metrics</li>
+                  <li>Draft replies and posts for your review</li>
+                  <li>Publish content only when you approve or enable automation</li>
+                </ul>
+              </div>
+
+              {xStatus?.connected ? (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm">
+                  <p className="font-semibold text-emerald-300">X account connected</p>
+                  <p className="mt-1 text-muted">
+                    {xStatus.username ? `@${xStatus.username}` : xStatus.message}
+                  </p>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={connectX}
+                  disabled={connectingX || !xStatus?.authorize_url}
+                  className="btn btn-primary w-full disabled:opacity-50"
+                >
+                  {connectingX
+                    ? "Redirecting to X…"
+                    : xStatus?.authorize_url
+                      ? "Connect X account"
+                      : "Connect X (coming soon)"}
+                </button>
+              )}
+
+              {!xStatus?.connected && xStatus && !xStatus.authorize_url && (
+                <p className="text-center text-xs text-muted">{xStatus.message}</p>
+              )}
+
+              {!xStatus?.connected && (
+                <p className="text-center text-xs text-muted">
+                  You can connect later from Settings. Finish setup to explore Xpulse with preview
+                  data.
+                </p>
+              )}
             </div>
           )}
 
@@ -364,8 +474,12 @@ export function OnboardingWizard() {
               {submitting
                 ? "Saving…"
                 : step === STEPS.length - 1
-                  ? "Finish setup"
-                  : "Continue"}
+                  ? xStatus?.connected
+                    ? "Finish setup"
+                    : "Skip for now"
+                  : step === STEPS.length - 2
+                    ? "Continue"
+                    : "Continue"}
             </button>
           </div>
         </div>

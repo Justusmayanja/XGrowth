@@ -63,7 +63,7 @@ export default function TrendsPage() {
                   </div>
                 </div>
                 <div className="text-sm text-muted-foreground">
-                  Growth {Number(t.growth_rate ?? 0).toFixed(1)}% · {t.competition ?? "—"} competition
+                  Growth {Number(t.growth_rate ?? 0).toFixed(1)}% · {t.competition ?? "n/a"} competition
                 </div>
                 {t.suggestion && (
                   <p className="mt-2 text-sm text-muted-foreground">{t.suggestion}</p>

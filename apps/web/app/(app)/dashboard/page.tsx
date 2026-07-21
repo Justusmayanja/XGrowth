@@ -81,7 +81,7 @@ export default function DashboardPage() {
         </div>
         {stats.preview_metrics && (
           <Badge variant="outline" className="border-amber-500/40 text-amber-300">
-            Preview data — connect X for live metrics
+            Preview data. Connect X for live metrics
           </Badge>
         )}
       </div>
@@ -157,7 +157,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="text-sm text-muted-foreground">
                     Trend {Math.round(Number(t.score ?? 0))} · Growth {Number(t.growth_rate ?? 0).toFixed(1)}% ·{" "}
-                    {t.competition ?? "—"} competition
+                    {t.competition ?? "n/a"} competition
                   </div>
                   {t.suggestion && (
                     <p className="mt-1 text-xs text-muted-foreground">{t.suggestion}</p>

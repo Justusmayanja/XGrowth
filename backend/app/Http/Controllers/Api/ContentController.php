@@ -18,10 +18,10 @@ class ContentController extends Controller
         ]);
 
         $profile = $request->user()->accountProfile;
-        $tone = $validated['tone'] ?? $profile?->tone ?? 'professional';
+        $tone = $validated['tone'] ?? $profile?->primaryTone() ?? 'professional';
         $topic = $validated['topic'];
         $niche = $profile?->resolvedNiche() ?? 'your niche';
-        $goal = str_replace('_', ' ', $profile?->goal ?? 'grow on X');
+        $goal = str_replace('_', ' ', $profile?->primaryGoal() ?? 'grow on X');
 
         $variants = [
             [

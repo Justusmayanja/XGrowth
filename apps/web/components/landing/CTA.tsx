@@ -12,7 +12,7 @@ export function CTA() {
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-lg text-muted">
               Create your account, answer a few quick questions, and let Xpulse start working for
-              your niche — free to start, no credit card required.
+              your niche. Free to start, no credit card required.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link href="/register" className="btn btn-primary px-8 py-3.5 text-base">

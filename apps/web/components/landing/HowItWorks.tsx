@@ -18,7 +18,7 @@ const steps = [
   {
     step: "03",
     title: "Draft",
-    description: "When the moment is right, Xpulse prepares posts in your voice — you approve or go auto.",
+    description: "When the moment is right, Xpulse prepares posts in your voice. You approve or go auto.",
     color: "from-accent to-indigo-400",
   },
   {
@@ -45,7 +45,7 @@ export function HowItWorks() {
           </p>
           <h2 className="landing-section-title">Watch → Score → Draft → Grow</h2>
           <p className="mt-4 text-lg text-muted">
-            The same instincts a sharp creator uses — running continuously in the background for your
+            The same instincts a sharp creator uses, running continuously in the background for your
             account.
           </p>
         </div>

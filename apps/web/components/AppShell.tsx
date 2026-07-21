@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Menu, X } from "lucide-react";
+import { Menu, Shield, X } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
-import { clearToken } from "@/lib/api";
+import { api, clearToken, getToken } from "@/lib/api";
 
 const links = [
   { href: "/dashboard", label: "Dashboard" },
@@ -22,9 +22,10 @@ const links = [
 type SidebarProps = {
   mobileOpen?: boolean;
   onNavigate?: () => void;
+  isAdmin?: boolean;
 };
 
-export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
+export function Sidebar({ mobileOpen = false, onNavigate, isAdmin = false }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -36,8 +37,8 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-50 flex h-screen w-60 flex-col border-r border-border bg-surface p-4 transition-transform duration-200 lg:translate-x-0 ${
-        mobileOpen ? "translate-x-0" : "-translate-x-full"
+      className={`fixed left-0 top-0 z-50 flex h-screen w-60 flex-col border-r border-border bg-surface p-4 max-lg:transition-transform max-lg:duration-200 ${
+        mobileOpen ? "max-lg:translate-x-0" : "max-lg:-translate-x-full"
       }`}
     >
       <div className="mb-8 flex items-center justify-between px-2">
@@ -66,6 +67,16 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
             {link.label}
           </Link>
         ))}
+        {isAdmin && (
+          <Link
+            href="/admin"
+            onClick={() => onNavigate?.()}
+            className="mt-4 flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-primary hover:bg-surface-2"
+          >
+            <Shield className="h-4 w-4" />
+            Console
+          </Link>
+        )}
       </nav>
       <button onClick={logout} className="btn btn-secondary w-full text-sm">
         Sign out
@@ -80,6 +91,14 @@ type AppShellProps = {
 
 export function AppShell({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    if (!getToken()) return;
+    api<{ user: { is_admin?: boolean } }>("/auth/me")
+      .then((res) => setIsAdmin(Boolean(res.user.is_admin)))
+      .catch(() => setIsAdmin(false));
+  }, []);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -104,8 +123,8 @@ export function AppShell({ children }: AppShellProps) {
         />
       )}
 
-      <Sidebar mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)} />
-      <main className="px-4 pb-8 pt-16 lg:ml-60 lg:p-8 lg:pt-8">{children}</main>
+      <Sidebar mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)} isAdmin={isAdmin} />
+      <main className="min-h-screen px-4 pb-8 pt-16 lg:ml-60 lg:p-8 lg:pt-8">{children}</main>
     </div>
   );
 }

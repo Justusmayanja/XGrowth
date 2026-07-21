@@ -68,7 +68,7 @@ export default function EngagementPage() {
       <div>
         <h1 className="text-2xl font-bold">Engagement Center</h1>
         <p className="text-muted-foreground">
-          High-opportunity conversations in your niche — reply while it matters
+          High-opportunity conversations in your niche. Reply while it matters
         </p>
       </div>
 

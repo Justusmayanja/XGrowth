@@ -13,7 +13,7 @@ export function Hero() {
         <div className="mx-auto max-w-4xl text-center">
           <div className="mb-6 inline-flex animate-fade-up items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-4 py-1.5 text-sm text-accent-light">
             <span className="h-2 w-2 animate-pulse rounded-full bg-green-400" />
-            Built for X growth — not another posting calendar
+            Built for X growth, not another posting calendar
           </div>
 
           <h1
@@ -31,7 +31,7 @@ export function Hero() {
             style={{ animationDelay: "0.2s", animationFillMode: "both" }}
           >
             Xpulse watches what matters in your niche, spots the right moment to post, and keeps your
-            account active while you&apos;re offline — safely and on your terms.
+            account active while you&apos;re offline, safely and on your terms.
           </p>
 
           <div
@@ -39,7 +39,7 @@ export function Hero() {
             style={{ animationDelay: "0.3s", animationFillMode: "both" }}
           >
             <Link href="/register" className="btn btn-primary px-8 py-3.5 text-base">
-              Start now — it&apos;s free
+              Start now, it&apos;s free
             </Link>
             <a href="#how-it-works" className="btn btn-secondary px-8 py-3.5 text-base">
               See how it works
@@ -60,7 +60,7 @@ export function Hero() {
               <span className="h-3 w-3 rounded-full bg-red-400/80" />
               <span className="h-3 w-3 rounded-full bg-yellow-400/80" />
               <span className="h-3 w-3 rounded-full bg-green-400/80" />
-              <span className="ml-2 text-xs text-muted">Xpulse — Live activity</span>
+              <span className="ml-2 text-xs text-muted">Xpulse · Live activity</span>
             </div>
 
             <div className="grid gap-4 bg-gradient-to-br from-surface to-surface-2 p-6 sm:grid-cols-3 sm:p-8">

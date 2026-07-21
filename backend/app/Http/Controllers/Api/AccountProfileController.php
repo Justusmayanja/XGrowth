@@ -7,6 +7,7 @@ use App\Models\AccountProfile;
 use App\Services\GrowthAgent\GrowthAgentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class AccountProfileController extends Controller
 {
@@ -20,27 +21,82 @@ class AccountProfileController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'goal' => ['required', 'string', 'max:100'],
-            'niche' => ['nullable', 'string', 'max:100'],
+            'goal' => ['required', 'string', 'max:200'],
+            'niche' => ['nullable', 'string', 'max:200'],
             'custom_niche' => ['nullable', 'string', 'max:255'],
             'description' => ['required', 'string', 'max:2000'],
-            'tone' => ['nullable', 'string', 'max:50'],
+            'tone' => ['nullable', 'string', 'max:100'],
             'audience' => ['nullable', 'string', 'max:2000'],
             'mode' => ['nullable', 'in:reactive,proactive'],
             'automation_level' => ['nullable', 'integer', 'min:0', 'max:3'],
             'max_silence_minutes' => ['nullable', 'integer', 'min:15', 'max:480'],
+            'complete_onboarding' => ['sometimes', 'boolean'],
         ]);
+
+        $validated['goal'] = $this->normalizeMultiValue(
+            $validated['goal'],
+            ['grow_followers', 'build_brand', 'drive_traffic', 'promote_business', 'influencer', 'monetize'],
+            'goal',
+        );
+        $validated['niche'] = isset($validated['niche'])
+            ? $this->normalizeMultiValue(
+                $validated['niche'],
+                ['football', 'technology', 'business', 'crypto', 'motivation', 'memes', 'local_news', 'entertainment'],
+                'niche',
+            )
+            : null;
+        $validated['tone'] = isset($validated['tone'])
+            ? $this->normalizeMultiValue(
+                $validated['tone'],
+                ['professional', 'passionate', 'funny', 'motivational', 'news'],
+                'tone',
+            )
+            : null;
+
+        $completeOnboarding = $request->boolean('complete_onboarding', true);
 
         $profile = AccountProfile::updateOrCreate(
             ['user_id' => $request->user()->id],
             [
                 ...$validated,
-                'onboarding_completed' => true,
+                'onboarding_completed' => $completeOnboarding,
             ]
         );
 
-        app(GrowthAgentService::class)->evaluateOpportunities($request->user()->id);
+        if ($completeOnboarding) {
+            app(GrowthAgentService::class)->evaluateOpportunities($request->user()->id);
+        }
 
         return response()->json(['profile' => $profile]);
+    }
+
+    /**
+     * @param  list<string>  $allowed
+     */
+    private function normalizeMultiValue(string $value, array $allowed, string $field, int $max = 3): string
+    {
+        $items = array_values(array_unique(array_filter(array_map('trim', explode(',', $value)))));
+
+        if ($items === []) {
+            throw ValidationException::withMessages([
+                $field => ['Select at least one option.'],
+            ]);
+        }
+
+        if (count($items) > $max) {
+            throw ValidationException::withMessages([
+                $field => ["You can select at most {$max} options."],
+            ]);
+        }
+
+        foreach ($items as $item) {
+            if (! in_array($item, $allowed, true)) {
+                throw ValidationException::withMessages([
+                    $field => ["Invalid selection: {$item}."],
+                ]);
+            }
+        }
+
+        return implode(',', $items);
     }
 }

@@ -1,4 +1,13 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+const REQUEST_TIMEOUT_MS = 8000;
+
+function resolveApiBase(): string {
+  if (typeof window !== "undefined") {
+    // Same-origin proxy via next.config rewrites — avoids CORS and hanging cross-origin calls
+    return "/api";
+  }
+
+  return process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+}
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -27,14 +36,44 @@ export async function api<T = unknown>(
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  const apiBase = resolveApiBase();
+
+  try {
+    response = await fetch(`${apiBase}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(
+        "Request timed out. Make sure the backend is running: cd backend && php artisan serve"
+      );
+    }
+
+    throw new Error(
+      "Could not reach the API. Start the backend with: cd backend && php artisan serve"
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
     const message =
       (data as { message?: string }).message ||
       (data as { errors?: { email?: string[] } }).errors?.email?.[0] ||
-      "Request failed";
+      `Request failed (${response.status})`;
+
+    if (response.status === 403 && path.startsWith("/admin")) {
+      throw new Error("Admin access required. Run: php artisan xpulse:make-admin your@email.com");
+    }
+
     throw new Error(message);
   }
 

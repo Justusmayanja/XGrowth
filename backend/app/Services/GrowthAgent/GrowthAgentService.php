@@ -23,6 +23,7 @@ class GrowthAgentService
         $count = 0;
 
         User::query()
+            ->where('is_blocked', false)
             ->whereHas('accountProfile', fn ($q) => $q->where('onboarding_completed', true))
             ->each(function (User $user) use (&$count) {
                 $this->evaluateOpportunities($user->id);
@@ -36,7 +37,7 @@ class GrowthAgentService
     {
         $user = User::with('accountProfile')->find($userId);
 
-        if (! $user?->accountProfile?->onboarding_completed) {
+        if (! $user?->accountProfile?->onboarding_completed || $user->is_blocked) {
             return null;
         }
 

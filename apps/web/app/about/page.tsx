@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { LegalLayout } from "@/components/landing/LegalLayout";
 
 export const metadata: Metadata = {
-  title: "About — Xpulse",
-  description: "Learn about Xpulse — grow on X when the moment is right.",
+  title: "About | Xpulse",
+  description: "Learn about Xpulse and grow on X when the moment is right.",
 };
 
 export default function AboutPage() {
@@ -18,7 +18,7 @@ export default function AboutPage() {
       <h2>Our mission</h2>
       <p>
         Help you grow followers, impressions, and monetization eligibility without spending hours on
-        the platform every day. Growth should follow opportunity — not a calendar.
+        the platform every day. Growth should follow opportunity, not a calendar.
       </p>
 
       <h2>What Xpulse does</h2>
@@ -33,7 +33,7 @@ export default function AboutPage() {
       <h2>Who it&apos;s for</h2>
       <p>
         Football fans, tech founders, finance creators, local news accounts, meme pages, and anyone
-        building an audience on X who wants intelligent growth — not another empty posting schedule.
+        building an audience on X who wants intelligent growth, not another empty posting schedule.
       </p>
 
       <h2>Contact</h2>

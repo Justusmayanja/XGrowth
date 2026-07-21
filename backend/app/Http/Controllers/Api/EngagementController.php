@@ -12,7 +12,7 @@ class EngagementController extends Controller
     {
         $profile = $request->user()->accountProfile;
         $niche = $profile?->resolvedNiche() ?? 'your niche';
-        $tone = $profile?->tone ?? 'professional';
+        $tone = $profile?->primaryTone() ?? 'professional';
 
         $templates = [
             [
@@ -69,7 +69,7 @@ class EngagementController extends Controller
         ]);
 
         $profile = $request->user()->accountProfile;
-        $tone = $profile?->tone ?? 'professional';
+        $tone = $profile?->primaryTone() ?? 'professional';
         $context = $validated['context'] ?? 'this conversation';
 
         $drafts = [

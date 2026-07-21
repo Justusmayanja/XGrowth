@@ -139,8 +139,8 @@ export default function GrowthAgentPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="reactive">Reactive — news & events first</SelectItem>
-                    <SelectItem value="proactive">Proactive — original content when quiet</SelectItem>
+                    <SelectItem value="reactive">Reactive: news & events first</SelectItem>
+                    <SelectItem value="proactive">Proactive: original content when quiet</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -151,10 +151,10 @@ export default function GrowthAgentPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="0">0 — Suggest only</SelectItem>
-                    <SelectItem value="1">1 — Semi-auto (drafts for you)</SelectItem>
-                    <SelectItem value="2">2 — Mostly auto</SelectItem>
-                    <SelectItem value="3">3 — Full auto</SelectItem>
+                    <SelectItem value="0">0: Suggest only</SelectItem>
+                    <SelectItem value="1">1: Semi-auto (drafts for you)</SelectItem>
+                    <SelectItem value="2">2: Mostly auto</SelectItem>
+                    <SelectItem value="3">3: Full auto</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
