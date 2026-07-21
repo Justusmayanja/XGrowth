@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GrowthApp — Settings</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="logo">GrowthApp</div>
+      <nav>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="content-studio.html">Content Studio</a>
+        <a href="growth-agent.html">AI Growth Agent</a>
+        <a href="trends.html">Trend Explorer</a>
+        <a href="settings.html" class="active">Settings</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <h1>Settings</h1>
+      <p class="subtitle">Account & integrations</p>
+
+      <div class="card" style="margin-bottom:1rem">
+        <h2>Connected accounts</h2>
+        <p id="x-status" class="subtitle" style="margin-top:0.75rem">Checking…</p>
+        <button class="btn btn-secondary" disabled style="margin-top:1rem">Connect X (coming soon)</button>
+      </div>
+
+      <div class="card">
+        <h2>Safety limits today</h2>
+        <div id="safety" style="margin-top:0.75rem"><p class="subtitle">Loading…</p></div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { api, getToken } from './js/api.js';
+    if (!getToken()) window.location.href = 'index.html';
+
+    const x = await api('/connected-accounts/x/status');
+    document.getElementById('x-status').textContent = x.message;
+
+    const safety = await api('/safety/status');
+    document.getElementById('safety').innerHTML = `
+      <p>Safety score: <strong>${safety.safety_score}/100</strong></p>
+      <ul style="margin-top:0.75rem;color:var(--muted);line-height:1.8">
+        ${Object.entries(safety.actions).map(([k, v]) => `<li>${k}: ${v.count} / ${v.daily_limit}</li>`).join('')}
+      </ul>
+    `;
+  </script>
+</body>
+</html>

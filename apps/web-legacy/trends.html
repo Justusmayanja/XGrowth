@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GrowthApp — Trend Explorer</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="logo">GrowthApp</div>
+      <nav>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="content-studio.html">Content Studio</a>
+        <a href="growth-agent.html">AI Growth Agent</a>
+        <a href="trends.html" class="active">Trend Explorer</a>
+        <a href="settings.html">Settings</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <h1>Trend Explorer</h1>
+      <p class="subtitle">Global trend layer — X API wired in final stage</p>
+      <div class="card" id="trends"><p class="subtitle">Loading…</p></div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { api, getToken } from './js/api.js';
+    if (!getToken()) window.location.href = 'index.html';
+
+    const { trends } = await api('/trends');
+    document.getElementById('trends').innerHTML = trends.map(t => `
+      <div class="feed-item" style="margin-bottom:0.75rem">
+        <strong>${t.name}</strong>
+        <div class="meta">Score ${t.score ?? 0} · Growth ${t.growth_rate ?? 0}% · ${t.competition ?? '—'} competition</div>
+      </div>
+    `).join('') || '<p class="subtitle">No trends detected yet.</p>';
+  </script>
+</body>
+</html>

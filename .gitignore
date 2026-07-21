@@ -1,0 +1,9 @@
+/backend/vendor
+/backend/node_modules
+/backend/.env
+/backend/storage/*.key
+/backend/database/database.sqlite
+/apps/web/node_modules
+/apps/web/.next
+/apps/web/.env.local
+/docs/_share_api.json

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GrowthApp — Dashboard</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="logo">GrowthApp</div>
+      <nav>
+        <a href="dashboard.html" class="active">Dashboard</a>
+        <a href="content-studio.html">Content Studio</a>
+        <a href="growth-agent.html">AI Growth Agent</a>
+        <a href="trends.html">Trend Explorer</a>
+        <a href="settings.html">Settings</a>
+        <a href="#" id="logout">Sign out</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <h1>Dashboard</h1>
+      <p class="subtitle">Account overview — live X metrics come after API integration</p>
+
+      <div class="card-grid" id="stats-grid">
+        <div class="card"><div class="stat-value" id="followers">—</div><div class="stat-label">Followers</div></div>
+        <div class="card"><div class="stat-value" id="impressions">—</div><div class="stat-label">Impressions</div></div>
+        <div class="card"><div class="stat-value" id="growth-score">—</div><div class="stat-label">AI Growth Score</div></div>
+        <div class="card"><div class="stat-value" id="posts-count">—</div><div class="stat-label">Posts tracked</div></div>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <h2>Trend opportunities</h2>
+          <div id="trends-list"><p class="subtitle">Loading…</p></div>
+        </div>
+        <div class="card">
+          <h2>AI recommendations</h2>
+          <p id="recommendation" class="subtitle">Complete onboarding to unlock personalized recommendations.</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { api, getToken, clearToken } from './js/api.js';
+
+    if (!getToken()) window.location.href = 'index.html';
+
+    document.getElementById('logout').addEventListener('click', async (e) => {
+      e.preventDefault();
+      try { await api('/auth/logout', { method: 'POST' }); } catch {}
+      clearToken();
+      window.location.href = 'index.html';
+    });
+
+    async function load() {
+      const me = await api('/auth/me');
+      if (!me.user.account_profile?.onboarding_completed) {
+        window.location.href = 'onboarding.html';
+        return;
+      }
+
+      const { stats } = await api('/dashboard/stats');
+      document.getElementById('followers').textContent = stats.followers.total.toLocaleString();
+      document.getElementById('impressions').textContent = stats.impressions.total.toLocaleString();
+      document.getElementById('growth-score').textContent = `${stats.growth_score}/100`;
+      document.getElementById('posts-count').textContent = stats.posts_posted + stats.posts_draft;
+
+      const { trends } = await api('/trends');
+      const list = document.getElementById('trends-list');
+      list.innerHTML = trends.map(t => `
+        <div class="feed-item">
+          <strong>${t.name}</strong>
+          <div class="meta">Score: ${t.score ?? 0} · Competition: ${t.competition ?? '—'}</div>
+        </div>
+      `).join('') || '<p class="subtitle">No trends yet.</p>';
+
+      document.getElementById('recommendation').textContent =
+        stats.growth_score >= 70
+          ? 'Your profile is ready. The Growth Agent will start evaluating opportunities once trend monitoring is active.'
+          : 'Finish connecting your X account when OAuth is enabled to unlock full recommendations.';
+    }
+
+    load().catch(err => alert(err.message));
+  </script>
+</body>
+</html>

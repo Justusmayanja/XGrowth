@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GrowthApp — Content Studio</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="logo">GrowthApp</div>
+      <nav>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="content-studio.html" class="active">Content Studio</a>
+        <a href="growth-agent.html">AI Growth Agent</a>
+        <a href="trends.html">Trend Explorer</a>
+        <a href="settings.html">Settings</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <h1>Content Studio</h1>
+      <p class="subtitle">Generate tweets — OpenAI powers this in the final API stage</p>
+
+      <div class="two-col">
+        <div class="card">
+          <h2>Inputs</h2>
+          <form id="generate-form" style="margin-top:1rem">
+            <div>
+              <label for="topic">Topic</label>
+              <input id="topic" required placeholder="Manchester United transfer news" />
+            </div>
+            <div>
+              <label for="tone">Tone</label>
+              <select id="tone">
+                <option value="professional">Professional</option>
+                <option value="funny">Funny</option>
+                <option value="passionate">Passionate</option>
+                <option value="motivational">Motivational</option>
+              </select>
+            </div>
+            <div>
+              <label for="content_type">Content type</label>
+              <select id="content_type">
+                <option value="tweet">Tweet</option>
+                <option value="thread">Thread</option>
+                <option value="poll">Poll</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Generate content</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>AI variants</h2>
+          <div id="variants"><p class="subtitle">Generate to see options</p></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { api, getToken } from './js/api.js';
+    if (!getToken()) window.location.href = 'index.html';
+
+    document.getElementById('generate-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const { variants, note } = await api('/content/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          topic: document.getElementById('topic').value,
+          tone: document.getElementById('tone').value,
+          content_type: document.getElementById('content_type').value,
+        }),
+      });
+
+      document.getElementById('variants').innerHTML = `
+        <p class="badge" style="margin-bottom:1rem">${note}</p>
+        ${variants.map((v, i) => `
+          <div class="variant">
+            <p>${v.content}</p>
+            <span class="badge">Virality ${v.virality_score}/100</span>
+            <button class="btn btn-secondary save-draft" data-content="${encodeURIComponent(v.content)}" data-score="${v.virality_score}" style="margin-top:0.75rem">Save draft</button>
+          </div>
+        `).join('')}
+      `;
+
+      document.querySelectorAll('.save-draft').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await api('/content/drafts', {
+            method: 'POST',
+            body: JSON.stringify({
+              content: decodeURIComponent(btn.dataset.content),
+              virality_predicted: btn.dataset.score,
+            }),
+          });
+          btn.textContent = 'Saved ✓';
+        });
+      });
+    });
+  </script>
+</body>
+</html>

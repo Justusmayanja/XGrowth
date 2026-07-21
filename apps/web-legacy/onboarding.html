@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GrowthApp — Onboarding</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="auth-page">
+    <div class="card auth-card" style="max-width:560px">
+      <h1>Set up your account</h1>
+      <p class="subtitle">Tell the AI Growth Agent what you're building</p>
+
+      <div id="error" class="error hidden"></div>
+
+      <form id="onboarding-form">
+        <div>
+          <label for="goal">What is your goal?</label>
+          <select id="goal" required>
+            <option value="grow_followers">Grow followers</option>
+            <option value="build_brand">Build a brand</option>
+            <option value="drive_traffic">Drive website traffic</option>
+            <option value="promote_business">Promote business</option>
+            <option value="influencer">Become an influencer</option>
+            <option value="monetize">Monetize on X</option>
+          </select>
+        </div>
+        <div>
+          <label for="niche">Niche</label>
+          <select id="niche">
+            <option value="football">Football</option>
+            <option value="technology">Technology</option>
+            <option value="ai">AI</option>
+            <option value="business">Business</option>
+            <option value="crypto">Crypto</option>
+            <option value="motivation">Motivation</option>
+            <option value="gaming">Gaming</option>
+            <option value="news">News</option>
+            <option value="memes">Memes</option>
+            <option value="local_news">Local news</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div id="custom-niche-wrap" class="hidden">
+          <label for="custom_niche">Custom niche</label>
+          <input id="custom_niche" type="text" placeholder="e.g. Manchester United fan page" />
+        </div>
+        <div>
+          <label for="description">Describe your account</label>
+          <textarea id="description" required placeholder="I want to create a Manchester United fan account focused on transfer news, match reactions, and football discussions."></textarea>
+        </div>
+        <div>
+          <label for="tone">Tone</label>
+          <select id="tone">
+            <option value="professional">Professional</option>
+            <option value="funny">Funny</option>
+            <option value="passionate">Passionate</option>
+            <option value="motivational">Motivational</option>
+            <option value="educational">Educational</option>
+            <option value="news">News</option>
+          </select>
+        </div>
+        <div>
+          <label for="mode">Operating mode</label>
+          <select id="mode">
+            <option value="reactive">Reactive (news & events first)</option>
+            <option value="proactive">Proactive (opinions & threads)</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary">Save & continue</button>
+      </form>
+    </div>
+  </div>
+
+  <script type="module">
+    import { api, getToken } from './js/api.js';
+
+    if (!getToken()) window.location.href = 'index.html';
+
+    const niche = document.getElementById('niche');
+    const customWrap = document.getElementById('custom-niche-wrap');
+
+    niche.addEventListener('change', () => {
+      customWrap.classList.toggle('hidden', niche.value !== 'custom');
+    });
+
+    document.getElementById('onboarding-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('error');
+      errorEl.classList.add('hidden');
+
+      try {
+        await api('/account/profile', {
+          method: 'POST',
+          body: JSON.stringify({
+            goal: document.getElementById('goal').value,
+            niche: niche.value === 'custom' ? null : niche.value,
+            custom_niche: niche.value === 'custom' ? document.getElementById('custom_niche').value : null,
+            description: document.getElementById('description').value,
+            tone: document.getElementById('tone').value,
+            mode: document.getElementById('mode').value,
+          }),
+        });
+        window.location.href = 'dashboard.html';
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.classList.remove('hidden');
+      }
+    });
+  </script>
+</body>
+</html>

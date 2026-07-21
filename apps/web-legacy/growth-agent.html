@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GrowthApp — AI Growth Agent</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="logo">GrowthApp</div>
+      <nav>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="content-studio.html">Content Studio</a>
+        <a href="growth-agent.html" class="active">AI Growth Agent</a>
+        <a href="trends.html">Trend Explorer</a>
+        <a href="settings.html">Settings</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <h1>AI Growth Agent</h1>
+      <p class="subtitle">Event-driven posting — not fixed schedules</p>
+
+      <div class="two-col">
+        <div class="card">
+          <h2>Agent settings</h2>
+          <form id="settings-form" style="margin-top:1rem">
+            <div>
+              <label for="mode">Mode</label>
+              <select id="mode">
+                <option value="reactive">Reactive</option>
+                <option value="proactive">Proactive</option>
+              </select>
+            </div>
+            <div>
+              <label for="automation_level">Automation level (0=off, 3=full)</label>
+              <input id="automation_level" type="number" min="0" max="3" value="1" />
+            </div>
+            <div>
+              <label for="max_silence_minutes">Max silence (minutes)</label>
+              <input id="max_silence_minutes" type="number" min="15" max="480" value="60" />
+            </div>
+            <button type="submit" class="btn btn-primary">Save settings</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Decision feed</h2>
+          <div id="feed" style="margin-top:1rem"><p class="subtitle">Loading…</p></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { api, getToken } from './js/api.js';
+    if (!getToken()) window.location.href = 'index.html';
+
+    const { settings } = await api('/growth-agent/settings');
+    document.getElementById('mode').value = settings.mode;
+    document.getElementById('automation_level').value = settings.automation_level;
+    document.getElementById('max_silence_minutes').value = settings.max_silence_minutes;
+
+    const { decisions } = await api('/growth-agent/feed');
+    document.getElementById('feed').innerHTML = decisions.map(d => `
+      <div class="feed-item">
+        <strong>${d.decision}</strong> ${d.action_taken ? '→ ' + d.action_taken : ''}
+        <div class="meta">${d.reason}${d.opportunity_score != null ? ' · Score ' + d.opportunity_score : ''}</div>
+      </div>
+    `).join('');
+
+    document.getElementById('settings-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await api('/growth-agent/settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          mode: document.getElementById('mode').value,
+          automation_level: Number(document.getElementById('automation_level').value),
+          max_silence_minutes: Number(document.getElementById('max_silence_minutes').value),
+        }),
+      });
+      alert('Settings saved');
+    });
+  </script>
+</body>
+</html>
