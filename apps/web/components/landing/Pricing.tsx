@@ -1,70 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useReveal } from "@/hooks/useReveal";
-
-const plans = [
-  {
-    name: "Free",
-    price: "$0",
-    period: "/mo",
-    description: "Try Xpulse on one account",
-    features: ["1 X account", "Limited drafts per day", "Basic analytics", "Trend previews"],
-    cta: "Start now",
-    highlighted: false,
-  },
-  {
-    name: "Starter",
-    price: "$12",
-    period: "/mo",
-    description: "For creators getting serious",
-    features: ["Content studio", "Trend discovery", "Draft library", "Basic analytics"],
-    cta: "Start now",
-    highlighted: false,
-  },
-  {
-    name: "Creator",
-    price: "$29",
-    period: "/mo",
-    description: "Full growth engine",
-    features: [
-      "Auto growth modes",
-      "Advanced analytics",
-      "Trend intelligence",
-      "Account protection",
-      "Reach insights",
-    ],
-    cta: "Start now",
-    highlighted: true,
-  },
-  {
-    name: "Pro",
-    price: "$59",
-    period: "/mo",
-    description: "Multiple accounts",
-    features: [
-      "Multiple accounts",
-      "Priority processing",
-      "Competitor insights",
-      "Full automation",
-      "Priority support",
-    ],
-    cta: "Start now",
-    highlighted: false,
-  },
-  {
-    name: "Agency",
-    price: "$149+",
-    period: "/mo",
-    description: "Teams and clients",
-    features: ["Team seats", "Many accounts", "Advanced reporting", "Client switcher", "Custom limits"],
-    cta: "Contact us",
-    highlighted: false,
-  },
-];
+import { api } from "@/lib/api";
+import { type BillingInterval, type SubscriptionPlan } from "@/lib/plans";
 
 export function Pricing() {
   const { ref, visible } = useReveal();
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [interval, setInterval] = useState<BillingInterval>("monthly");
+
+  useEffect(() => {
+    api<{ plans: SubscriptionPlan[] }>("/plans")
+      .then((res) => setPlans(res.plans))
+      .catch(() => setPlans([]));
+  }, []);
 
   return (
     <section id="pricing" ref={ref} className={`landing-reveal py-24 ${visible ? "visible" : ""}`}>
@@ -75,14 +26,35 @@ export function Pricing() {
           </p>
           <h2 className="landing-section-title">Plans that grow with you</h2>
           <p className="mt-4 text-lg text-muted">
-            Start free today. Upgrade when Xpulse is driving real followers and impressions.
+            Pick a plan and upgrade when Xpulse is driving real followers and impressions.
           </p>
+
+          <div className="mt-8 inline-flex rounded-full border border-border bg-surface p-1">
+            <button
+              type="button"
+              onClick={() => setInterval("monthly")}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+                interval === "monthly" ? "bg-accent text-white" : "text-muted hover:text-foreground"
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              onClick={() => setInterval("yearly")}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+                interval === "yearly" ? "bg-accent text-white" : "text-muted hover:text-foreground"
+              }`}
+            >
+              Yearly
+            </button>
+          </div>
         </div>
 
-        <div className="mt-16 grid gap-6 lg:grid-cols-5">
+        <div className="mt-16 grid gap-6 lg:grid-cols-3">
           {plans.map((plan, i) => (
             <div
-              key={plan.name}
+              key={plan.slug}
               className={`landing-feature-card flex flex-col ${
                 plan.highlighted
                   ? "border-accent/50 bg-gradient-to-b from-accent/15 to-surface shadow-lg shadow-accent/20 lg:-translate-y-2"
@@ -97,9 +69,18 @@ export function Pricing() {
               )}
               <h3 className="text-lg font-bold">{plan.name}</h3>
               <div className="mt-2 flex items-baseline gap-1">
-                <span className="text-3xl font-bold">{plan.price}</span>
-                <span className="text-sm text-muted">{plan.period}</span>
+                <span className="text-3xl font-bold">
+                  {interval === "yearly" && plan.yearly_price_display
+                    ? plan.yearly_price_display
+                    : plan.price_display}
+                </span>
+                <span className="text-sm text-muted">
+                  {interval === "yearly" ? plan.yearly_period : plan.period}
+                </span>
               </div>
+              {interval === "yearly" && plan.yearly_price_display && (
+                <p className="mt-1 text-xs text-muted">Billed annually</p>
+              )}
               <p className="mt-2 text-sm text-muted">{plan.description}</p>
               <ul className="mt-6 flex-1 space-y-2 text-sm text-muted">
                 {plan.features.map((f) => (

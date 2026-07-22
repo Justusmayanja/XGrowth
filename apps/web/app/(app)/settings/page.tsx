@@ -1,86 +1,83 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AccountSettingsCard } from "@/components/settings/AccountSettingsCard";
+import { AutomationSettingsCard } from "@/components/settings/AutomationSettingsCard";
+import { BillingSettingsCard } from "@/components/settings/BillingSettingsCard";
+import { ConnectedAccountCard } from "@/components/settings/ConnectedAccountCard";
+import { NotificationSettingsCard } from "@/components/settings/NotificationSettingsCard";
+import { PrivacySettingsCard } from "@/components/settings/PrivacySettingsCard";
 import { ProfileForm } from "@/components/settings/ProfileForm";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { SafetySummaryCard } from "@/components/settings/SafetySummaryCard";
 import { api } from "@/lib/api";
+import type {
+  AccountInfo,
+  AutomationSettings,
+  NotificationSettings,
+  SafetyStatus,
+  XConnectStatus,
+} from "@/lib/settings";
+import type { SubscriptionPlan } from "@/lib/plans";
 
 export default function SettingsPage() {
-  const [xMessage, setXMessage] = useState("");
-  const [safety, setSafety] = useState<{
-    safety_score: number;
-    actions: Record<string, { count: number; daily_limit: number }>;
-  } | null>(null);
+  const [account, setAccount] = useState<AccountInfo | null>(null);
+  const [automation, setAutomation] = useState<AutomationSettings | null>(null);
+  const [notifications, setNotifications] = useState<NotificationSettings | null>(null);
+  const [xStatus, setXStatus] = useState<XConnectStatus | null>(null);
+  const [safety, setSafety] = useState<SafetyStatus | null>(null);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
-      api<{ message: string }>("/connected-accounts/x/status"),
-      api<{ safety_score: number; actions: Record<string, { count: number; daily_limit: number }> }>(
-        "/safety/status"
-      ),
+      api<{
+        account: AccountInfo;
+        automation: AutomationSettings;
+        notifications: NotificationSettings;
+      }>("/account/settings"),
+      api<XConnectStatus>("/connected-accounts/x/status"),
+      api<SafetyStatus>("/safety/status"),
+      api<{ plans: SubscriptionPlan[] }>("/plans"),
     ])
-      .then(([x, s]) => {
-        setXMessage(x.message);
+      .then(([settings, x, s, planRes]) => {
+        setAccount(settings.account);
+        setAutomation(settings.automation);
+        setNotifications(settings.notifications);
+        setXStatus(x);
         setSafety(s);
+        setPlans(planRes.plans);
       })
       .finally(() => setLoading(false));
   }, []);
+
+  if (loading || !account) {
+    return <p className="text-muted-foreground">Loading settings…</p>;
+  }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-muted-foreground">Manage your profile, connections, and account limits</p>
+        <p className="text-muted-foreground">
+          Manage your account, automation, connections, and preferences
+        </p>
       </div>
+
+      <AccountSettingsCard account={account} onUpdated={setAccount} />
+
+      <AutomationSettingsCard initial={automation} />
 
       <ProfileForm />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Connected accounts</CardTitle>
-          <CardDescription>Link your X account to unlock live metrics and posting</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="mb-4 text-sm text-muted-foreground">{xMessage}</p>
-          <Button variant="secondary" disabled>
-            Connect X (coming soon)
-          </Button>
-        </CardContent>
-      </Card>
+      <ConnectedAccountCard status={xStatus} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Safety limits today</CardTitle>
-          <CardDescription>Xpulse paces your activity to protect your account</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading || !safety ? (
-            <p className="text-muted-foreground">Loading…</p>
-          ) : (
-            <>
-              <div className="mb-4 flex items-center gap-3">
-                <span className="text-sm text-muted-foreground">Safety score</span>
-                <Badge variant="secondary">{safety.safety_score}/100</Badge>
-              </div>
-              <Progress value={safety.safety_score} className="mb-4" />
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                {Object.entries(safety.actions).map(([k, v]) => (
-                  <li key={k} className="flex justify-between">
-                    <span className="capitalize">{k.replace("_", " ")}</span>
-                    <span>
-                      {v.count} / {v.daily_limit}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </CardContent>
-      </Card>
+      <NotificationSettingsCard initial={notifications} />
+
+      <SafetySummaryCard safety={safety} loading={loading} />
+
+      <BillingSettingsCard account={account} plans={plans} />
+
+      <PrivacySettingsCard />
     </div>
   );
 }

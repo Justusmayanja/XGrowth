@@ -94,9 +94,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <Button variant="outline" onClick={() => router.replace("/login")}>
             Sign in again
           </Button>
-          <Button variant="outline" onClick={() => router.replace("/dashboard")}>
-            Back to app
-          </Button>
         </div>
       </div>
     );

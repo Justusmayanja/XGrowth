@@ -24,6 +24,7 @@ class AuthController extends Controller
             'name' => $validated['name'],
             'email' => $validated['email'],
             'password' => $validated['password'],
+            'subscription_plan' => 'creator',
         ]);
 
         $token = $user->createToken('api')->plainTextToken;

@@ -3,11 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\AICore\AICoreService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use RuntimeException;
 
 class EngagementController extends Controller
 {
+    public function __construct(
+        private readonly AICoreService $aiCore,
+    ) {}
+
     public function feed(Request $request): JsonResponse
     {
         $profile = $request->user()->accountProfile;
@@ -57,7 +63,7 @@ class EngagementController extends Controller
                 'profile_visits_from_replies' => 0,
                 'followers_gained_from_engagement' => 0,
             ],
-            'note' => "Placeholder feed tailored to {$niche}. Live X data connects in the final API stage.",
+            'note' => "Sample feed tailored to {$niche}. Reply drafts use live OpenAI; live X data connects in a later stage.",
         ]);
     }
 
@@ -66,26 +72,28 @@ class EngagementController extends Controller
         $validated = $request->validate([
             'post_id' => ['required', 'string'],
             'context' => ['nullable', 'string', 'max:2000'],
+            'use_web_search' => ['nullable', 'boolean'],
         ]);
 
         $profile = $request->user()->accountProfile;
         $tone = $profile?->primaryTone() ?? 'professional';
         $context = $validated['context'] ?? 'this conversation';
 
-        $drafts = [
-            [
-                'content' => "Strong point. I'd add one thing most people miss about {$context} — the second-order effect matters more than the headline.",
+        try {
+            $drafts = $this->aiCore->generateReplyDrafts([
+                'user' => $request->user(),
+                'context' => $context,
                 'tone' => $tone,
-            ],
-            [
-                'content' => "This is the right question. In my experience with {$profile?->resolvedNiche()}, the answer depends on timing more than people admit.",
-                'tone' => $tone,
-            ],
-            [
-                'content' => "Disagree respectfully — there's a nuance here that changes the whole read. Happy to explain if useful.",
-                'tone' => $tone,
-            ],
-        ];
+                'niche' => $profile?->resolvedNiche() ?? 'general',
+                'post_content' => $context,
+                'use_web_search' => (bool) ($validated['use_web_search'] ?? false),
+            ]);
+        } catch (RuntimeException $e) {
+            return response()->json(
+                ['message' => $e->getMessage()],
+                str_contains(strtolower($e->getMessage()), 'limit reached') ? 429 : 503
+            );
+        }
 
         return response()->json(['drafts' => $drafts]);
     }

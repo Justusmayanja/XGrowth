@@ -4,6 +4,7 @@ use App\Jobs\EvaluateAllGrowthOpportunitiesJob;
 use App\Jobs\FetchGlobalTrendsJob;
 use App\Jobs\SafetyResetJob;
 use App\Models\User;
+use App\Services\Admin\PlatformSettingsService;
 use App\Services\GrowthAgent\GrowthAgentService;
 use App\Services\GrowthAgent\SafetyEngineService;
 use App\Services\TrendEngine\TrendEngineService;
@@ -21,7 +22,7 @@ Artisan::command('xpulse:evaluate', function () {
 })->purpose('Run growth opportunity evaluation for all onboarded users');
 
 Artisan::command('xpulse:seed-trends', function () {
-    $trends = app(TrendEngineService::class)->seedMockTrends();
+    $trends = app(TrendEngineService::class)->fetchGlobalTrends(force: true);
     $this->info('Seeded '.count($trends).' trend(s).');
 })->purpose('Seed mock trends for local development');
 
@@ -50,13 +51,23 @@ Artisan::command('xpulse:make-admin {email : User email address}', function (str
     return 0;
 })->purpose('Grant admin access to a user by email');
 
-// Scheduler: inline calls for SQLite/database queue; Redis jobs when queue worker is available
+$settings = app(PlatformSettingsService::class);
+$trendFetchTimes = $settings->getFetchTimes();
+$evalInterval = max(5, $settings->getInt('growth_evaluation_interval_minutes', 30));
+
 if (config('queue.default') === 'redis') {
-    Schedule::job(new FetchGlobalTrendsJob)->everyFiveMinutes();
-    Schedule::job(new EvaluateAllGrowthOpportunitiesJob)->everyTenMinutes();
+    foreach ($trendFetchTimes as $time) {
+        Schedule::job(new FetchGlobalTrendsJob)->dailyAt($time);
+    }
+    Schedule::job(new EvaluateAllGrowthOpportunitiesJob)->cron("*/{$evalInterval} * * * *");
     Schedule::job(new SafetyResetJob)->dailyAt('00:05');
 } else {
-    Schedule::call(fn () => app(TrendEngineService::class)->fetchGlobalTrends())->everyFiveMinutes();
-    Schedule::call(fn () => app(GrowthAgentService::class)->evaluateAllUsers())->everyTenMinutes();
+    foreach ($trendFetchTimes as $time) {
+        Schedule::call(fn () => app(TrendEngineService::class)->fetchGlobalTrends())
+            ->dailyAt($time)
+            ->name("fetch-trends-{$time}");
+    }
+    Schedule::call(fn () => app(GrowthAgentService::class)->evaluateAllUsers())
+        ->cron("*/{$evalInterval} * * * *");
     Schedule::call(fn () => app(SafetyEngineService::class)->resetDailyBudgets())->dailyAt('00:05');
 }

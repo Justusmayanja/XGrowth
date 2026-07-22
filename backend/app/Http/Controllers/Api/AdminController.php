@@ -154,16 +154,6 @@ class AdminController extends Controller
         return response()->json(['customers' => $paginator]);
     }
 
-    /** @deprecated Use customers() — kept for compatibility */
-    public function users(Request $request): JsonResponse
-    {
-        $response = $this->customers($request)->getData(true);
-        $response['users'] = $response['customers'];
-        unset($response['customers']);
-
-        return response()->json($response);
-    }
-
     public function showCustomer(User $user): JsonResponse
     {
         if ($user->is_admin) {
@@ -226,7 +216,7 @@ class AdminController extends Controller
         }
 
         $validated = $request->validate([
-            'subscription_plan' => ['sometimes', 'string', 'in:free,starter,creator,pro,agency'],
+            'subscription_plan' => ['sometimes', 'string', 'in:creator,pro,agency'],
             'is_blocked' => ['sometimes', 'boolean'],
             'blocked_reason' => ['nullable', 'string', 'max:1000'],
             'admin_notes' => ['nullable', 'string', 'max:2000'],
@@ -272,12 +262,6 @@ class AdminController extends Controller
             'customer' => $this->formatCustomer($user->fresh(['accountProfile', 'connectedAccounts', 'blockedBy'])),
             'message' => $user->is_blocked ? 'Customer blocked and signed out.' : 'Customer updated.',
         ]);
-    }
-
-    /** @deprecated Use updateCustomer() */
-    public function updateUser(Request $request, User $user): JsonResponse
-    {
-        return $this->updateCustomer($request, $user);
     }
 
     public function decisions(Request $request): JsonResponse
@@ -389,7 +373,7 @@ class AdminController extends Controller
 
     public function seedTrends(): JsonResponse
     {
-        $trends = app(TrendEngineService::class)->seedMockTrends();
+        $trends = app(TrendEngineService::class)->fetchGlobalTrends(force: true);
 
         return response()->json([
             'message' => 'Trend catalog refreshed.',

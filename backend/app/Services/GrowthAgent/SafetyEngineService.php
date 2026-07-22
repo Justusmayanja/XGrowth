@@ -4,16 +4,14 @@ namespace App\Services\GrowthAgent;
 
 use App\Models\RateLimitBudget;
 use App\Models\User;
+use App\Services\Admin\PlatformSettingsService;
 use Illuminate\Support\Carbon;
 
 class SafetyEngineService
 {
-    private const DEFAULT_LIMITS = [
-        'post' => 25,
-        'reply' => 50,
-        'follow' => 10,
-        'like' => 100,
-    ];
+    public function __construct(
+        private readonly PlatformSettingsService $settings,
+    ) {}
 
     public function canAct(User $user, string $actionType): bool
     {
@@ -26,7 +24,7 @@ class SafetyEngineService
             ],
             [
                 'count' => 0,
-                'daily_limit' => self::DEFAULT_LIMITS[$actionType] ?? 20,
+                'daily_limit' => $this->dailyLimit($actionType),
             ]
         );
 
@@ -44,7 +42,7 @@ class SafetyEngineService
             ],
             [
                 'count' => 0,
-                'daily_limit' => self::DEFAULT_LIMITS[$actionType] ?? 20,
+                'daily_limit' => $this->dailyLimit($actionType),
             ]
         );
 
@@ -60,11 +58,11 @@ class SafetyEngineService
             ->keyBy('action_type');
 
         $actions = [];
-        foreach (self::DEFAULT_LIMITS as $type => $limit) {
+        foreach (['post', 'reply', 'follow', 'like'] as $type) {
             $budget = $budgets->get($type);
             $actions[$type] = [
                 'count' => $budget?->count ?? 0,
-                'daily_limit' => $budget?->daily_limit ?? $limit,
+                'daily_limit' => $budget?->daily_limit ?? $this->dailyLimit($type),
             ];
         }
 
@@ -77,6 +75,17 @@ class SafetyEngineService
     public function resetDailyBudgets(): int
     {
         return RateLimitBudget::whereDate('budget_date', '<', Carbon::today())->delete();
+    }
+
+    private function dailyLimit(string $actionType): int
+    {
+        return match ($actionType) {
+            'post' => $this->settings->getInt('safety_limit_post', 25),
+            'reply' => $this->settings->getInt('safety_limit_reply', 50),
+            'follow' => $this->settings->getInt('safety_limit_follow', 10),
+            'like' => $this->settings->getInt('safety_limit_like', 100),
+            default => 20,
+        };
     }
 
     private function computeSafetyScore(array $actions): int

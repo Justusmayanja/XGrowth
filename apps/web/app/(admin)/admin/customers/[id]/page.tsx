@@ -63,7 +63,7 @@ type CustomerDetail = {
   decision_stats: Record<string, number>;
 };
 
-const plans = ["free", "starter", "creator", "pro", "agency"];
+const plans = ["creator", "pro", "agency"];
 
 function statusBadge(status: CustomerDetail["account_status"], blocked: boolean) {
   if (blocked) {

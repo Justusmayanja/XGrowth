@@ -4,17 +4,24 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Post;
+use App\Services\AICore\AICoreService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use RuntimeException;
 
 class ContentController extends Controller
 {
+    public function __construct(
+        private readonly AICoreService $aiCore,
+    ) {}
+
     public function generate(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'topic' => ['required', 'string', 'max:500'],
             'tone' => ['nullable', 'string', 'max:50'],
             'content_type' => ['nullable', 'in:tweet,thread,quote,poll'],
+            'use_web_search' => ['nullable', 'boolean'],
         ]);
 
         $profile = $request->user()->accountProfile;
@@ -23,28 +30,26 @@ class ContentController extends Controller
         $niche = $profile?->resolvedNiche() ?? 'your niche';
         $goal = str_replace('_', ' ', $profile?->primaryGoal() ?? 'grow on X');
 
-        $variants = [
-            [
-                'content' => "On {$topic}: this is exactly the kind of moment {$niche} accounts should be talking about. Here's my {$tone} read — the conversation is missing the real story.",
-                'virality_score' => 82,
-                'estimated_reach' => 'high',
-            ],
-            [
-                'content' => "Honest question for {$niche} people: what's your take on {$topic}? Trying to {$goal} and want to hear what the timeline actually thinks.",
-                'virality_score' => 86,
-                'estimated_reach' => 'high',
-            ],
-            [
-                'content' => "Hot {$tone} take on {$topic}. If you're building in {$niche}, this matters more than people realize. Agree or push back — I'll reply.",
-                'virality_score' => 74,
-                'estimated_reach' => 'medium',
-            ],
-        ];
+        try {
+            $result = $this->aiCore->generateContentVariants([
+                'user' => $request->user(),
+                'topic' => $topic,
+                'tone' => $tone,
+                'niche' => $niche,
+                'goal' => $goal,
+                'content_type' => $validated['content_type'] ?? 'tweet',
+                'audience' => $profile?->audience,
+                'description' => $profile?->description,
+                'use_web_search' => (bool) ($validated['use_web_search'] ?? false),
+            ]);
+        } catch (RuntimeException $e) {
+            return response()->json(
+                ['message' => $e->getMessage()],
+                str_contains(strtolower($e->getMessage()), 'limit reached') ? 429 : 503
+            );
+        }
 
-        return response()->json([
-            'variants' => $variants,
-            'note' => "Drafts tailored to {$niche} · {$tone} tone",
-        ]);
+        return response()->json($result);
     }
 
     public function saveDraft(Request $request): JsonResponse

@@ -13,7 +13,8 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (getToken()) router.replace("/dashboard");
+    if (!getToken()) return;
+    getPostAuthPath().then((path) => router.replace(path));
   }, [router]);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {

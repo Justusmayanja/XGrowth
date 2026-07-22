@@ -98,7 +98,13 @@ export function OnboardingWizard() {
 
     async function checkProfile() {
       try {
-        const me = await api<{ user: { account_profile?: AccountProfile } }>("/auth/me");
+        const me = await api<{ user: { is_admin?: boolean; account_profile?: AccountProfile } }>(
+          "/auth/me"
+        );
+        if (me.user.is_admin) {
+          router.replace("/admin");
+          return;
+        }
         if (me.user.account_profile?.onboarding_completed) {
           router.replace("/dashboard");
           return;

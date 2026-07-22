@@ -44,7 +44,7 @@ type PaginatedCustomers = {
   total: number;
 };
 
-const plans = ["free", "starter", "creator", "pro", "agency"];
+const plans = ["creator", "pro", "agency"];
 
 function statusBadge(status: Customer["account_status"], blocked: boolean) {
   if (blocked) {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,12 @@ import { api } from "@/lib/api";
 
 type Variant = { content: string; virality_score: number; estimated_reach: string };
 
+type AiUsageStatus = {
+  web_search_enabled: boolean;
+  ai_generations: { used: number; limit: number; remaining: number };
+  web_searches: { used: number; limit: number; remaining: number };
+};
+
 export default function ContentStudioPage() {
   const [variants, setVariants] = useState<Variant[]>([]);
   const [note, setNote] = useState("");
@@ -26,22 +32,38 @@ export default function ContentStudioPage() {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [tone, setTone] = useState("professional");
   const [contentType, setContentType] = useState("tweet");
+  const [useWebSearch, setUseWebSearch] = useState(false);
+  const [usage, setUsage] = useState<AiUsageStatus | null>(null);
+
+  useEffect(() => {
+    api<AiUsageStatus>("/account/ai-usage")
+      .then(setUsage)
+      .catch(() => {});
+  }, []);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     const form = new FormData(e.currentTarget);
     try {
-      const data = await api<{ variants: Variant[]; note: string }>("/content/generate", {
+      const data = await api<{
+        variants: Variant[];
+        note: string;
+        usage?: AiUsageStatus;
+      }>("/content/generate", {
         method: "POST",
         body: JSON.stringify({
           topic: form.get("topic"),
           tone,
           content_type: contentType,
+          use_web_search: useWebSearch,
         }),
       });
       setVariants(data.variants);
       setNote(data.note);
+      if (data.usage) {
+        setUsage(data.usage);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not generate drafts");
     } finally {
@@ -74,6 +96,9 @@ export default function ContentStudioPage() {
     }
   }
 
+  const webSearchDisabled =
+    !usage?.web_search_enabled || (usage?.web_searches.remaining ?? 0) <= 0;
+
   return (
     <div className="space-y-6">
       <div>
@@ -84,6 +109,14 @@ export default function ContentStudioPage() {
             View drafts
           </Link>
         </p>
+        {usage && (
+          <p className="mt-2 text-sm text-muted-foreground">
+            Today: {usage.ai_generations.remaining} AI generations left
+            {usage.web_search_enabled && (
+              <> · {usage.web_searches.remaining} web searches left</>
+            )}
+          </p>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -131,7 +164,25 @@ export default function ContentStudioPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button type="submit" disabled={loading}>
+              {usage?.web_search_enabled && (
+                <label className="flex items-start gap-3 rounded-lg border border-border p-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={useWebSearch}
+                    disabled={webSearchDisabled}
+                    onChange={(e) => setUseWebSearch(e.target.checked)}
+                    className="mt-1 rounded border-border"
+                  />
+                  <span>
+                    <span className="font-medium">Search the web for current facts</span>
+                    <span className="mt-1 block text-muted-foreground">
+                      Best for breaking news, transfers, and time-sensitive topics. Uses extra
+                      tokens and counts against your daily web search quota.
+                    </span>
+                  </span>
+                </label>
+              )}
+              <Button type="submit" disabled={loading || (usage?.ai_generations.remaining ?? 1) <= 0}>
                 {loading ? "Generating…" : "Generate drafts"}
               </Button>
             </form>

@@ -53,7 +53,7 @@ class AdminDemoDataService
             [
                 'name' => 'Mike Okafor',
                 'email' => 'mike@example.com',
-                'plan' => 'starter',
+                'plan' => 'creator',
                 'is_admin' => false,
                 'x_username' => 'mikeokafor',
                 'profile' => [
@@ -68,7 +68,7 @@ class AdminDemoDataService
             [
                 'name' => 'Jane Park',
                 'email' => 'jane@example.com',
-                'plan' => 'free',
+                'plan' => 'creator',
                 'is_admin' => false,
                 'x_username' => null,
                 'profile' => [

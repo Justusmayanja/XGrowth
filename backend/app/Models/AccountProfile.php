@@ -19,6 +19,14 @@ class AccountProfile extends Model
         'mode',
         'automation_level',
         'max_silence_minutes',
+        'engine_paused',
+        'auto_post_enabled',
+        'auto_reply_enabled',
+        'auto_engage_enabled',
+        'notify_post_results',
+        'notify_draft_ready',
+        'notify_weekly_recap',
+        'notify_safety_alerts',
         'onboarding_completed',
     ];
 
@@ -26,6 +34,14 @@ class AccountProfile extends Model
     {
         return [
             'onboarding_completed' => 'boolean',
+            'engine_paused' => 'boolean',
+            'auto_post_enabled' => 'boolean',
+            'auto_reply_enabled' => 'boolean',
+            'auto_engage_enabled' => 'boolean',
+            'notify_post_results' => 'boolean',
+            'notify_draft_ready' => 'boolean',
+            'notify_weekly_recap' => 'boolean',
+            'notify_safety_alerts' => 'boolean',
             'automation_level' => 'integer',
             'max_silence_minutes' => 'integer',
         ];

@@ -3,17 +3,63 @@
 namespace App\Services\TrendEngine;
 
 use App\Models\Trend;
-use Illuminate\Support\Str;
+use App\Services\Admin\PlatformSettingsService;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class TrendEngineService
 {
+    public function __construct(
+        private readonly PlatformSettingsService $settings,
+    ) {}
+
     /**
-     * Global trend monitor — runs every 2-5 minutes via scheduler.
+     * Refresh the shared trend catalog. Called on the admin-configured schedule.
      * Uses mock data until X API integration (final stage).
      */
-    public function fetchGlobalTrends(): array
+    public function fetchGlobalTrends(bool $force = false): array
     {
-        return $this->seedMockTrends();
+        if (! $force && ! $this->shouldFetchNow()) {
+            Log::info('Trend fetch skipped — outside scheduled window or already fetched recently');
+
+            return Trend::query()->orderByDesc('score')->limit(20)->get()->all();
+        }
+
+        $trends = $this->seedMockTrends();
+        Cache::put('trends:last_fetched_at', now()->timestamp, now()->addDay());
+
+        return $trends;
+    }
+
+    public function shouldFetchNow(): bool
+    {
+        $times = $this->settings->getFetchTimes();
+        if ($times === []) {
+            return true;
+        }
+
+        $now = now();
+        foreach ($times as $slot) {
+            $slotTime = \Illuminate\Support\Carbon::parse($slot);
+            $diff = abs($now->diffInMinutes($slotTime, false));
+            if ($diff <= 30) {
+                return ! $this->fetchedRecently();
+            }
+        }
+
+        return false;
+    }
+
+    private function fetchedRecently(): bool
+    {
+        $last = Cache::get('trends:last_fetched_at');
+        if (! is_numeric($last)) {
+            return false;
+        }
+
+        $cooldownHours = max(1, $this->settings->getInt('trend_fetch_cooldown_hours', 4));
+
+        return now()->diffInMinutes(\Illuminate\Support\Carbon::createFromTimestamp((int) $last)) < ($cooldownHours * 60);
     }
 
     public function scoreTrend(array $trend, ?string $niche): float

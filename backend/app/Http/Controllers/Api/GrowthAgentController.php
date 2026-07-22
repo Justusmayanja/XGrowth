@@ -19,6 +19,10 @@ class GrowthAgentController extends Controller
                 'mode' => $profile?->mode ?? 'reactive',
                 'automation_level' => $profile?->automation_level ?? 1,
                 'max_silence_minutes' => $profile?->max_silence_minutes ?? 60,
+                'engine_paused' => (bool) ($profile?->engine_paused ?? false),
+                'auto_post_enabled' => (bool) ($profile?->auto_post_enabled ?? true),
+                'auto_reply_enabled' => (bool) ($profile?->auto_reply_enabled ?? false),
+                'auto_engage_enabled' => (bool) ($profile?->auto_engage_enabled ?? true),
                 'onboarding_completed' => (bool) ($profile?->onboarding_completed),
             ],
         ]);
@@ -30,6 +34,10 @@ class GrowthAgentController extends Controller
             'mode' => ['nullable', 'in:reactive,proactive'],
             'automation_level' => ['nullable', 'integer', 'min:0', 'max:3'],
             'max_silence_minutes' => ['nullable', 'integer', 'min:15', 'max:480'],
+            'engine_paused' => ['nullable', 'boolean'],
+            'auto_post_enabled' => ['nullable', 'boolean'],
+            'auto_reply_enabled' => ['nullable', 'boolean'],
+            'auto_engage_enabled' => ['nullable', 'boolean'],
         ]);
 
         $profile = $request->user()->accountProfile;
@@ -42,6 +50,7 @@ class GrowthAgentController extends Controller
 
         return response()->json(['settings' => $profile->only([
             'mode', 'automation_level', 'max_silence_minutes', 'onboarding_completed',
+            'engine_paused', 'auto_post_enabled', 'auto_reply_enabled', 'auto_engage_enabled',
         ])]);
     }
 

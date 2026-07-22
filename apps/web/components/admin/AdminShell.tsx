@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, LayoutDashboard, Menu, Settings2, Users, X } from "lucide-react";
+import { Activity, Brain, LayoutDashboard, Menu, Settings, Settings2, Users, X } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { clearToken } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,8 @@ const links = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard, exact: true },
   { href: "/admin/customers", label: "Customers", icon: Users },
   { href: "/admin/activity", label: "Activity", icon: Activity },
+  { href: "/admin/ai-rules", label: "AI Rules", icon: Brain },
+  { href: "/admin/platform-settings", label: "Platform Settings", icon: Settings },
   { href: "/admin/operations", label: "Operations", icon: Settings2 },
 ];
 
@@ -100,13 +102,6 @@ export function AdminShell({ children }: AdminShellProps) {
               </Link>
             );
           })}
-          <Link
-            href="/dashboard"
-            onClick={() => setMobileOpen(false)}
-            className="mt-4 rounded-lg px-3 py-2 text-sm text-muted hover:bg-surface-2 hover:text-white"
-          >
-            ← Customer app
-          </Link>
         </nav>
 
         <button onClick={logout} className="btn btn-secondary w-full text-sm">

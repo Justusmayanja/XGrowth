@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { PlanPricingCard } from "@/components/admin/PlanPricingCard";
 
 type OperationsInfo = {
   environment: string;
@@ -251,6 +252,8 @@ export default function AdminOperationsPage() {
           </Card>
         </div>
       )}
+
+      <PlanPricingCard />
     </div>
   );
 }
