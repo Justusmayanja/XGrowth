@@ -70,6 +70,10 @@ export async function api<T = unknown>(
       (data as { errors?: { email?: string[] } }).errors?.email?.[0] ||
       `Request failed (${response.status})`;
 
+    if (response.status === 401 && token) {
+      clearToken();
+    }
+
     if (response.status === 403 && path.startsWith("/admin")) {
       throw new Error("Admin access required. Run: php artisan xpulse:make-admin your@email.com");
     }

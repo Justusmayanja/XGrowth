@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, X } from "lucide-react";
@@ -81,6 +81,13 @@ type AppShellProps = {
 export function AppShell({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  useEffect(() => {
+    document.body.style.overflow = mobileOpen ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileOpen]);
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="fixed left-0 right-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-surface px-4 lg:hidden">
@@ -105,7 +112,7 @@ export function AppShell({ children }: AppShellProps) {
       )}
 
       <Sidebar mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)} />
-      <main className="min-h-screen px-4 pb-8 pt-16 lg:ml-60 lg:p-8 lg:pt-8">{children}</main>
+      <main className="min-h-screen overflow-x-hidden px-4 pb-8 pt-16 lg:ml-60 lg:p-8 lg:pt-8">{children}</main>
     </div>
   );
 }

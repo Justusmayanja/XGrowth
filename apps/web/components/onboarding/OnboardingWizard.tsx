@@ -273,9 +273,9 @@ export function OnboardingWizard() {
   }
 
   return (
-    <div className="min-h-screen px-6 py-10">
+    <div className="min-h-screen overflow-x-hidden px-4 py-8 sm:px-6 sm:py-10">
       <div className="mx-auto max-w-2xl">
-        <BrandLogo className="mb-10 text-lg" />
+        <BrandLogo className="mb-8 text-lg sm:mb-10" />
 
         <div className="mb-8">
           <div className="mb-3 flex items-center justify-between text-sm text-muted">
@@ -293,7 +293,7 @@ export function OnboardingWizard() {
         </div>
 
         <div className="card">
-          <h1 className="text-2xl font-bold">{STEPS[step].title}</h1>
+          <h1 className="text-xl font-bold sm:text-2xl">{STEPS[step].title}</h1>
           <p className="mb-6 mt-1 text-muted">{STEPS[step].subtitle}</p>
 
           {error && (
@@ -462,12 +462,12 @@ export function OnboardingWizard() {
             </div>
           )}
 
-          <div className="mt-8 flex items-center justify-between gap-4">
+          <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
               onClick={back}
               disabled={step === 0 || submitting}
-              className="btn btn-secondary disabled:opacity-40"
+              className="btn btn-secondary w-full disabled:opacity-40 sm:w-auto"
             >
               Back
             </button>
@@ -475,7 +475,7 @@ export function OnboardingWizard() {
               type="button"
               onClick={next}
               disabled={submitting}
-              className="btn btn-primary min-w-[140px]"
+              className="btn btn-primary w-full min-w-0 sm:w-auto sm:min-w-[140px]"
             >
               {submitting
                 ? "Saving…"

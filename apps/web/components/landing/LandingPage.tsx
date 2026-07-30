@@ -13,7 +13,7 @@ import { Testimonials } from "./Testimonials";
 
 export function LandingPage() {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       <Navbar />
       <main>
         <Hero />

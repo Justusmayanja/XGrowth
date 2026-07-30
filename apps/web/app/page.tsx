@@ -13,8 +13,12 @@ export default function HomePage() {
   useEffect(() => {
     async function init() {
       if (getToken()) {
-        router.replace(await getPostAuthPath());
-        return;
+        try {
+          router.replace(await getPostAuthPath());
+          return;
+        } catch {
+          // Stale token (e.g. after DB reset) — cleared in api.ts, show landing page
+        }
       }
       setReady(true);
     }

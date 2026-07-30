@@ -14,7 +14,11 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!getToken()) return;
-    getPostAuthPath().then((path) => router.replace(path));
+    getPostAuthPath()
+      .then((path) => router.replace(path))
+      .catch(() => {
+        // Stale token cleared in api.ts — stay on login
+      });
   }, [router]);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -40,7 +44,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-6">
+    <div className="flex min-h-screen items-center justify-center p-4 sm:p-6">
       <div className="card w-full max-w-md">
         <BrandLogo className="mb-4 text-xl" />
         <p className="mb-6 text-muted">Sign in to your account</p>

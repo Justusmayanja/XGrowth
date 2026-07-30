@@ -36,7 +36,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-6">
+    <div className="flex min-h-screen items-center justify-center p-4 sm:p-6">
       <div className="card w-full max-w-md">
         <BrandLogo className="mb-4 text-xl" />
         <h1 className="text-2xl font-bold">Start now</h1>

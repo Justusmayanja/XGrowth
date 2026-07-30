@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Activity, Brain, LayoutDashboard, Menu, Settings, Settings2, Users, X } from "lucide-react";
@@ -30,6 +30,13 @@ export function AdminShell({ children }: AdminShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    document.body.style.overflow = mobileOpen ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileOpen]);
 
   async function logout() {
     clearToken();
@@ -109,7 +116,7 @@ export function AdminShell({ children }: AdminShellProps) {
         </button>
       </aside>
 
-      <main className="min-h-screen px-4 pb-8 pt-16 lg:ml-60 lg:p-8 lg:pt-8">{children}</main>
+      <main className="min-h-screen overflow-x-hidden px-4 pb-8 pt-16 lg:ml-60 lg:p-8 lg:pt-8">{children}</main>
     </div>
   );
 }

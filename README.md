@@ -40,7 +40,7 @@ See [LOCAL_DEV.md](LOCAL_DEV.md) for full setup (SQLite, Docker, PostgreSQL).
 |-------|------|
 | Frontend | Next.js 15, TypeScript, Tailwind, Shadcn UI |
 | Backend | Laravel 12, PHP 8.2+, Sanctum |
-| Database | SQLite (local) → PostgreSQL 16 (Docker) |
+| Database | PostgreSQL 16 + Redis 7 (Docker) |
 | Queue | Database (local) → Redis 7 (Docker) |
 | AI / X / Billing | Final API stage (OpenAI, X OAuth, Paddle + Flutterwave) |
 

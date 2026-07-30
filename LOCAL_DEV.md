@@ -39,36 +39,36 @@ API: **http://127.0.0.1:8000/api/health**
 ### SQLite (default, works now)
 Already configured in `backend/.env` — no setup needed.
 
-### PostgreSQL + Redis (when Docker is installed)
+### PostgreSQL + Redis (recommended)
+
+**One-time machine setup** (if Docker was just installed):
+1. Install WSL2 if prompted: `wsl --install --no-distribution` (Admin PowerShell; reboot if asked)
+2. Open **Docker Desktop** and wait until the engine is running
+
+**Start services:**
 ```powershell
 docker compose up -d
 ```
 
-Update `backend/.env`:
-```
-DB_CONNECTION=pgsql
-DB_HOST=127.0.0.1
-DB_PORT=5432
-DB_DATABASE=xpulse
-DB_USERNAME=xpulse
-DB_PASSWORD=xpulse
-QUEUE_CONNECTION=redis
-CACHE_STORE=redis
-REDIS_CLIENT=predis
+`backend/.env` should use PostgreSQL + Redis (see `.env.example`). Then finish setup:
+```powershell
+.\scripts\setup-postgres.ps1
 ```
 
-Then:
+Or manually:
 ```powershell
 cd backend
-composer require predis/predis
-php artisan migrate:fresh --seed
-php artisan db:seed --class=MockTrendSeeder
+php artisan migrate --force
+php artisan db:seed --class=MockTrendSeeder --force
 ```
 
 Optional queue worker (with Redis):
 ```powershell
 .\scripts\start-queue.ps1
 ```
+
+### SQLite (fallback, no Docker)
+Set `DB_CONNECTION=sqlite` in `backend/.env` and use `QUEUE_CONNECTION=database` / `CACHE_STORE=database`.
 
 ---
 

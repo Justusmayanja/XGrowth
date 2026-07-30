@@ -114,7 +114,7 @@ export default function AdminCustomersPage() {
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <Input
           placeholder="Search name or email…"
           value={search}
@@ -122,7 +122,7 @@ export default function AdminCustomersPage() {
             setPage(1);
             setSearch(e.target.value);
           }}
-          className="max-w-sm"
+          className="w-full sm:max-w-sm"
         />
         <Select
           value={planFilter}
@@ -133,7 +133,7 @@ export default function AdminCustomersPage() {
             }
           }}
         >
-          <SelectTrigger className="w-36">
+          <SelectTrigger className="w-full sm:w-36">
             <SelectValue placeholder="All plans" />
           </SelectTrigger>
           <SelectContent>
@@ -154,7 +154,7 @@ export default function AdminCustomersPage() {
             }
           }}
         >
-          <SelectTrigger className="w-44">
+          <SelectTrigger className="w-full sm:w-44">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>
@@ -165,7 +165,7 @@ export default function AdminCustomersPage() {
             <SelectItem value="blocked">Blocked</SelectItem>
           </SelectContent>
         </Select>
-        <Button variant="secondary" onClick={load}>
+        <Button variant="secondary" onClick={load} className="w-full sm:w-auto">
           Refresh
         </Button>
       </div>
@@ -183,7 +183,92 @@ export default function AdminCustomersPage() {
       {!loading && !error && customers && (
         <>
           <p className="text-sm text-muted-foreground">{customers.total} customer(s)</p>
-          <div className="overflow-x-auto rounded-xl border border-border">
+
+          {/* Mobile card layout */}
+          <div className="space-y-3 md:hidden">
+            {customers.data.length === 0 ? (
+              <div className="rounded-xl border border-border px-4 py-10 text-center text-muted-foreground">
+                No customers match your filters.
+              </div>
+            ) : (
+              customers.data.map((customer) => (
+                <div key={customer.id} className="space-y-3 rounded-xl border border-border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/admin/customers/${customer.id}`}
+                        className="font-medium hover:underline"
+                      >
+                        {customer.name}
+                      </Link>
+                      <p className="truncate text-xs text-muted-foreground">{customer.email}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Joined {new Date(customer.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    {statusBadge(customer.account_status, customer.is_blocked)}
+                  </div>
+
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">X account</dt>
+                      <dd className="truncate">
+                        {customer.x_username ? `@${customer.x_username}` : "Not connected"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Niche</dt>
+                      <dd className="capitalize truncate">
+                        {customer.account_profile?.custom_niche ??
+                          customer.account_profile?.niche ??
+                          "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Automation</dt>
+                      <dd>
+                        {customer.account_profile?.automation_level != null
+                          ? `Level ${customer.account_profile.automation_level}`
+                          : "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Activity</dt>
+                      <dd>
+                        {customer.posts_count} posts · {customer.decisions_count} decisions
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Select
+                      value={customer.subscription_plan}
+                      onValueChange={(v) => v && updatePlan(customer.id, v)}
+                    >
+                      <SelectTrigger className="w-full sm:w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {plans.map((plan) => (
+                          <SelectItem key={plan} value={plan}>
+                            {plan}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Link href={`/admin/customers/${customer.id}`} className="sm:ml-auto">
+                      <Button variant="outline" size="sm" className="w-full sm:w-auto">
+                        Manage
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="border-b border-border bg-surface-2">
                 <tr>
@@ -268,7 +353,7 @@ export default function AdminCustomersPage() {
             </table>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
               Previous
             </Button>
