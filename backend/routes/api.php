@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AccountProfileController;
+use App\Http\Controllers\Api\AccountSetupController;
 use App\Http\Controllers\Api\AccountSettingsController;
 use App\Http\Controllers\Api\AiRuleController;
 use App\Http\Controllers\Api\AiUsageController;
@@ -15,6 +16,9 @@ use App\Http\Controllers\Api\GrowthAgentController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\PlatformSettingsController;
 use App\Http\Controllers\Api\SafetyController;
+use App\Http\Controllers\Api\SocialAuthController;
+use App\Http\Controllers\Api\BillingController;
+use App\Http\Controllers\Api\BillingWebhookController;
 use App\Http\Controllers\Api\SubscriptionPlanController;
 
 Route::get('/health', fn () => response()->json([
@@ -25,9 +29,18 @@ Route::get('/health', fn () => response()->json([
 
 Route::get('/plans', [SubscriptionPlanController::class, 'index']);
 
+Route::get('/billing/catalog', [BillingController::class, 'catalog']);
+Route::post('/billing/quote', [BillingController::class, 'quote']);
+Route::post('/billing/webhooks/paddle', [BillingWebhookController::class, 'paddle']);
+Route::post('/billing/webhooks/flutterwave', [BillingWebhookController::class, 'flutterwave']);
+
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
+    Route::get('/providers', [SocialAuthController::class, 'providers']);
+    Route::post('/social/complete', [SocialAuthController::class, 'complete']);
+    Route::get('/{provider}/redirect', [SocialAuthController::class, 'redirect'])->whereIn('provider', ['google', 'x']);
+    Route::get('/{provider}/callback', [SocialAuthController::class, 'callback'])->whereIn('provider', ['google', 'x']);
 });
 
 Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
@@ -41,10 +54,18 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
     Route::middleware('customer')->group(function () {
         Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
         Route::get('/dashboard/opportunities', [DashboardController::class, 'opportunities']);
+        Route::get('/dashboard/platform/{platform}', [DashboardController::class, 'platform'])
+            ->whereIn('platform', ['x', 'tiktok', 'youtube']);
         Route::get('/trends', [DashboardController::class, 'trends']);
 
         Route::get('/account/profile', [AccountProfileController::class, 'show']);
         Route::post('/account/profile', [AccountProfileController::class, 'store']);
+        Route::get('/account/setup', [AccountSetupController::class, 'show']);
+        Route::post('/account/setup/platforms', [AccountSetupController::class, 'platforms']);
+        Route::post('/account/setup/about', [AccountSetupController::class, 'about']);
+        Route::post('/account/setup/niche-ideas', [AccountSetupController::class, 'nicheIdeas']);
+        Route::post('/account/setup/platforms/{platform}', [AccountSetupController::class, 'platform'])
+            ->whereIn('platform', ['x', 'tiktok', 'youtube']);
         Route::get('/account/settings', [AccountSettingsController::class, 'show']);
         Route::get('/account/ai-usage', [AiUsageController::class, 'show']);
         Route::patch('/account', [AccountSettingsController::class, 'updateAccount']);
@@ -74,6 +95,12 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::get('/connected-accounts/x/status', [ConnectedAccountController::class, 'connectStatus']);
     });
 
+    Route::post('/billing/preview', [BillingController::class, 'preview']);
+    Route::post('/billing/checkout', [BillingController::class, 'checkout']);
+    Route::post('/billing/cancel', [BillingController::class, 'cancel']);
+    Route::get('/billing/subscription', [BillingController::class, 'show']);
+    Route::post('/billing/subscriptions/{subscription}/confirm', [BillingController::class, 'confirm']);
+
     Route::middleware('admin')->prefix('admin')->group(function () {
         Route::get('/overview', [AdminController::class, 'overview']);
         Route::get('/customers', [AdminController::class, 'customers']);
@@ -94,5 +121,7 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::patch('/ai-rules', [AiRuleController::class, 'bulkUpdate']);
         Route::get('/platform-settings', [PlatformSettingsController::class, 'index']);
         Route::patch('/platform-settings', [PlatformSettingsController::class, 'bulkUpdate']);
+        Route::get('/billing/prices', [BillingController::class, 'adminPrices']);
+        Route::patch('/billing/prices', [BillingController::class, 'updatePrices']);
     });
 });

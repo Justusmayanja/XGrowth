@@ -129,7 +129,7 @@ export default function AdminOverviewPage() {
         <div>
           <h1 className="text-2xl font-bold">Platform Overview</h1>
           <p className="text-muted-foreground">
-            Customers who signed up to have their X growth handled by Xpulse
+            Customers who signed up to have X, TikTok, and YouTube handled by Mackie17
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={load} disabled={loading}>

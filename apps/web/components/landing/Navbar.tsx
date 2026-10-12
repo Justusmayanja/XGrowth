@@ -1,19 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 
-const navLinks = [
-  { href: "#features", label: "Features" },
-  { href: "#how-it-works", label: "How it works" },
-  { href: "#pricing", label: "Pricing" },
-  { href: "#faq", label: "FAQ" },
+const linksBefore = [{ href: "/features", label: "Features" }];
+const linksAfter = [
+  { href: "/pricing", label: "Pricing" },
+  { href: "/faq", label: "FAQ" },
+];
+
+const productLinks = [
+  {
+    href: "/how-it-works",
+    title: "How it works",
+    text: "Connect the accounts, then leave the apps.",
+  },
+  {
+    href: "/channels",
+    title: "Channels",
+    text: "YouTube posts or waits. TikTok asks you. X sends when it is worth it.",
+  },
 ];
 
 export function Navbar() {
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [productOpen, setProductOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    setMobileOpen(false);
+    setProductOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     document.body.style.overflow = mobileOpen ? "hidden" : "";
@@ -22,100 +43,206 @@ export function Navbar() {
     };
   }, [mobileOpen]);
 
-  function closeMenu() {
+  useEffect(() => {
+    if (!mobileOpen && !productOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileOpen(false);
+        setProductOpen(false);
+      }
+    };
+    const onPointer = (event: MouseEvent) => {
+      if (!headerRef.current?.contains(event.target as Node)) {
+        setProductOpen(false);
+        setMobileOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onPointer);
+    };
+  }, [mobileOpen, productOpen]);
+
+  function closeAll() {
     setMobileOpen(false);
+    setProductOpen(false);
   }
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 landing-glass border-b border-white/5 py-4">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 sm:px-6">
-        <BrandLogo className="text-lg" />
+    <header ref={headerRef} className="fixed inset-x-0 top-0 z-50">
+      <div className="mx-auto max-w-[1168px] min-[992px]:px-6 min-[992px]:pt-4">
+        <div
+          className={`th-bar flex h-[63px] items-center justify-between py-[7px] pl-4 pr-2 min-[992px]:h-14 ${
+            mobileOpen ? "is-open" : ""
+          }`}
+        >
+          <BrandLogo className="text-[15px] text-[#f7f8f8]" />
 
-        <nav className="hidden items-center gap-8 md:flex">
-          {navLinks.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className="text-sm text-muted transition hover:text-white"
+          <nav className="hidden min-w-0 flex-1 items-center justify-center gap-6 min-[992px]:flex">
+            {linksBefore.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                aria-current={pathname === link.href ? "page" : undefined}
+                className="th-link"
+              >
+                {link.label}
+              </Link>
+            ))}
+
+            <div
+              className="relative"
+              onMouseEnter={() => {
+                if (window.innerWidth >= 992) setProductOpen(true);
+              }}
+              onMouseLeave={() => {
+                if (window.innerWidth >= 992) setProductOpen(false);
+              }}
             >
-              {link.label}
-            </a>
-          ))}
-        </nav>
+              <button
+                type="button"
+                className="th-link inline-flex cursor-pointer items-center gap-2"
+                aria-expanded={productOpen}
+                aria-haspopup="menu"
+                onClick={() => {
+                  if (window.innerWidth < 992) setProductOpen((open) => !open);
+                  else setProductOpen(true);
+                }}
+              >
+                Product
+                <ChevronDown className={`h-3 w-3 ${productOpen ? "rotate-180" : ""}`} />
+              </button>
+              {productOpen && (
+                <div className="absolute left-1/2 top-full z-10 w-[28rem] -translate-x-1/2 pt-2">
+                  <div className="th-drop p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    {productLinks.map((item) => (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={closeAll}
+                        className="rounded-md px-3 py-2 hover:bg-white/[0.06]"
+                      >
+                        <span className="block text-sm text-[#f7f8f8]">{item.title}</span>
+                        <span className="mt-1 block text-xs leading-snug text-[#f7f8f8]/55">
+                          {item.text}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
-          <Link
-            href="/login"
-            className="btn btn-secondary hidden px-4 py-2 text-sm sm:inline-flex"
-          >
-            Sign in
-          </Link>
-          <Link href="/register" className="btn btn-primary px-3 py-2 text-sm sm:px-4">
-            Start now
-          </Link>
+            {linksAfter.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                aria-current={pathname === link.href ? "page" : undefined}
+                className="th-link"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+
+          <div className="hidden shrink-0 min-[992px]:block">
+            <Link href="/register" className="th-cta">
+              Get started for free
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+
           <button
             type="button"
-            className="rounded-lg p-2 text-muted transition hover:bg-white/5 hover:text-white md:hidden"
-            onClick={() => setMobileOpen(true)}
-            aria-label="Open menu"
+            className="inline-flex h-12 w-12 cursor-pointer items-center justify-center text-[#f7f8f8]/80 min-[992px]:hidden"
+            onClick={() =>
+              setMobileOpen((open) => {
+                if (!open) setProductOpen(false);
+                return !open;
+              })
+            }
+            aria-label={mobileOpen ? "Close menu" : "Open menu"}
             aria-expanded={mobileOpen}
+            aria-controls="mobile-menu"
           >
-            <Menu className="h-5 w-5" />
+            {mobileOpen ? (
+              <span className="relative block h-3.5 w-4" aria-hidden="true">
+                <span className="absolute left-0 top-1.5 h-px w-4 rotate-45 bg-current" />
+                <span className="absolute left-0 top-1.5 h-px w-4 -rotate-45 bg-current" />
+              </span>
+            ) : (
+              <span className="flex w-4 flex-col gap-[5px]" aria-hidden="true">
+                <span className="h-px w-full bg-current" />
+                <span className="h-px w-full bg-current" />
+                <span className="h-px w-full bg-current" />
+              </span>
+            )}
           </button>
         </div>
       </div>
 
       {mobileOpen && (
-        <>
-          <button
-            type="button"
-            className="fixed inset-0 z-40 bg-black/60 md:hidden"
-            onClick={closeMenu}
-            aria-label="Close menu overlay"
-          />
-          <div className="fixed inset-x-0 top-[65px] z-50 max-h-[calc(100dvh-65px)] overflow-y-auto border-b border-white/10 bg-surface/95 px-4 py-6 backdrop-blur-xl md:hidden">
-            <div className="relative mx-auto flex max-w-6xl flex-col gap-6 pt-10">
-              <button
-                type="button"
-                className="absolute right-0 top-0 rounded-lg p-2 text-muted hover:bg-white/5 hover:text-white"
-                onClick={closeMenu}
-                aria-label="Close menu"
+        <div id="mobile-menu" className="th-menu px-4 pb-8 pt-3 min-[992px]:hidden">
+          <nav className="mx-auto flex max-w-sm flex-col items-center gap-3">
+            {linksBefore.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={closeAll}
+                aria-current={pathname === link.href ? "page" : undefined}
+                className="th-link"
               >
-                <X className="h-5 w-5" />
-              </button>
-
-              <nav className="flex flex-col gap-1">
-                {navLinks.map((link) => (
-                  <a
-                    key={link.href}
-                    href={link.href}
-                    onClick={closeMenu}
-                    className="rounded-lg px-3 py-3 text-base text-muted transition hover:bg-white/5 hover:text-white"
+                {link.label}
+              </Link>
+            ))}
+            <button
+              type="button"
+              className="th-link inline-flex cursor-pointer items-center gap-2"
+              aria-expanded={productOpen}
+              onClick={() => setProductOpen((open) => !open)}
+            >
+              Product
+              <ChevronDown className={`h-3 w-3 ${productOpen ? "rotate-180" : ""}`} />
+            </button>
+            {productOpen && (
+              <div className="flex w-full flex-col gap-1">
+                {productLinks.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={closeAll}
+                    className="rounded-md px-3 py-2 text-center"
                   >
-                    {link.label}
-                  </a>
+                    <span className="block text-sm text-[#f7f8f8]">{item.title}</span>
+                    <span className="mt-1 block text-xs text-[#f7f8f8]/55">{item.text}</span>
+                  </Link>
                 ))}
-              </nav>
-
-              <div className="flex flex-col gap-3 border-t border-white/10 pt-4">
-                <Link
-                  href="/login"
-                  onClick={closeMenu}
-                  className="btn btn-secondary w-full py-3 text-sm"
-                >
-                  Sign in
-                </Link>
-                <Link
-                  href="/register"
-                  onClick={closeMenu}
-                  className="btn btn-primary w-full py-3 text-sm"
-                >
-                  Start now — it&apos;s free
-                </Link>
               </div>
-            </div>
-          </div>
-        </>
+            )}
+            {linksAfter.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={closeAll}
+                aria-current={pathname === link.href ? "page" : undefined}
+                className="th-link"
+              >
+                {link.label}
+              </Link>
+            ))}
+            <Link href="/register" onClick={closeAll} className="th-cta mt-2 w-full">
+              Get started for free
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Link>
+            <Link href="/login" onClick={closeAll} className="th-link mt-1">
+              Sign in
+            </Link>
+          </nav>
+        </div>
       )}
     </header>
   );

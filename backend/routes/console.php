@@ -5,6 +5,8 @@ use App\Jobs\FetchGlobalTrendsJob;
 use App\Jobs\SafetyResetJob;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
+use App\Services\Billing\BillingLifecycle;
+use App\Services\Billing\TrialService;
 use App\Services\GrowthAgent\GrowthAgentService;
 use App\Services\GrowthAgent\SafetyEngineService;
 use App\Services\TrendEngine\TrendEngineService;
@@ -50,6 +52,24 @@ Artisan::command('xpulse:make-admin {email : User email address}', function (str
 
     return 0;
 })->purpose('Grant admin access to a user by email');
+
+Artisan::command('xpulse:expire-trials', function () {
+    $count = app(TrialService::class)->expireDue();
+    $this->info("Ended {$count} free trial(s).");
+})->purpose('End free trials whose trial period is over');
+
+Artisan::command('xpulse:billing-sweep', function () {
+    $result = app(BillingLifecycle::class)->sweep();
+    $this->info("Ended {$result['ended']} plan(s), marked {$result['past_due']} past due.");
+})->purpose('End plans whose paid period ran out and flag unconfirmed renewals');
+
+Schedule::call(fn () => app(TrialService::class)->expireDue())
+    ->hourly()
+    ->name('expire-trials');
+
+Schedule::call(fn () => app(BillingLifecycle::class)->sweep())
+    ->hourly()
+    ->name('billing-sweep');
 
 $settings = app(PlatformSettingsService::class);
 $trendFetchTimes = $settings->getFetchTimes();

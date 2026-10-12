@@ -25,7 +25,8 @@ export function clearToken() {
 
 export async function api<T = unknown>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  timeoutMs = REQUEST_TIMEOUT_MS
 ): Promise<T> {
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -37,7 +38,7 @@ export async function api<T = unknown>(
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
   const apiBase = resolveApiBase();
@@ -65,9 +66,11 @@ export async function api<T = unknown>(
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    const errors = (data as { errors?: Record<string, string[]> }).errors;
+    const firstFieldError = errors ? Object.values(errors).flat().find(Boolean) : undefined;
     const message =
+      firstFieldError ||
       (data as { message?: string }).message ||
-      (data as { errors?: { email?: string[] } }).errors?.email?.[0] ||
       `Request failed (${response.status})`;
 
     if (response.status === 401 && token) {

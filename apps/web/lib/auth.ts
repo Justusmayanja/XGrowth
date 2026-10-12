@@ -2,6 +2,15 @@ import { api } from "./api";
 
 export type HomePath = "/admin" | "/onboarding" | "/dashboard";
 
+export function safeNext(value: string | null): string | null {
+  if (!value) return null;
+  if (!value.startsWith("/") || value.startsWith("//") || value.includes("\\") || value.includes("://")) {
+    return null;
+  }
+
+  return value;
+}
+
 export async function getPostAuthPath(): Promise<HomePath> {
   const me = await api<{
     user: {

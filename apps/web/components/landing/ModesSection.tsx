@@ -1,19 +1,31 @@
 "use client";
 
+import Image from "next/image";
+import { AudioLines, Moon, type LucideIcon } from "lucide-react";
 import { useReveal } from "@/hooks/useReveal";
 
-const modes = [
+const modes: {
+  title: string;
+  bestFor: string;
+  description: string;
+  badge: string;
+  icon: LucideIcon;
+}[] = [
   {
-    title: "Reactive",
-    bestFor: "Football · News · Crypto · Politics",
-    description: "Leads with breaking news, live events, and trending debates in your niche.",
-    badge: "News-first",
+    title: "When the market is loud",
+    bestFor: "Launches, local demand, a story people already share",
+    description:
+      "Drafts while attention is there — so the brand shows up in the moment that can bring a customer.",
+    badge: "Demand-first",
+    icon: AudioLines,
   },
   {
-    title: "Proactive",
-    bestFor: "Business · Startups · Motivation · Brands",
-    description: "Creates original posts, threads, and polls when the timeline is quiet.",
+    title: "When the market is quiet",
+    bestFor: "Shops, studios, teachers, product brands",
+    description:
+      "Still writes from the brand you described. A quiet week does not mean the account goes dark.",
     badge: "Voice-first",
+    icon: Moon,
   },
 ];
 
@@ -24,25 +36,35 @@ export function ModesSection() {
     <section ref={ref} className={`landing-reveal py-24 ${visible ? "visible" : ""}`}>
       <div className="mx-auto max-w-6xl px-6">
         <div className="mx-auto max-w-2xl text-center">
-          <p className="mb-3 text-sm font-semibold uppercase tracking-widest text-accent-light">
+          <p className="mb-3 text-sm font-medium uppercase tracking-widest text-[#f0b2a6]">
             Two modes
           </p>
-          <h2 className="landing-section-title">Fits how your account works</h2>
+          <h2 className="landing-section-title motion-copy motion-live">
+            Marketing that follows demand
+          </h2>
         </div>
 
+        <figure className="holo mx-auto mt-12 max-w-4xl">
+          <Image
+            src="/images/mesh-surface.jpg"
+            alt="A rolling blue mesh surface on a dark field."
+            width={1200}
+            height={900}
+            className="blend-photo h-auto w-full border-0 shadow-none"
+          />
+          <span className="holo-sheen" aria-hidden="true" />
+        </figure>
+
         <div className="mt-12 grid gap-6 md:grid-cols-2">
-          {modes.map((mode, i) => (
-            <div
-              key={mode.title}
-              className="landing-feature-card animate-float"
-              style={{ animationDelay: `${i * 1.5}s` }}
-            >
-              <span className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs text-accent-light">
-                {mode.badge}
-              </span>
-              <h3 className="mt-4 text-xl font-bold">{mode.title}</h3>
-              <p className="mt-1 text-sm text-accent-light">{mode.bestFor}</p>
-              <p className="mt-3 text-muted">{mode.description}</p>
+          {modes.map((mode) => (
+            <div key={mode.title} className="landing-feature-card">
+              <p className="text-xs text-[#c9c0b4]">{mode.badge}</p>
+              <h3 className="mt-3 flex items-center gap-2.5 text-xl font-medium">
+                <mode.icon className="h-4 w-4 shrink-0 text-[#c9c0b4]" strokeWidth={1.6} aria-hidden="true" />
+                {mode.title}
+              </h3>
+              <p className="mt-1 text-sm text-[#f0b2a6]">{mode.bestFor}</p>
+              <p className="mt-3 text-sm leading-relaxed text-muted">{mode.description}</p>
             </div>
           ))}
         </div>

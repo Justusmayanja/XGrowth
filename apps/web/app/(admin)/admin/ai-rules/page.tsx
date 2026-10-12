@@ -7,10 +7,10 @@ export default function AdminAiRulesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">AI Rules</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Drafting rules</h1>
         <p className="text-muted-foreground">
-          Define how the AI behaves across Content Studio, engagement replies, and live event posts.
-          Rules are sent first in every system prompt so the model must follow them before generating output.
+          Instructions sent with every draft in Compose, replies, and live posts. They are included
+          before the draft is written.
         </p>
       </div>
 

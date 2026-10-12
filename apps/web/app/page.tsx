@@ -27,7 +27,7 @@ export default function HomePage() {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="landing-canvas flex min-h-screen items-center justify-center">
         <p className="text-muted">Loading…</p>
       </div>
     );

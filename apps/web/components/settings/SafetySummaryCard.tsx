@@ -17,7 +17,7 @@ export function SafetySummaryCard({ safety, loading }: Props) {
     <Card>
       <CardHeader>
         <CardTitle>Safety limits</CardTitle>
-        <CardDescription>Xpulse paces activity to protect your X account</CardDescription>
+        <CardDescription>Daily caps for this account, on every platform you connect</CardDescription>
       </CardHeader>
       <CardContent>
         {loading || !safety ? (
@@ -41,7 +41,7 @@ export function SafetySummaryCard({ safety, loading }: Props) {
             </ul>
             <Link href="/safety">
               <Button variant="outline" size="sm">
-                Open Safety Center
+                Open limits
               </Button>
             </Link>
           </>

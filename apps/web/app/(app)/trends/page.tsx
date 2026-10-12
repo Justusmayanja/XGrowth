@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { Hash } from "lucide-react";
 import { useEffect, useState } from "react";
+import { DeskHeading } from "@/components/DeskHeading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,22 +31,21 @@ export default function TrendsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Trend Explorer</h1>
+        <DeskHeading icon={Hash} title="Topics">
           <p className="text-muted-foreground">
-            Topics ranked by opportunity score for your niche
+            Subjects in your niche, scored for whether they deserve a post on X, TikTok, or YouTube
           </p>
-        </div>
+        </DeskHeading>
         <Link href="/growth-agent">
-          <Button variant="secondary">Open Growth Engine</Button>
+          <Button variant="secondary">Open the queue</Button>
         </Link>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            Live trends
-            <Badge variant="secondary">Personalized scores</Badge>
+            Topics
+            <Badge variant="secondary">Scored for your niche</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>

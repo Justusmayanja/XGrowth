@@ -35,8 +35,8 @@ export type SafetyStatus = {
 };
 
 export const AUTOMATION_LEVELS = [
-  { value: 0, label: "Suggest only", hint: "Xpulse drafts; you approve everything" },
-  { value: 1, label: "Semi-auto", hint: "Xpulse drafts; you decide what goes live" },
+  { value: 0, label: "Suggest only", hint: "Mackie17 drafts; you approve everything" },
+  { value: 1, label: "Semi-auto", hint: "Mackie17 drafts; you decide what goes live" },
   { value: 2, label: "Mostly auto", hint: "Post when opportunity score is high" },
-  { value: 3, label: "Full auto", hint: "Xpulse handles growth with minimal input" },
+  { value: 3, label: "Full auto", hint: "Mackie17 handles growth with minimal input" },
 ];

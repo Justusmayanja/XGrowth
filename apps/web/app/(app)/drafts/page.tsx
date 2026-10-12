@@ -1,12 +1,22 @@
 "use client";
 
 import Link from "next/link";
+import { FileText } from "lucide-react";
 import { useEffect, useState } from "react";
+import { DeskHeading } from "@/components/DeskHeading";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { contentFormatLabel } from "@/lib/content-formats";
+import { platformOfFormat, usePlatform } from "@/lib/platform";
+
+const DRAFTS_COPY = {
+  x: { title: "Drafts", lede: "Posts waiting for a strong moment or your yes.", empty: "No X drafts yet.", cta: "Compose" },
+  tiktok: { title: "Waiting for you", lede: "Clips stay here until you confirm them.", empty: "No clips waiting.", cta: "New clip" },
+  youtube: { title: "Titles and scripts", lede: "Written and waiting to become videos.", empty: "Nothing written yet.", cta: "New video" },
+} as const;
 
 type Draft = {
   id: number;
@@ -22,7 +32,10 @@ type PaginatedDrafts = {
 };
 
 export default function DraftsPage() {
-  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const platform = usePlatform();
+  const copy = DRAFTS_COPY[platform];
+  const [allDrafts, setDrafts] = useState<Draft[]>([]);
+  const drafts = allDrafts.filter((draft) => platformOfFormat(draft.content_type) === platform);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
@@ -77,12 +90,11 @@ export default function DraftsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Drafts</h1>
-          <p className="text-muted-foreground">Saved content waiting to be published</p>
-        </div>
-        <Link href="/content-studio">
-          <Button>New content</Button>
+        <DeskHeading icon={FileText} title={copy.title}>
+          <p className="text-muted-foreground">{copy.lede}</p>
+        </DeskHeading>
+        <Link href={`/content-studio?platform=${platform}`}>
+          <Button>{copy.cta}</Button>
         </Link>
       </div>
 
@@ -91,9 +103,9 @@ export default function DraftsPage() {
       {!loading && drafts.length === 0 && (
         <Card>
           <CardContent className="py-10 text-center">
-            <p className="mb-4 text-muted-foreground">No drafts yet. Generate content in Content Studio.</p>
-            <Link href="/content-studio">
-              <Button variant="secondary">Go to Content Studio</Button>
+            <p className="mb-4 text-muted-foreground">{copy.empty}</p>
+            <Link href={`/content-studio?platform=${platform}`}>
+              <Button variant="secondary">{copy.cta}</Button>
             </Link>
           </CardContent>
         </Card>
@@ -124,7 +136,7 @@ export default function DraftsPage() {
                 <>
                   <p className="mb-3 text-sm leading-relaxed">{draft.content}</p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs capitalize text-muted-foreground">{draft.content_type}</span>
+                    <span className="text-xs text-muted-foreground">{contentFormatLabel(draft.content_type)}</span>
                     {draft.virality_predicted != null && (
                       <span className="text-xs text-muted-foreground">
                         Score {Math.round(Number(draft.virality_predicted))}/100

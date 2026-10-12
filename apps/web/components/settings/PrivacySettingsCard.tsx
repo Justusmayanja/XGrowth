@@ -10,8 +10,7 @@ export function PrivacySettingsCard() {
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
-          You can disconnect X and request account deletion. Export and audit log features are
-          planned for a future release.
+          You can disconnect a platform and request account deletion. Export and the audit log are not available yet.
         </p>
         <div className="flex flex-wrap gap-3">
           <Link href="/privacy" className="text-primary hover:underline">
@@ -21,7 +20,7 @@ export function PrivacySettingsCard() {
             Terms of service
           </Link>
           <Link href="/about" className="text-primary hover:underline">
-            About Xpulse
+            About Mackie17
           </Link>
         </div>
       </CardContent>

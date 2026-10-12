@@ -1,24 +1,25 @@
 "use client";
 
 import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { useReveal } from "@/hooks/useReveal";
 
 const faqs = [
   {
-    q: "Is Xpulse a tweet scheduler?",
-    a: "No. Schedulers post at fixed times. Xpulse watches your niche and posts when the opportunity is high, during breaking news, live events, or trending debates, and waits when there is nothing worth saying.",
+    q: "Is Mackie17 a posting scheduler?",
+    a: "No. Schedulers post at fixed times. Mackie17 watches your niche and posts when the opportunity is high, during breaking news, live events, or trending debates, and waits when there is nothing worth saying.",
   },
   {
     q: "Will this put my X account at risk?",
-    a: "Xpulse is built with account protection: rate limits, natural pacing, duplicate checks, and random delays. It is designed to behave like a thoughtful creator, not a spam bot.",
+    a: "Mackie17 is built with account protection: rate limits, natural pacing, duplicate checks, and random delays. It is designed to behave like a thoughtful creator, not a spam bot.",
   },
   {
     q: "Does it work while I'm offline?",
-    a: "Yes. Xpulse runs continuously. Your phone can be off and the dashboard closed, and it keeps watching trends and acting based on the settings you choose.",
+    a: "Yes. Mackie17 runs continuously. Your phone can be off and the dashboard closed, and it keeps watching trends and acting based on the settings you choose.",
   },
   {
     q: "What happens after I sign up?",
-    a: "You answer a short setup about your goals, niche, audience, and voice. Xpulse uses that to tailor trends, timing, and content to your account from day one.",
+    a: "You answer a short setup about your goals, niche, audience, and voice. Mackie17 uses that to tailor trends, timing, and content to your account from day one.",
   },
   {
     q: "What niches does it support?",
@@ -26,7 +27,7 @@ const faqs = [
   },
   {
     q: "Can I approve posts before they go live?",
-    a: "Yes. You can start in suggest-only mode where Xpulse drafts and you approve. Increase automation when you are comfortable.",
+    a: "Yes. You can start in suggest-only mode where Mackie17 drafts and you approve. Increase automation when you are comfortable.",
   },
 ];
 
@@ -56,13 +57,12 @@ export function FAQ() {
                 onClick={() => setOpen(open === i ? null : i)}
               >
                 <span className="font-medium">{faq.q}</span>
-                <span
-                  className={`ml-4 shrink-0 text-accent transition-transform ${
-                    open === i ? "rotate-45" : ""
+                <ChevronDown
+                  className={`ml-4 h-4 w-4 shrink-0 text-accent transition-transform duration-200 ${
+                    open === i ? "rotate-180" : ""
                   }`}
-                >
-                  +
-                </span>
+                  aria-hidden="true"
+                />
               </button>
               <div
                 className={`grid transition-all duration-300 ${

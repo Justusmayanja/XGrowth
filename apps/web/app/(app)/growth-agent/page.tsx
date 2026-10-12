@@ -2,6 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { ListOrdered } from "lucide-react";
+import { DeskHeading } from "@/components/DeskHeading";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -72,7 +74,7 @@ export default function GrowthAgentPage() {
   }, []);
 
   useEffect(() => {
-    load().catch(() => toast.error("Could not load Growth Engine"));
+    load().catch(() => toast.error("Could not load the queue"));
   }, [load]);
 
   async function onSubmit(e: FormEvent) {
@@ -109,23 +111,22 @@ export default function GrowthAgentPage() {
   }
 
   if (!settings) {
-    return <p className="text-muted-foreground">Loading Growth Engine…</p>;
+    return <p className="text-muted-foreground">Loading the queue…</p>;
   }
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Growth Engine</h1>
+        <DeskHeading icon={ListOrdered} title="Queue">
           <p className="text-muted-foreground">
-            How Xpulse scores moments and decides when to act.{" "}
-            <Link href="/settings" className="text-primary hover:underline">
-              Automation controls live in Settings
+            When Mackie17 drafts, waits, or publishes.{" "}
+            <Link href="/settings" className="text-foreground underline underline-offset-4">
+              Change that in Settings
             </Link>
           </p>
-        </div>
+        </DeskHeading>
         <Button onClick={runEvaluation} disabled={evaluating}>
-          {evaluating ? "Evaluating…" : "Run evaluation now"}
+          {evaluating ? "Scoring…" : "Score the niche now"}
         </Button>
       </div>
 
@@ -133,7 +134,7 @@ export default function GrowthAgentPage() {
         <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle>Your preferences</CardTitle>
-            <CardDescription>Controls how aggressively Xpulse acts</CardDescription>
+            <CardDescription>How often Mackie17 is allowed to act</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={onSubmit} className="space-y-4">
@@ -190,14 +191,14 @@ export default function GrowthAgentPage() {
           <CardContent className="space-y-4">
             {opportunities.length === 0 ? (
               <div className="space-y-3 text-sm text-muted-foreground">
-                <p>No opportunities yet. Complete onboarding or run an evaluation.</p>
+                <p>Nothing to act on yet. Finish setup, or score the niche.</p>
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="secondary" onClick={runEvaluation} disabled={evaluating}>
-                    Run evaluation
+                    Score the niche
                   </Button>
                   <Link href="/trends">
                     <Button size="sm" variant="outline">
-                      Trend Explorer
+                      Topics
                     </Button>
                   </Link>
                 </div>
@@ -224,7 +225,7 @@ export default function GrowthAgentPage() {
         <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle>Recent activity</CardTitle>
-            <CardDescription>Latest decisions from the Growth Engine</CardDescription>
+            <CardDescription>Latest decisions</CardDescription>
           </CardHeader>
           <CardContent>
             {decisions.length === 0 ? (
@@ -236,7 +237,7 @@ export default function GrowthAgentPage() {
               </div>
             ) : (
               decisions.map((d, i) => (
-                <div key={d.id ?? i} className="mb-4 border-l-2 border-primary pl-3 last:mb-0">
+                <div key={d.id ?? i} className="border-t border-border py-3 first:border-t-0 first:pt-0">
                   <div className="mb-1 flex flex-wrap items-center gap-2">
                     <Badge variant={decisionVariant[d.decision] ?? "outline"}>{d.decision}</Badge>
                     {d.opportunity_score != null && (

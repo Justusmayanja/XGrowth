@@ -3,13 +3,18 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Support\SetupCatalog;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AccountProfile extends Model
 {
     protected $fillable = [
         'user_id',
         'connected_account_id',
+        'purpose',
+        'platforms',
+        'discovery',
         'goal',
         'niche',
         'custom_niche',
@@ -34,6 +39,7 @@ class AccountProfile extends Model
     {
         return [
             'onboarding_completed' => 'boolean',
+            'discovery' => 'array',
             'engine_paused' => 'boolean',
             'auto_post_enabled' => 'boolean',
             'auto_reply_enabled' => 'boolean',
@@ -92,6 +98,43 @@ class AccountProfile extends Model
     public function primaryTone(): string
     {
         return $this->tones()[0] ?? 'professional';
+    }
+
+    /** @return list<string> */
+    public function platformList(): array
+    {
+        $chosen = $this->parseMulti($this->platforms);
+
+        return array_values(array_intersect(SetupCatalog::PLATFORMS, $chosen));
+    }
+
+    public function platformSetups(): HasMany
+    {
+        return $this->hasMany(PlatformSetup::class, 'user_id', 'user_id');
+    }
+
+    /** @return list<string> */
+    public function goalsFor(string $platform): array
+    {
+        $setup = $this->platformSetups()->where('platform', $platform)->first();
+
+        if ($setup && $setup->goalList() !== []) {
+            return $setup->goalList();
+        }
+
+        return $platform === 'x' ? $this->goals() : [];
+    }
+
+    public function goalSentenceFor(string $platform): string
+    {
+        $sentence = SetupCatalog::goalSentence($platform, $this->goalsFor($platform));
+
+        return $sentence !== '' ? $sentence : SetupCatalog::goalSentence('x', [$this->primaryGoal()]);
+    }
+
+    public function purposeSentence(): ?string
+    {
+        return SetupCatalog::PURPOSES[$this->purpose ?? ''] ?? null;
     }
 
     /** @return list<string> */

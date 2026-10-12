@@ -1,11 +1,14 @@
 "use client";
 
+import type { ReactNode } from "react";
+import { Check } from "lucide-react";
 import { MAX_PROFILE_SELECTIONS } from "@/lib/profile";
 
 type Option = {
   value: string;
   label: string;
   hint?: string;
+  icon?: ReactNode;
 };
 
 type MultiSelectCardsProps = {
@@ -21,7 +24,6 @@ export function MultiSelectCards({
   selected,
   onChange,
   onLimitReached,
-  columns = 2,
 }: MultiSelectCardsProps) {
   function toggle(value: string) {
     if (selected.includes(value)) {
@@ -36,7 +38,7 @@ export function MultiSelectCards({
   }
 
   return (
-    <div className={columns === 2 ? "grid gap-3 sm:grid-cols-2" : "grid gap-3"}>
+    <div className="flex flex-col gap-2">
       {options.map((option) => {
         const isSelected = selected.includes(option.value);
         return (
@@ -44,21 +46,17 @@ export function MultiSelectCards({
             key={option.value}
             type="button"
             onClick={() => toggle(option.value)}
-            className={`rounded-xl border p-4 text-left transition ${
-              isSelected
-                ? "border-accent bg-accent/10"
-                : "border-border hover:border-accent/40"
-            }`}
+            aria-pressed={isSelected}
+            className={`choice-row ${isSelected ? "is-on" : ""}`}
           >
-            <div className="flex items-start justify-between gap-2">
-              <div className="font-semibold">{option.label}</div>
-              {isSelected && (
-                <span className="rounded-full bg-accent px-2 py-0.5 text-xs text-white">
-                  ✓
-                </span>
-              )}
-            </div>
-            {option.hint && <div className="mt-1 text-sm text-muted">{option.hint}</div>}
+            <span>
+              <strong>
+                {option.icon}
+                {option.label}
+              </strong>
+              {option.hint ? <em>{option.hint}</em> : null}
+            </span>
+            {isSelected ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#ececee]" aria-hidden="true" /> : null}
           </button>
         );
       })}
@@ -68,8 +66,8 @@ export function MultiSelectCards({
 
 export function SelectionHint({ selectedCount }: { selectedCount: number }) {
   return (
-    <p className="mb-4 text-sm text-muted">
-      Select up to {MAX_PROFILE_SELECTIONS} ({selectedCount}/{MAX_PROFILE_SELECTIONS} chosen)
+    <p className="mb-3 text-sm text-[#a1a1aa]">
+      Up to {MAX_PROFILE_SELECTIONS}. {selectedCount} selected.
     </p>
   );
 }

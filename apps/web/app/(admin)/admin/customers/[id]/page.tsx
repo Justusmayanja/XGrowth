@@ -222,7 +222,7 @@ export default function AdminCustomerDetailPage() {
         <Card>
           <CardHeader>
             <CardTitle>Account profile</CardTitle>
-            <CardDescription>What this customer told Xpulse during onboarding</CardDescription>
+            <CardDescription>What this customer told Mackie17 during onboarding</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div>

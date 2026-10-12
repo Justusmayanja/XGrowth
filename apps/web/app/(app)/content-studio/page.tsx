@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { PenLine } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
+import { DeskHeading } from "@/components/DeskHeading";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -16,8 +17,32 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { CONTENT_FORMATS, contentFormatLabel } from "@/lib/content-formats";
+import { formatsFor, platformOfFormat, usePlatform } from "@/lib/platform";
+import { type AccountProfile, NICHES, parseMultiValue } from "@/lib/profile";
 
-type Variant = { content: string; virality_score: number; estimated_reach: string };
+const TONE_LABELS: Record<string, string> = {
+  professional: "Professional",
+  passionate: "Passionate",
+  funny: "Witty",
+  motivational: "Motivational",
+  news: "News-style",
+};
+
+const COMPOSE_COPY = {
+  x: { title: "Compose", lede: "Write a post, thread, poll, or quote for X." },
+  tiktok: { title: "New clip", lede: "Start from an idea. It writes the hook and caption for the clip." },
+  youtube: { title: "New video", lede: "Start from an idea. It writes the title, description, and what should be said." },
+} as const;
+
+type Variant = { content: string; angle?: string | null; virality_score: number; estimated_reach: string };
+
+type ComposeMode = "suggest" | "describe";
+
+const MODES: Array<{ value: ComposeMode; label: string }> = [
+  { value: "suggest", label: "Suggest for me" },
+  { value: "describe", label: "I'll describe it" },
+];
 
 type AiUsageStatus = {
   web_search_enabled: boolean;
@@ -35,6 +60,42 @@ export default function ContentStudioPage() {
   const [useWebSearch, setUseWebSearch] = useState(false);
   const [usage, setUsage] = useState<AiUsageStatus | null>(null);
 
+  const [topic, setTopic] = useState("");
+  const [mode, setMode] = useState<ComposeMode>("suggest");
+  const [niche, setNiche] = useState("");
+  const platform = usePlatform();
+  const formats = formatsFor(platform);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const format = params.get("format");
+    if (format && platformOfFormat(format) === platform && CONTENT_FORMATS.some((item) => item.value === format)) {
+      setContentType(format);
+    } else {
+      setContentType(formatsFor(platform)[0].value);
+    }
+    const linkedTopic = params.get("topic");
+    if (linkedTopic) {
+      setTopic(linkedTopic);
+      setMode("describe");
+    }
+  }, [platform]);
+
+  useEffect(() => {
+    api<{ profile: AccountProfile | null }>("/account/profile")
+      .then((res) => {
+        const profile = res.profile;
+        if (!profile) return;
+        const presets = parseMultiValue(profile.niche).map(
+          (value) => NICHES.find((item) => item.value === value)?.label ?? value
+        );
+        setNiche(profile.custom_niche || presets.join(", "));
+        const tones = parseMultiValue(profile.tone);
+        if (tones[0]) setTone(tones[0]);
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     api<AiUsageStatus>("/account/ai-usage")
       .then(setUsage)
@@ -43,8 +104,11 @@ export default function ContentStudioPage() {
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (mode === "describe" && topic.trim().length < 3) {
+      toast.error("Say what you want to post about.");
+      return;
+    }
     setLoading(true);
-    const form = new FormData(e.currentTarget);
     try {
       const data = await api<{
         variants: Variant[];
@@ -53,7 +117,8 @@ export default function ContentStudioPage() {
       }>("/content/generate", {
         method: "POST",
         body: JSON.stringify({
-          topic: form.get("topic"),
+          mode,
+          topic: mode === "describe" ? topic.trim() : null,
           tone,
           content_type: contentType,
           use_web_search: useWebSearch,
@@ -65,7 +130,7 @@ export default function ContentStudioPage() {
         setUsage(data.usage);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not generate drafts");
+      toast.error(err instanceof Error ? err.message : "Could not write drafts");
     } finally {
       setLoading(false);
     }
@@ -101,46 +166,83 @@ export default function ContentStudioPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Content Studio</h1>
+      <DeskHeading icon={PenLine} title={COMPOSE_COPY[platform].title}>
         <p className="text-muted-foreground">
-          Turn a topic into post drafts in your voice.{" "}
-          <Link href="/drafts" className="text-primary hover:underline">
-            View drafts
+          {COMPOSE_COPY[platform].lede}{" "}
+          <Link href={`/drafts?platform=${platform}`} className="text-foreground underline underline-offset-4">
+            Open drafts
           </Link>
         </p>
         {usage && (
           <p className="mt-2 text-sm text-muted-foreground">
-            Today: {usage.ai_generations.remaining} AI generations left
+            Drafts left today: {usage.ai_generations.remaining}
             {usage.web_search_enabled && (
-              <> · {usage.web_searches.remaining} web searches left</>
+              <> · Web lookups left: {usage.web_searches.remaining}</>
             )}
           </p>
         )}
-      </div>
+      </DeskHeading>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Inputs</CardTitle>
-            <CardDescription>Xpulse uses your profile niche and tone by default</CardDescription>
+            <CardTitle>Brief</CardTitle>
+            <CardDescription>Uses the niche, goals, and voice from your setup</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={onSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="topic">Topic</Label>
-                <Input
-                  id="topic"
-                  name="topic"
-                  required
-                  placeholder="Manchester United transfer news"
-                />
+              <div
+                role="radiogroup"
+                aria-label="How to start"
+                className="grid grid-cols-2 gap-1 rounded-lg border border-border p-1"
+              >
+                {MODES.map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={mode === item.value}
+                    onClick={() => setMode(item.value)}
+                    className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                      mode === item.value
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
               </div>
+
+              {mode === "suggest" ? (
+                <div className="rounded-lg border border-border p-3 text-sm">
+                  <p className="font-medium">No topic needed</p>
+                  <p className="mt-1 text-muted-foreground">
+                    Mackie17 picks three angles from {niche ? <strong className="text-foreground">{niche}</strong> : "your niche"},
+                    what is moving there now, and your goals. It skips what you posted recently.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="topic">What do you want to post about?</Label>
+                  <Textarea
+                    id="topic"
+                    rows={4}
+                    maxLength={1000}
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    placeholder="e.g. Why I stopped buying ready meals. Mention the price difference and end with a question."
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    A topic, an opinion, or a rough idea. Add anything it must include.
+                  </p>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Tone</Label>
                 <Select value={tone} onValueChange={(v) => setTone(v ?? "professional")}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue>{(value: string) => TONE_LABELS[value] ?? value}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="professional">Professional</SelectItem>
@@ -152,15 +254,17 @@ export default function ContentStudioPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Content type</Label>
+                <Label>Format</Label>
                 <Select value={contentType} onValueChange={(v) => setContentType(v ?? "tweet")}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue>{(value: string) => contentFormatLabel(value)}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="tweet">Tweet</SelectItem>
-                    <SelectItem value="thread">Thread</SelectItem>
-                    <SelectItem value="poll">Poll</SelectItem>
+                    {formats.map((format) => (
+                      <SelectItem key={format.value} value={format.value}>
+                        {format.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -174,16 +278,22 @@ export default function ContentStudioPage() {
                     className="mt-1 rounded border-border"
                   />
                   <span>
-                    <span className="font-medium">Search the web for current facts</span>
+                    <span className="font-medium">Look up current facts</span>
                     <span className="mt-1 block text-muted-foreground">
-                      Best for breaking news, transfers, and time-sensitive topics. Uses extra
-                      tokens and counts against your daily web search quota.
+                      Use this for transfers, launches, and other stories that change by the hour.
+                      It counts against today’s lookup limit.
                     </span>
                   </span>
                 </label>
               )}
               <Button type="submit" disabled={loading || (usage?.ai_generations.remaining ?? 1) <= 0}>
-                {loading ? "Generating…" : "Generate drafts"}
+                {loading
+                  ? "Writing…"
+                  : mode === "suggest"
+                    ? variants.length > 0
+                      ? "Suggest different posts"
+                      : "Suggest posts"
+                    : "Write drafts"}
               </Button>
             </form>
           </CardContent>
@@ -191,15 +301,20 @@ export default function ContentStudioPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Post options</CardTitle>
+            <CardTitle>Drafts</CardTitle>
             {note && <CardDescription>{note}</CardDescription>}
           </CardHeader>
           <CardContent>
             {variants.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Enter a topic to see draft options</p>
+              <p className="text-sm text-muted-foreground">
+                {mode === "suggest"
+                  ? "Press Suggest posts and drafts for your account appear here."
+                  : "Describe the post to see drafts."}
+              </p>
             ) : (
               variants.map((v, i) => (
                 <div key={i} className="mb-4 rounded-lg border border-border p-4 last:mb-0">
+                  {v.angle && <p className="mb-2 text-xs font-medium text-muted-foreground">{v.angle}</p>}
                   <Textarea
                     value={v.content}
                     onChange={(e) => updateVariant(i, e.target.value)}
@@ -208,7 +323,7 @@ export default function ContentStudioPage() {
                   />
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-muted-foreground">
-                      Reach: {v.estimated_reach} · Score {v.virality_score}/100
+                      Score {v.virality_score}/100 · Reach {v.estimated_reach}
                     </span>
                     <Button
                       type="button"

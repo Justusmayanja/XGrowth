@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\PlatformSetup;
 use App\Models\Trend;
 use App\Services\GrowthAgent\GrowthAgentService;
 use App\Services\TrendEngine\OpportunityScorerService;
@@ -72,6 +73,86 @@ class DashboardController extends Controller
             'note' => $preview
                 ? 'Preview metrics shown until your X account is connected.'
                 : null,
+        ]);
+    }
+
+    public function platform(Request $request, string $platform): JsonResponse
+    {
+        $user = $request->user();
+        $profile = $user->accountProfile;
+        $setup = PlatformSetup::query()
+            ->where('user_id', $user->id)
+            ->where('platform', $platform)
+            ->first();
+
+        $connected = $user->connectedAccounts()
+            ->where('platform', $platform)
+            ->where('is_active', true)
+            ->first(['id', 'username']);
+
+        $posts = $user->posts()->where(function ($query) use ($platform) {
+            if ($platform === 'x') {
+                $query->where('content_type', 'not like', 'tiktok%')
+                    ->where('content_type', 'not like', 'youtube%');
+            } else {
+                $query->where('content_type', 'like', $platform.'%');
+            }
+        });
+
+        $drafts = (clone $posts)->where('status', 'draft')->latest()->limit(5)
+            ->get(['id', 'content', 'content_type', 'created_at']);
+
+        $preview = $connected === null;
+        $seed = crc32($user->id.$platform.($profile?->niche ?? 'general'));
+
+        $metrics = match ($platform) {
+            'tiktok' => [
+                ['label' => 'Views', 'value' => $preview ? 18000 + ($seed % 140000) : 0, 'sub' => 'Last 7 days'],
+                ['label' => 'Followers', 'value' => $preview ? 300 + ($seed % 6000) : 0, 'sub' => '+'.($preview ? ($seed % 60) + 5 : 0).' this week'],
+                ['label' => 'Likes', 'value' => $preview ? 1200 + ($seed % 22000) : 0, 'sub' => 'Last 7 days'],
+            ],
+            'youtube' => [
+                ['label' => 'Subscribers', 'value' => $preview ? 150 + ($seed % 3800) : 0, 'sub' => '+'.($preview ? ($seed % 25) + 2 : 0).' this week'],
+                ['label' => 'Watch hours', 'value' => $preview ? 40 + ($seed % 900) : 0, 'sub' => 'Last 28 days'],
+                ['label' => 'Views', 'value' => $preview ? 2400 + ($seed % 50000) : 0, 'sub' => 'Last 28 days'],
+            ],
+            default => [
+                ['label' => 'Followers', 'value' => $preview ? 840 + ($seed % 4200) : 0, 'sub' => '+'.($preview ? ($seed % 35) + 8 : 0).' this week'],
+                ['label' => 'Impressions', 'value' => $preview ? 12000 + ($seed % 80000) : (int) (clone $posts)->where('status', 'posted')->sum('impressions'), 'sub' => 'Last 7 days'],
+                ['label' => 'Engagement', 'value' => $preview ? round(2.4 + ($seed % 30) / 10, 1) : 0, 'sub' => 'Percent of impressions', 'suffix' => '%'],
+            ],
+        };
+
+        $ideas = [];
+        if ($profile?->onboarding_completed) {
+            if (Trend::count() === 0) {
+                app(TrendEngineService::class)->seedMockTrends();
+            }
+            $ideas = collect($this->opportunityScorer->rankedForProfile($profile, 4))
+                ->map(fn ($item) => [
+                    'name' => $item['trend']->name,
+                    'suggestion' => $item['suggestion'],
+                ])
+                ->all();
+        }
+
+        return response()->json([
+            'platform' => $platform,
+            'chosen' => in_array($platform, $profile?->platformList() ?? [], true),
+            'setup' => [
+                'completed' => $setup?->completed_at !== null,
+                'goals' => $setup?->goalList() ?? [],
+                'settings' => $setup?->settings ?? (object) [],
+            ],
+            'connected' => $connected ? ['username' => $connected->username] : null,
+            'preview' => $preview,
+            'metrics' => $metrics,
+            'counts' => [
+                'drafts' => (clone $posts)->where('status', 'draft')->count(),
+                'posted' => (clone $posts)->where('status', 'posted')->count(),
+            ],
+            'drafts' => $drafts,
+            'ideas' => $ideas,
         ]);
     }
 

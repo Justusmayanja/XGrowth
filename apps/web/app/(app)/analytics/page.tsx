@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { BarChart3 } from "lucide-react";
+import { DeskHeading } from "@/components/DeskHeading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -72,7 +74,7 @@ export default function AnalyticsPage() {
   }, []);
 
   if (!data) {
-    return <p className="text-muted-foreground">Loading analytics…</p>;
+    return <p className="text-muted-foreground">Loading results…</p>;
   }
 
   const { summary } = data;
@@ -80,13 +82,14 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Analytics Center</h1>
-          <p className="text-muted-foreground">Growth trends, top content, and what’s working</p>
-        </div>
+        <DeskHeading icon={BarChart3} title="Results">
+          <p className="text-muted-foreground">
+            Followers, impressions, and which posts held attention
+          </p>
+        </DeskHeading>
         {data.preview_metrics && (
           <Badge variant="outline" className="border-amber-500/40 text-amber-300">
-            Preview data. Connect X for live metrics
+            Sample numbers. Connect X for live totals.
           </Badge>
         )}
       </div>
@@ -182,7 +185,7 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {data.insights.map((insight) => (
-              <div key={insight.title} className="border-l-2 border-primary pl-3">
+              <div key={insight.title} className="border-t border-border pt-3 first:border-t-0 first:pt-0">
                 <p className="font-medium">{insight.title}</p>
                 <p className="text-sm text-muted-foreground">{insight.detail}</p>
               </div>

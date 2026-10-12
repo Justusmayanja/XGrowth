@@ -1,29 +1,25 @@
 import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 
 export function CTA() {
   return (
-    <section className="py-24">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="relative overflow-hidden rounded-3xl border border-accent/30 bg-gradient-to-br from-accent/20 via-surface to-violet-900/20 px-8 py-16 text-center sm:px-16">
-          <div className="pointer-events-none absolute inset-0 bg-hero-gradient opacity-60" />
-          <div className="relative">
-            <h2 className="text-3xl font-bold sm:text-4xl lg:text-5xl">
-              Ready to feel the pulse of X?
-            </h2>
-            <p className="mx-auto mt-4 max-w-xl text-lg text-muted">
-              Create your account, answer a few quick questions, and let Xpulse start working for
-              your niche. Free to start, no credit card required.
-            </p>
-            <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <Link href="/register" className="btn btn-primary px-8 py-3.5 text-base">
-                Start now
-              </Link>
-              <Link href="/login" className="btn btn-secondary px-8 py-3.5 text-base">
-                Sign in
-              </Link>
-            </div>
-          </div>
-        </div>
+    <section className="reveal mx-auto max-w-6xl px-6 py-20">
+      <h2 className="landing-section-title motion-copy max-w-xl">
+        Start with the accounts you already run.
+      </h2>
+      <p className="mt-4 max-w-xl text-base leading-relaxed text-muted">
+        Describe them once. YouTube can make the video and post it, or wait for you. TikTok
+        suggests a time and waits for your yes. X posts when the moment is right. No card
+        required.
+      </p>
+      <div className="mt-8 flex flex-wrap items-center gap-5">
+        <Link href="/register" className="th-cta">
+          Start free
+          <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </Link>
+        <Link href="/login" className="text-sm font-medium text-[#f7f8f8]">
+          Sign in
+        </Link>
       </div>
     </section>
   );

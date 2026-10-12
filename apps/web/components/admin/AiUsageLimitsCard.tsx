@@ -70,7 +70,7 @@ export function AiUsageLimitsCard() {
           }),
         }),
       });
-      toast.success("AI usage limits updated");
+      toast.success("Draft limits updated");
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save usage limits");
@@ -82,7 +82,7 @@ export function AiUsageLimitsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>AI usage limits</CardTitle>
+        <CardTitle>Draft limits</CardTitle>
         <CardDescription>
           Daily quotas per subscription plan. Standard generation is cheaper; web search uses extra
           tokens plus ~$0.01 per search call — keep search limits lower.
@@ -104,7 +104,7 @@ export function AiUsageLimitsCard() {
                   <p className="font-medium capitalize">{plan.name}</p>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
-                      <Label htmlFor={`ai-gen-${plan.slug}`}>Daily AI generations</Label>
+                      <Label htmlFor={`ai-gen-${plan.slug}`}>Daily drafts</Label>
                       <Input
                         id={`ai-gen-${plan.slug}`}
                         type="number"

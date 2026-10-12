@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Brain, LayoutDashboard, Menu, Settings, Settings2, Users, X } from "lucide-react";
+import { Activity, LayoutDashboard, Menu, ScrollText, Settings, Settings2, Users, X } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { clearToken } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -12,7 +12,7 @@ const links = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard, exact: true },
   { href: "/admin/customers", label: "Customers", icon: Users },
   { href: "/admin/activity", label: "Activity", icon: Activity },
-  { href: "/admin/ai-rules", label: "AI Rules", icon: Brain },
+  { href: "/admin/ai-rules", label: "Drafting rules", icon: ScrollText },
   { href: "/admin/platform-settings", label: "Platform Settings", icon: Settings },
   { href: "/admin/operations", label: "Operations", icon: Settings2 },
 ];
@@ -77,7 +77,7 @@ export function AdminShell({ children }: AdminShellProps) {
           <div>
             <BrandLogo className="text-base" />
             <p className="mt-1 text-xs font-medium text-primary">Platform Console</p>
-            <p className="text-[11px] text-muted-foreground">Manage customer X accounts</p>
+            <p className="text-xs text-muted-foreground">Customer accounts and connected platforms</p>
           </div>
           <button
             type="button"
@@ -100,8 +100,8 @@ export function AdminShell({ children }: AdminShellProps) {
                 className={cn(
                   "flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition",
                   isActive(pathname, link.href, link.exact)
-                    ? "bg-surface-2 text-white"
-                    : "text-muted hover:bg-surface-2 hover:text-white"
+                    ? "bg-primary/15 text-foreground"
+                    : "text-muted hover:bg-surface-2 hover:text-foreground"
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />

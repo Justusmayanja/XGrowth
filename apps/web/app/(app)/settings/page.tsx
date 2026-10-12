@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Settings } from "lucide-react";
+import { DeskHeading } from "@/components/DeskHeading";
 import { AccountSettingsCard } from "@/components/settings/AccountSettingsCard";
 import { AutomationSettingsCard } from "@/components/settings/AutomationSettingsCard";
 import { BillingSettingsCard } from "@/components/settings/BillingSettingsCard";
@@ -9,6 +11,7 @@ import { NotificationSettingsCard } from "@/components/settings/NotificationSett
 import { PrivacySettingsCard } from "@/components/settings/PrivacySettingsCard";
 import { ProfileForm } from "@/components/settings/ProfileForm";
 import { SafetySummaryCard } from "@/components/settings/SafetySummaryCard";
+import { PlatformSetupCard } from "@/components/setup/PlatformSetupCard";
 import { api } from "@/lib/api";
 import type {
   AccountInfo,
@@ -17,7 +20,6 @@ import type {
   SafetyStatus,
   XConnectStatus,
 } from "@/lib/settings";
-import type { SubscriptionPlan } from "@/lib/plans";
 
 export default function SettingsPage() {
   const [account, setAccount] = useState<AccountInfo | null>(null);
@@ -25,7 +27,6 @@ export default function SettingsPage() {
   const [notifications, setNotifications] = useState<NotificationSettings | null>(null);
   const [xStatus, setXStatus] = useState<XConnectStatus | null>(null);
   const [safety, setSafety] = useState<SafetyStatus | null>(null);
-  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -37,15 +38,13 @@ export default function SettingsPage() {
       }>("/account/settings"),
       api<XConnectStatus>("/connected-accounts/x/status"),
       api<SafetyStatus>("/safety/status"),
-      api<{ plans: SubscriptionPlan[] }>("/plans"),
     ])
-      .then(([settings, x, s, planRes]) => {
+      .then(([settings, x, s]) => {
         setAccount(settings.account);
         setAutomation(settings.automation);
         setNotifications(settings.notifications);
         setXStatus(x);
         setSafety(s);
-        setPlans(planRes.plans);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -56,16 +55,17 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
+      <DeskHeading icon={Settings} title="Settings">
         <p className="text-muted-foreground">
-          Manage your account, automation, connections, and preferences
+          Account, posting rules, and X, TikTok, and YouTube
         </p>
-      </div>
+      </DeskHeading>
 
       <AccountSettingsCard account={account} onUpdated={setAccount} />
 
       <AutomationSettingsCard initial={automation} />
+
+      <PlatformSetupCard />
 
       <ProfileForm />
 
@@ -75,7 +75,7 @@ export default function SettingsPage() {
 
       <SafetySummaryCard safety={safety} loading={loading} />
 
-      <BillingSettingsCard account={account} plans={plans} />
+      <BillingSettingsCard />
 
       <PrivacySettingsCard />
     </div>

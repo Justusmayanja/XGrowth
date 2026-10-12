@@ -51,7 +51,7 @@ export function NotificationSettingsCard({ initial }: Props) {
       <CardHeader>
         <CardTitle>Notifications</CardTitle>
         <CardDescription>
-          Choose what Xpulse tells you about. Email delivery is coming soon — preferences are saved now.
+          Choose what Mackie17 tells you about. Email delivery is coming soon — preferences are saved now.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -66,7 +66,7 @@ export function NotificationSettingsCard({ initial }: Props) {
           <SettingsToggle
             id="notify_post_results"
             label="Post success or failure"
-            description="When Xpulse publishes or fails to publish on your behalf."
+            description="When Mackie17 publishes or fails to publish on your behalf."
             checked={settings.notify_post_results}
             onChange={(checked) => update("notify_post_results", checked)}
           />

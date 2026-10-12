@@ -35,7 +35,7 @@ export function AutomationSettingsCard({ initial }: Props) {
       <Card>
         <CardHeader>
           <CardTitle>Automation</CardTitle>
-          <CardDescription>Complete onboarding to configure how Xpulse acts for you</CardDescription>
+          <CardDescription>Complete onboarding to configure how Mackie17 acts for you</CardDescription>
         </CardHeader>
       </Card>
     );
@@ -76,15 +76,15 @@ export function AutomationSettingsCard({ initial }: Props) {
           )}
         </div>
         <CardDescription>
-          Control whether Xpulse posts, replies, and engages on your behalf
+          Control whether Mackie17 posts and replies without asking
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="space-y-4">
           <SettingsToggle
             id="engine_paused"
-            label="Pause Xpulse"
-            description="Stop all Growth Engine activity. Xpulse won't post, reply, or engage until you turn this off."
+            label="Pause Mackie17"
+            description="Stop posting and replying until you turn this off. Drafts already saved stay put."
             checked={settings.engine_paused}
             onChange={(checked) => update("engine_paused", checked)}
           />
@@ -154,7 +154,7 @@ export function AutomationSettingsCard({ initial }: Props) {
             <SettingsToggle
               id="auto_post_enabled"
               label="Allow auto-posting"
-              description="When off, Xpulse only suggests drafts — nothing goes live without you."
+              description="When off, Mackie17 only suggests drafts — nothing goes live without you."
               checked={settings.auto_post_enabled}
               onChange={(checked) => update("auto_post_enabled", checked)}
               disabled={settings.engine_paused}
@@ -162,7 +162,7 @@ export function AutomationSettingsCard({ initial }: Props) {
             <SettingsToggle
               id="auto_reply_enabled"
               label="Allow auto-replies"
-              description="Let Xpulse send replies on your behalf when enabled and automation level allows."
+              description="Let Mackie17 send replies on your behalf when enabled and automation level allows."
               checked={settings.auto_reply_enabled}
               onChange={(checked) => update("auto_reply_enabled", checked)}
               disabled={settings.engine_paused}
@@ -170,7 +170,7 @@ export function AutomationSettingsCard({ initial }: Props) {
             <SettingsToggle
               id="auto_engage_enabled"
               label="Allow engagement suggestions"
-              description="When off, Xpulse won't recommend replies or conversations to join."
+              description="When off, Mackie17 won't recommend replies or conversations to join."
               checked={settings.auto_engage_enabled}
               onChange={(checked) => update("auto_engage_enabled", checked)}
               disabled={settings.engine_paused}

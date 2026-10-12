@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Shield } from "lucide-react";
+import { DeskHeading } from "@/components/DeskHeading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,12 +24,11 @@ export default function SafetyPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Safety Center</h1>
+      <DeskHeading icon={Shield} title="Limits">
         <p className="text-muted-foreground">
-          Account pacing and limits. Xpulse protects you from risky patterns
+          Daily caps so posting, replying, and following stay at a human pace
         </p>
-      </div>
+      </DeskHeading>
 
       <Card>
         <CardHeader>
@@ -35,7 +36,7 @@ export default function SafetyPage() {
             Safety score
             {safety && <Badge variant="secondary">{safety.safety_score}/100</Badge>}
           </CardTitle>
-          <CardDescription>Higher is better. It means your account is well within safe limits</CardDescription>
+          <CardDescription>A higher score means today’s actions are still inside the caps</CardDescription>
         </CardHeader>
         <CardContent>
           {safety ? (
@@ -59,7 +60,7 @@ export default function SafetyPage() {
                       <Progress value={pct} className="h-2" />
                       {warn && (
                         <p className="mt-2 text-xs text-amber-400">
-                          Approaching daily limit. Xpulse will slow down {action} activity
+                          Approaching daily limit. Mackie17 will slow down {action} activity
                         </p>
                       )}
                     </div>
@@ -75,16 +76,16 @@ export default function SafetyPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>How Xpulse keeps you safe</CardTitle>
+          <CardTitle>What the caps do</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>Natural delays between posts and replies, never spammy bursts</p>
-          <p>Duplicate content detection before anything goes live</p>
-          <p>Daily caps on posts, replies, follows, and likes</p>
-          <p>Growth Engine waits when limits are reached, even if opportunity is high</p>
+          <p>Gaps between posts and replies are uneven, not a fixed minute.</p>
+          <p>A draft that repeats something you already published is held.</p>
+          <p>Posts, replies, follows, and likes each have a daily cap.</p>
+          <p>The queue waits when a cap is reached, even if the score is high.</p>
           <Link href="/growth-agent">
             <Button variant="secondary" className="mt-4">
-              View Growth Engine activity
+              Open the queue
             </Button>
           </Link>
         </CardContent>

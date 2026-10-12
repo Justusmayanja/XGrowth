@@ -117,7 +117,7 @@ export function AccountSettingsCard({ account, onUpdated }: Props) {
         <div className="mt-6 border-t border-border pt-4">
           <p className="mb-2 text-sm font-medium">Sessions</p>
           <p className="mb-3 text-sm text-muted-foreground">
-            Sign out of Xpulse on all other devices. You&apos;ll stay signed in here.
+            Sign out of Mackie17 on all other devices. You&apos;ll stay signed in here.
           </p>
           <Button type="button" variant="secondary" onClick={revokeSessions} disabled={revoking}>
             {revoking ? "Signing out…" : "Sign out other devices"}

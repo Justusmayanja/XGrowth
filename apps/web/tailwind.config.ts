@@ -1,5 +1,9 @@
 import type { Config } from "tailwindcss";
 
+function alpha(variable: string) {
+  return `color-mix(in oklch, var(${variable}) calc(<alpha-value> * 100%), transparent)`;
+}
+
 const config: Config = {
   darkMode: ["class"],
   content: [
@@ -8,6 +12,11 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["var(--font-sans)", "sans-serif"],
+        heading: ["var(--font-heading)", "Georgia", "serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
+      },
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
@@ -20,31 +29,32 @@ const config: Config = {
           foreground: "var(--popover-foreground)",
         },
         primary: {
-          DEFAULT: "var(--primary)",
+          DEFAULT: alpha("--primary"),
           foreground: "var(--primary-foreground)",
         },
         secondary: {
-          DEFAULT: "var(--secondary)",
+          DEFAULT: alpha("--secondary"),
           foreground: "var(--secondary-foreground)",
         },
         muted: {
-          DEFAULT: "var(--muted)",
+          DEFAULT: alpha("--muted"),
           foreground: "var(--muted-foreground)",
         },
         accent: {
-          DEFAULT: "var(--accent)",
+          DEFAULT: alpha("--accent"),
           foreground: "var(--accent-foreground)",
         },
         destructive: {
-          DEFAULT: "var(--destructive)",
+          DEFAULT: alpha("--destructive"),
           foreground: "var(--destructive-foreground, var(--foreground))",
         },
         border: "var(--border)",
         input: "var(--input)",
         ring: "var(--ring)",
-        surface: "#12121a",
-        "surface-2": "#1a1a26",
-        "accent-light": "#818cf8",
+        sidebar: "var(--sidebar)",
+        surface: "var(--surface)",
+        "surface-2": "var(--surface-2)",
+        "accent-light": "#f0b2a6",
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -52,29 +62,12 @@ const config: Config = {
         sm: "calc(var(--radius) - 4px)",
       },
       animation: {
-        float: "float 6s ease-in-out infinite",
-        "float-delayed": "float 6s ease-in-out 2s infinite",
-        "pulse-glow": "pulse-glow 3s ease-in-out infinite",
-        shimmer: "shimmer 3s linear infinite",
         "fade-up": "fade-up 0.7s ease-out forwards",
         "slide-in": "slide-in 0.5s ease-out forwards",
         "word-in": "word-in 0.45s ease-out forwards",
         "word-out": "word-out 0.35s ease-in forwards",
-        "gradient-x": "gradient-x 8s ease infinite",
       },
       keyframes: {
-        float: {
-          "0%, 100%": { transform: "translateY(0px)" },
-          "50%": { transform: "translateY(-12px)" },
-        },
-        "pulse-glow": {
-          "0%, 100%": { opacity: "0.4", transform: "scale(1)" },
-          "50%": { opacity: "0.8", transform: "scale(1.05)" },
-        },
-        shimmer: {
-          "0%": { backgroundPosition: "200% center" },
-          "100%": { backgroundPosition: "-200% center" },
-        },
         "fade-up": {
           "0%": { opacity: "0", transform: "translateY(24px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
@@ -91,14 +84,6 @@ const config: Config = {
           "0%": { opacity: "1", transform: "translateY(0)" },
           "100%": { opacity: "0", transform: "translateY(-8px)" },
         },
-        "gradient-x": {
-          "0%, 100%": { backgroundPosition: "0% 50%" },
-          "50%": { backgroundPosition: "100% 50%" },
-        },
-      },
-      backgroundImage: {
-        "hero-gradient":
-          "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99,102,241,0.35), transparent), radial-gradient(ellipse 60% 40% at 80% 50%, rgba(139,92,246,0.15), transparent)",
       },
     },
   },

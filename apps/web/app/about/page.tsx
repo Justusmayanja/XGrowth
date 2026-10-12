@@ -2,46 +2,44 @@ import type { Metadata } from "next";
 import { LegalLayout } from "@/components/landing/LegalLayout";
 
 export const metadata: Metadata = {
-  title: "About | Xpulse",
-  description: "Learn about Xpulse and grow on X when the moment is right.",
+  title: "About | Mackie17",
+  description: "Mackie17 connects YouTube, TikTok, and X, then finds what fits, makes the piece, and posts the way each network should.",
 };
 
 export default function AboutPage() {
   return (
-    <LegalLayout title="About Xpulse">
+    <LegalLayout title="About Mackie17">
       <p>
-        Xpulse helps creators, founders, and niche accounts grow on X (Twitter). Unlike schedulers
-        that post at fixed times, Xpulse watches trends in your niche and helps you show up when
-        people are actually paying attention.
+        Mackie17 is for people who already have an account on YouTube, TikTok, or X, and usually
+        on more than one of them. You connect the accounts and describe who they are for. After
+        that it looks for what fits, makes the piece, and posts the way that network should.
       </p>
 
-      <h2>Our mission</h2>
-      <p>
-        Help you grow followers, impressions, and monetization eligibility without spending hours on
-        the platform every day. Growth should follow opportunity, not a calendar.
-      </p>
-
-      <h2>What Xpulse does</h2>
+      <h2>What you bring</h2>
       <ul className="list-disc space-y-2 pl-6">
-        <li>Tracks trends and conversations in your niche</li>
-        <li>Scores the best moments to post or engage</li>
-        <li>Drafts content matched to your voice and goals</li>
-        <li>Protects your account with smart limits and natural pacing</li>
-        <li>Keeps working while you are offline</li>
+        <li>The accounts, and a plain description of the business, the brand, and who they are for</li>
+        <li>Footage you already filmed, if you want YouTube to start from that</li>
       </ul>
 
-      <h2>Who it&apos;s for</h2>
+      <h2>What each account does</h2>
+      <ul className="list-disc space-y-2 pl-6">
+        <li>YouTube looks for what could catch on, writes it, and makes the video — or edits footage you brought — then posts on its own or waits for you</li>
+        <li>TikTok looks for what suits the business, writes it, and makes the clip, then suggests a time and waits for you to confirm</li>
+        <li>X stays in your niche and posts when the moment looks strong, with no schedule, then waits for the next moment like it</li>
+      </ul>
+
+      <h2>After it goes out</h2>
       <p>
-        Football fans, tech founders, finance creators, local news accounts, meme pages, and anyone
-        building an audience on X who wants intelligent growth, not another empty posting schedule.
+        Connect the accounts you already run, describe them, and then stay with the rest of the
+        business. What actually gets posted is what the next round pays attention to, so TikTok
+        gets closer to what people stay for, and X posts again only when the moment looks just
+        as strong.
       </p>
 
       <h2>Contact</h2>
       <p>
-        Questions or partnerships?{" "}
-        <a href="mailto:hello@xpulse.app" className="text-accent hover:underline">
-          hello@xpulse.app
-        </a>
+        Questions or partnerships:{" "}
+        <a href="mailto:hello@xpulse.app">hello@xpulse.app</a>
       </p>
     </LegalLayout>
   );

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { LegalLayout } from "@/components/landing/LegalLayout";
 
 export const metadata: Metadata = {
-  title: "Terms of Service | Xpulse",
-  description: "Xpulse terms of service.",
+  title: "Terms of Service | Mackie17",
+  description: "Mackie17 terms of service.",
 };
 
 export default function TermsPage() {
@@ -12,34 +12,37 @@ export default function TermsPage() {
       <p className="text-sm">Last updated: July 21, 2026</p>
 
       <p>
-        By using Xpulse, you agree to these Terms of Service. Please read them before creating an
+        By using Mackie17, you agree to these Terms of Service. Please read them before creating an
         account.
       </p>
 
       <h2>Service</h2>
       <p>
-        Xpulse provides tools to grow on X (Twitter), including trend monitoring, content drafting,
-        timing recommendations, and optional automated posting based on your settings.
+        Mackie17 provides tools for X, TikTok, and YouTube: topic scoring, drafts in your voice, timing,
+        and optional publishing based on your settings. X can be connected today. TikTok and YouTube
+        drafts are available before those account connections open.
       </p>
 
       <h2>Your responsibilities</h2>
       <ul className="list-disc space-y-2 pl-6">
-        <li>Comply with X&apos;s Terms of Service at all times</li>
+        <li>Comply with the terms of X, TikTok, and YouTube for every account you connect</li>
         <li>You are responsible for content published through your account</li>
         <li>Keep your login credentials secure</li>
-        <li>Do not use Xpulse for spam, harassment, or illegal activity</li>
+        <li>Do not use Mackie17 for spam, harassment, or illegal activity</li>
       </ul>
 
       <h2>Automation</h2>
       <p>
-        Xpulse includes account protection features, but no tool can guarantee immunity from platform
-        enforcement. You choose your level of automation and accept the associated platform risk.
+        Mackie17 caps how often an account posts, replies, and follows. No tool can promise that a
+        platform will skip enforcement. You choose how much can publish without you, and you accept
+        that platform risk.
       </p>
 
       <h2>Billing</h2>
       <p>
-        Paid plans bill monthly through Paddle or Flutterwave. Cancel anytime; access continues until
-        the end of your billing period.
+        Paid plans bill monthly or yearly through Paddle or Flutterwave. Each platform is its own tier,
+        and a mix of platforms is one payment. Cancel anytime; access continues until the end of the
+        period you already paid.
       </p>
 
       <h2>Contact</h2>

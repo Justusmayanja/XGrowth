@@ -1,6 +1,8 @@
 "use client";
 
+import { MessageCircle } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
+import { DeskHeading } from "@/components/DeskHeading";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,12 +67,11 @@ export default function EngagementPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Engagement Center</h1>
+      <DeskHeading icon={MessageCircle} title="Replies">
         <p className="text-muted-foreground">
-          High-opportunity conversations in your niche. Reply while it matters
+          X conversations worth answering. TikTok comments and YouTube replies open in Compose until those networks connect.
         </p>
-      </div>
+      </DeskHeading>
 
       {note && <p className="text-sm text-muted-foreground">{note}</p>}
 
@@ -84,7 +85,7 @@ export default function EngagementPage() {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between gap-2">
                     <CardTitle className="text-sm font-medium">{post.author}</CardTitle>
-                    <Badge>{post.opportunity_score} opp</Badge>
+                    <Badge variant="secondary">Score {post.opportunity_score}</Badge>
                   </div>
                   <CardDescription>
                     {(post.author_followers / 1000).toFixed(1)}K followers · {post.minutes_ago}m ago
@@ -110,7 +111,7 @@ export default function EngagementPage() {
             <CardDescription>
               {activePost
                 ? `Options for ${activePost.author}'s post`
-                : "Select a post to generate reply options"}
+                : "Choose a post to draft replies"}
             </CardDescription>
           </CardHeader>
           <CardContent>

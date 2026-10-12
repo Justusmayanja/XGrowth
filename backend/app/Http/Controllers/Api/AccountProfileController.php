@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AccountProfile;
+use App\Models\PlatformSetup;
 use App\Services\GrowthAgent\GrowthAgentService;
+use App\Support\SetupCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -21,7 +23,8 @@ class AccountProfileController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'goal' => ['required', 'string', 'max:200'],
+            'goal' => ['sometimes', 'nullable', 'string', 'max:200'],
+            'purpose' => ['sometimes', 'nullable', 'in:'.implode(',', array_keys(SetupCatalog::PURPOSES))],
             'niche' => ['nullable', 'string', 'max:200'],
             'custom_niche' => ['nullable', 'string', 'max:255'],
             'description' => ['required', 'string', 'max:2000'],
@@ -33,11 +36,15 @@ class AccountProfileController extends Controller
             'complete_onboarding' => ['sometimes', 'boolean'],
         ]);
 
-        $validated['goal'] = $this->normalizeMultiValue(
-            $validated['goal'],
-            ['grow_followers', 'build_brand', 'drive_traffic', 'promote_business', 'influencer', 'monetize'],
-            'goal',
-        );
+        if (! empty($validated['goal'])) {
+            $validated['goal'] = $this->normalizeMultiValue(
+                $validated['goal'],
+                array_keys(SetupCatalog::GOALS['x']),
+                'goal',
+            );
+        } else {
+            unset($validated['goal']);
+        }
         $validated['niche'] = isset($validated['niche'])
             ? $this->normalizeMultiValue(
                 $validated['niche'],
@@ -62,6 +69,13 @@ class AccountProfileController extends Controller
                 'onboarding_completed' => $completeOnboarding,
             ]
         );
+
+        if (isset($validated['goal'])) {
+            PlatformSetup::query()
+                ->where('user_id', $request->user()->id)
+                ->where('platform', 'x')
+                ->update(['goals' => $validated['goal']]);
+        }
 
         if ($completeOnboarding) {
             app(GrowthAgentService::class)->evaluateOpportunities($request->user()->id);

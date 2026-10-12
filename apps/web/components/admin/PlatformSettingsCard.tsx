@@ -83,7 +83,8 @@ export function PlatformSettingsCard() {
       <CardHeader>
         <CardTitle>Platform configuration</CardTitle>
         <CardDescription>
-          Scheduler, trend fetch schedule, Growth Brain, content mix, safety limits, and AI defaults.
+          Scheduler, trend fetch schedule, Growth Brain, content mix, safety limits, AI defaults, and the free
+          trial length.
           Changes apply immediately — no redeploy needed. OpenAI API keys stay in server environment
           variables.
         </CardDescription>

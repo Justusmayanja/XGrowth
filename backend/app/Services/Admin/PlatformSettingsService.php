@@ -132,6 +132,21 @@ class PlatformSettingsService
             'description' => 'Max likes per user per day.',
             'default' => '100',
         ],
+        'trial_days' => [
+            'group' => 'billing',
+            'type' => 'integer',
+            'label' => 'Free trial length (days)',
+            'description' => 'Length of the free trial that starts when a new customer picks their platforms. Changes apply to new trials only; customers already on a trial keep the length they started with.',
+            'default' => '7',
+        ],
+        // Edited on the pricing card; the "pricing" group has no label so the generic settings card skips it.
+        'billing_bundle_discount_percent' => [
+            'group' => 'pricing',
+            'type' => 'integer',
+            'label' => 'Multi-platform discount (%)',
+            'description' => 'Taken off every platform except the most expensive one.',
+            'default' => '15',
+        ],
     ];
 
     /** @var array<string, string> */
@@ -143,6 +158,7 @@ class PlatformSettingsService
         'content_mix' => 'Content mix',
         'fallback_rules' => 'Rule-based fallback',
         'safety' => 'Safety limits',
+        'billing' => 'Billing & free trial',
     ];
 
     public function get(string $key, ?string $default = null): string
@@ -183,6 +199,16 @@ class PlatformSettingsService
         $model = trim($this->get('openai_model', config('openai.model', 'gpt-5.4-mini')));
 
         return $model !== '' ? $model : 'gpt-5.4-mini';
+    }
+
+    public function bundleDiscountPercent(): int
+    {
+        return max(0, min(50, $this->getInt('billing_bundle_discount_percent', (int) config('billing.discount_percent', 15))));
+    }
+
+    public function trialDays(): int
+    {
+        return max(1, min(365, $this->getInt('trial_days', 7)));
     }
 
     public function trendContentMaxPercent(): int

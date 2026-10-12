@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 
 const words = [
-  "breaking news hits",
-  "your niche peaks",
-  "fans start talking",
-  "trends take off",
+  "demand shows up",
+  "the niche is loud",
+  "buyers are listening",
   "the moment is right",
+  "attention is cheap",
 ];
 
 const longestPhrase = words.reduce((a, b) => (a.length >= b.length ? a : b));
@@ -30,7 +30,6 @@ export function AnimatedWords() {
 
   return (
     <span aria-live="polite" className="relative block w-full">
-      {/* Reserve height for the longest phrase so lines below never overlap */}
       <span aria-hidden="true" className="invisible landing-shimmer-text block">
         {longestPhrase}
       </span>

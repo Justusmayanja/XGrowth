@@ -18,37 +18,34 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import {
   AccountProfile,
-  GOALS,
   joinMultiValue,
   MAX_PROFILE_SELECTIONS,
   NICHES,
   parseMultiValue,
+  type Purpose,
+  PURPOSES,
   TONES,
 } from "@/lib/profile";
 
 type ProfileFormState = {
-  goals: string[];
+  purpose: Purpose;
   niches: string[];
   custom_niche: string;
   description: string;
   audience: string;
   tones: string[];
-  mode: string;
-  automation_level: number;
 };
 
 function profileToForm(profile: AccountProfile): ProfileFormState {
   const niches = parseMultiValue(profile.niche);
 
   return {
-    goals: parseMultiValue(profile.goal),
+    purpose: profile.purpose ?? "creator",
     niches: profile.custom_niche ? [...niches, "custom"] : niches,
     custom_niche: profile.custom_niche ?? "",
     description: profile.description ?? "",
     audience: profile.audience ?? "",
     tones: parseMultiValue(profile.tone),
-    mode: profile.mode ?? "reactive",
-    automation_level: profile.automation_level ?? 1,
   };
 }
 
@@ -56,14 +53,12 @@ export function ProfileForm() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<ProfileFormState>({
-    goals: ["grow_followers"],
+    purpose: "creator",
     niches: ["football"],
     custom_niche: "",
     description: "",
     audience: "",
     tones: ["professional"],
-    mode: "reactive",
-    automation_level: 1,
   });
 
   useEffect(() => {
@@ -83,8 +78,8 @@ export function ProfileForm() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
 
-    if (profile.goals.length === 0 || profile.niches.length === 0 || profile.tones.length === 0) {
-      toast.error("Select at least one goal, niche, and voice.");
+    if (profile.niches.length === 0 || profile.tones.length === 0) {
+      toast.error("Select at least one niche and voice.");
       return;
     }
 
@@ -99,14 +94,12 @@ export function ProfileForm() {
       await api<{ profile: AccountProfile }>("/account/profile", {
         method: "POST",
         body: JSON.stringify({
-          goal: joinMultiValue(profile.goals),
+          purpose: profile.purpose,
           niche: presetNiches.length > 0 ? joinMultiValue(presetNiches) : null,
           custom_niche: profile.niches.includes("custom") ? profile.custom_niche : null,
           description: profile.description,
           audience: profile.audience,
           tone: joinMultiValue(profile.tones),
-          mode: profile.mode,
-          automation_level: profile.automation_level,
         }),
       });
       toast.success("Profile updated");
@@ -124,22 +117,31 @@ export function ProfileForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Your Xpulse profile</CardTitle>
+        <CardTitle>Your Mackie17 profile</CardTitle>
         <CardDescription>
-          Update your goals and voice. Pick up to 3 options per section where shown.
+          Shared by every platform. Pick up to 3 options per section where shown.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="space-y-6">
           <div className="space-y-2">
-            <Label>Goals</Label>
-            <SelectionHint selectedCount={profile.goals.length} />
-            <MultiSelectCards
-              options={GOALS}
-              selected={profile.goals}
-              onChange={(goals) => setProfile({ ...profile, goals })}
-              onLimitReached={showLimitError}
-            />
+            <Label>Using Mackie17 for</Label>
+            <Select
+              value={profile.purpose}
+              onValueChange={(v) => v && setProfile({ ...profile, purpose: v as Purpose })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Choose one" />
+              </SelectTrigger>
+              <SelectContent>
+                {PURPOSES.map((purpose) => (
+                  <SelectItem key={purpose.value} value={purpose.value}>
+                    {purpose.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Goals are set per platform in the Platforms card.</p>
           </div>
 
           <div className="space-y-2">
@@ -195,19 +197,6 @@ export function ProfileForm() {
               onLimitReached={showLimitError}
               columns={1}
             />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Posting style</Label>
-            <Select value={profile.mode} onValueChange={(v) => v && setProfile({ ...profile, mode: v })}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="reactive">Reactive</SelectItem>
-                <SelectItem value="proactive">Proactive</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
 
           <Button type="submit" disabled={saving}>

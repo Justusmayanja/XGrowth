@@ -110,7 +110,7 @@ export default function AdminCustomersPage() {
       <div>
         <h1 className="text-2xl font-bold">Customers</h1>
         <p className="text-muted-foreground">
-          People who signed up for Xpulse to manage their X account growth
+          People who use Mackie17 to publish on X, TikTok, and YouTube
         </p>
       </div>
 

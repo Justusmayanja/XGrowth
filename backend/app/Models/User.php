@@ -17,7 +17,10 @@ class User extends Authenticatable
 
     protected $fillable = [
         'name',
+        'username',
         'email',
+        'google_id',
+        'x_id',
         'password',
         'subscription_plan',
         'is_admin',
@@ -47,6 +50,11 @@ class User extends Authenticatable
     public function connectedAccounts(): HasMany
     {
         return $this->hasMany(ConnectedAccount::class);
+    }
+
+    public function billingSubscriptions(): HasMany
+    {
+        return $this->hasMany(BillingSubscription::class);
     }
 
     public function accountProfile(): HasOne

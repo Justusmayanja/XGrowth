@@ -47,7 +47,7 @@ export function AiRulesCard() {
         )
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load AI rules");
+      toast.error(err instanceof Error ? err.message : "Could not load drafting instructions");
     } finally {
       setLoading(false);
     }
@@ -80,10 +80,10 @@ export function AiRulesCard() {
           }),
         }),
       });
-      toast.success("AI rules updated");
+      toast.success("Drafting instructions saved");
       await load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save AI rules");
+      toast.error(err instanceof Error ? err.message : "Could not save drafting instructions");
     } finally {
       setSaving(false);
     }
@@ -92,11 +92,10 @@ export function AiRulesCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>AI behavior rules</CardTitle>
+        <CardTitle>Drafting instructions</CardTitle>
         <CardDescription>
-          Platform rules injected at the top of every AI system prompt. Global rules apply to all
-          generation; each section adds rules for that feature. The AI reads these first before
-          anything else.
+          Sent with every draft. The general set applies everywhere. Each section adds rules for
+          that job.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -157,7 +156,7 @@ export function AiRulesCard() {
             })}
 
             <Button onClick={save} disabled={saving || loading}>
-              {saving ? "Saving…" : "Save AI rules"}
+              {saving ? "Saving…" : "Save instructions"}
             </Button>
           </>
         )}
