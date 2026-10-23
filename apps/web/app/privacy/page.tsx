@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <LegalLayout title="Privacy Policy">
-      <p className="text-sm">Last updated: July 21, 2026</p>
+      <p className="text-sm">Last updated: October 23, 2026</p>
 
       <p>
         Mackie17 (&quot;we&quot;, &quot;our&quot;, &quot;us&quot;) respects your privacy. This policy
@@ -18,7 +18,7 @@ export default function PrivacyPage() {
 
       <h2>Information we collect</h2>
       <ul className="list-disc space-y-2 pl-6">
-        <li>Account details: name, email, password (stored securely hashed)</li>
+        <li>Account details: name, username, and email. Sign-in uses a short-lived code sent to that email.</li>
         <li>Setup answers: goals, niche, audience, tone, and preferences</li>
         <li>Connected platform tokens (encrypted) when you authorize access</li>
         <li>Drafts, posts, and performance data from your use of the service</li>

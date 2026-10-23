@@ -2,77 +2,168 @@
 
 namespace Tests\Feature;
 
+use App\Mail\LoginCodeMail;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class AuthAccountTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_email_and_manual_accounts_can_sign_in(): void
+    protected function setUp(): void
     {
-        $this->postJson('/api/auth/register', [
-            'setup' => 'email',
-            'name' => 'Ada Lovelace',
-            'email' => 'ada@example.com',
-            'password' => 'password1',
-            'password_confirmation' => 'password1',
-        ])->assertCreated();
+        parent::setUp();
+        $this->withoutMiddleware(ThrottleRequests::class);
+        Mail::fake();
+    }
 
-        $this->postJson('/api/auth/register', [
-            'setup' => 'manual',
+    public function test_register_sends_a_code_and_creates_the_account(): void
+    {
+        $code = $this->requestCode([
+            'purpose' => 'register',
             'name' => 'Grace Hopper',
             'username' => 'Grace_H',
             'email' => 'grace@example.com',
-            'password' => 'password1',
-            'password_confirmation' => 'password1',
-        ])->assertCreated()
-            ->assertJsonPath('user.username', 'grace_h');
+        ]);
 
-        $this->postJson('/api/auth/login', [
-            'login' => 'grace_h',
-            'password' => 'password1',
+        $this->postJson('/api/auth/email/verify', [
+            'email' => 'grace@example.com',
+            'code' => $code,
+        ])->assertCreated()
+            ->assertJsonPath('user.username', 'grace_h')
+            ->assertJsonPath('user.email', 'grace@example.com')
+            ->assertJsonStructure(['token']);
+
+        $this->assertDatabaseHas('users', [
+            'email' => 'grace@example.com',
+            'username' => 'grace_h',
+        ]);
+    }
+
+    public function test_login_is_email_and_code_only(): void
+    {
+        User::factory()->create([
+            'email' => 'ada@example.com',
+        ]);
+
+        $code = $this->requestCode([
+            'purpose' => 'login',
+            'email' => 'ada@example.com',
+        ]);
+
+        $this->postJson('/api/auth/email/verify', [
+            'email' => 'ada@example.com',
+            'code' => $code,
         ])->assertOk()->assertJsonStructure(['token']);
 
         $this->postJson('/api/auth/login', [
             'email' => 'ada@example.com',
             'password' => 'password1',
-        ])->assertOk();
+        ])->assertNotFound();
     }
 
-    public function test_social_buttons_explain_when_they_are_not_configured(): void
+    public function test_code_expires_quickly_and_cannot_be_reused(): void
     {
-        config([
-            'services.google.client_id' => null,
-            'services.google.client_secret' => null,
-            'services.frontend.url' => 'http://localhost:3000',
+        User::factory()->create([
+            'email' => 'ada@example.com',
         ]);
 
-        $this->getJson('/api/auth/providers')
-            ->assertOk()
-            ->assertJson(['google' => false, 'x' => false]);
+        $code = $this->requestCode([
+            'purpose' => 'login',
+            'email' => 'ada@example.com',
+        ]);
 
-        $this->get('/api/auth/google/redirect')
-            ->assertRedirect('http://localhost:3000/auth/callback?error='.urlencode(
-                'Google sign-in is not turned on for this server yet. Use email, or write your username and details.'
-            ));
+        $this->travel(11)->minutes();
+
+        $this->postJson('/api/auth/email/verify', [
+            'email' => 'ada@example.com',
+            'code' => $code,
+        ])->assertStatus(422);
+
+        $fresh = $this->requestCode([
+            'purpose' => 'login',
+            'email' => 'ada@example.com',
+        ]);
+
+        $this->postJson('/api/auth/email/verify', [
+            'email' => 'ada@example.com',
+            'code' => $fresh,
+        ])->assertOk();
+
+        $this->postJson('/api/auth/email/verify', [
+            'email' => 'ada@example.com',
+            'code' => $fresh,
+        ])->assertStatus(422);
     }
 
-    public function test_taken_username_is_rejected(): void
+    public function test_unknown_email_and_taken_username_are_rejected(): void
     {
         User::factory()->create([
             'username' => 'ada',
             'email' => 'ada@example.com',
         ]);
 
-        $this->postJson('/api/auth/register', [
-            'setup' => 'manual',
+        $this->postJson('/api/auth/email/send', [
+            'purpose' => 'login',
+            'email' => 'missing@example.com',
+        ])->assertStatus(422);
+
+        $this->postJson('/api/auth/email/send', [
+            'purpose' => 'register',
             'name' => 'Someone',
             'username' => 'Ada',
             'email' => 'other@example.com',
+        ])->assertStatus(422);
+
+        Mail::assertNothingSent();
+    }
+
+    public function test_password_google_and_x_sign_in_are_gone(): void
+    {
+        $this->postJson('/api/auth/register', [
+            'name' => 'Ada',
+            'email' => 'ada@example.com',
             'password' => 'password1',
             'password_confirmation' => 'password1',
+        ])->assertNotFound();
+
+        $this->get('/api/auth/google/redirect')->assertNotFound();
+        $this->get('/api/auth/providers')->assertNotFound();
+        $this->postJson('/api/auth/social/complete', [])->assertNotFound();
+    }
+
+    public function test_blocked_account_cannot_receive_a_code(): void
+    {
+        User::factory()->create([
+            'email' => 'ada@example.com',
+            'is_blocked' => true,
+        ]);
+
+        $this->postJson('/api/auth/email/send', [
+            'purpose' => 'login',
+            'email' => 'ada@example.com',
         ])->assertStatus(422);
+
+        Mail::assertNothingSent();
+    }
+
+    /**
+     * @param  array<string, string>  $payload
+     */
+    private function requestCode(array $payload): string
+    {
+        $this->postJson('/api/auth/email/send', $payload)
+            ->assertOk()
+            ->assertJsonPath('expires_in', 600);
+
+        $mail = Mail::sent(LoginCodeMail::class)->last();
+        $this->assertInstanceOf(LoginCodeMail::class, $mail);
+        $this->assertTrue($mail->hasTo($payload['email']));
+        $this->assertSame(10, $mail->minutes);
+
+        return $mail->code;
     }
 }

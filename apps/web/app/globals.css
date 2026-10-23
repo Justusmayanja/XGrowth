@@ -50,6 +50,22 @@ label {
   outline-offset: 2px;
 }
 
+.auth-screen input.otp,
+.setup input.otp {
+  letter-spacing: 0.42em;
+  text-align: center;
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.auth-screen input.otp,
+.setup input.otp {
+  letter-spacing: 0.42em;
+  text-align: center;
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .auth-screen .th-cta {
   width: 100%;
   padding: 12px 22px;

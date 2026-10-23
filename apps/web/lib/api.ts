@@ -26,7 +26,8 @@ export function clearToken() {
 export async function api<T = unknown>(
   path: string,
   options: RequestInit = {},
-  timeoutMs = REQUEST_TIMEOUT_MS
+  timeoutMs = REQUEST_TIMEOUT_MS,
+  timeoutMessage = "Request timed out. Make sure the backend is running: cd backend && php artisan serve",
 ): Promise<T> {
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -51,9 +52,7 @@ export async function api<T = unknown>(
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new Error(
-        "Request timed out. Make sure the backend is running: cd backend && php artisan serve"
-      );
+      throw new Error(timeoutMessage);
     }
 
     throw new Error(

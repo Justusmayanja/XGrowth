@@ -35,12 +35,11 @@ Route::post('/billing/webhooks/paddle', [BillingWebhookController::class, 'paddl
 Route::post('/billing/webhooks/flutterwave', [BillingWebhookController::class, 'flutterwave']);
 
 Route::prefix('auth')->group(function () {
-    Route::post('/register', [AuthController::class, 'register']);
-    Route::post('/login', [AuthController::class, 'login']);
-    Route::get('/providers', [SocialAuthController::class, 'providers']);
-    Route::post('/social/complete', [SocialAuthController::class, 'complete']);
-    Route::get('/{provider}/redirect', [SocialAuthController::class, 'redirect'])->whereIn('provider', ['google', 'x']);
-    Route::get('/{provider}/callback', [SocialAuthController::class, 'callback'])->whereIn('provider', ['google', 'x']);
+    Route::post('/email/send', [AuthController::class, 'sendCode'])->middleware('throttle:8,1');
+    Route::post('/email/verify', [AuthController::class, 'verifyCode'])->middleware('throttle:20,1');
+    Route::get('/x/callback', function (\Illuminate\Http\Request $request) {
+        return app(SocialAuthController::class)->callback($request, 'x');
+    });
 });
 
 Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {

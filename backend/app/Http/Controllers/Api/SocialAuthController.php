@@ -62,42 +62,34 @@ class SocialAuthController extends Controller
 
     public function callback(Request $request, string $provider): RedirectResponse
     {
-        if (! in_array($provider, ['google', 'x'], true)) {
+        if ($provider !== 'x') {
             return $this->fail('That sign-in method is not available.');
         }
 
         if ($request->filled('error')) {
-            return $this->fail('The sign-in was cancelled. You can try again, or use email.');
+            return $this->fail('Connecting X was cancelled.');
         }
 
         try {
             $state = json_decode(Crypt::decryptString((string) $request->query('state')), true);
         } catch (Throwable) {
-            return $this->fail('That sign-in expired. Start again.');
+            return $this->fail('That connection expired. Start again from settings.');
         }
 
-        if (! is_array($state) || ($state['provider'] ?? null) !== $provider || ($state['exp'] ?? 0) < now()->timestamp) {
-            return $this->fail('That sign-in expired. Start again.');
+        if (! is_array($state) || ($state['provider'] ?? null) !== 'x' || ($state['exp'] ?? 0) < now()->timestamp) {
+            return $this->fail('That connection expired. Start again from settings.');
+        }
+
+        if (($state['purpose'] ?? null) !== 'connect') {
+            return $this->fail('Sign in with X is no longer available. Use the code sent to your email.');
         }
 
         $code = (string) $request->query('code', '');
         if ($code === '') {
-            return $this->fail('The sign-in did not come back with a code. Try again.');
+            return $this->fail('X did not come back with a code. Try again from settings.');
         }
 
-        if ($provider === 'x' && ($state['purpose'] ?? 'login') === 'connect') {
-            return $this->finishXConnect($state, $code);
-        }
-
-        try {
-            $profile = $provider === 'google'
-                ? $this->googleProfile($code)
-                : $this->xProfile($code, (string) ($state['verifier'] ?? ''));
-        } catch (Throwable) {
-            return $this->fail('That account could not be confirmed. Try again, or use email.');
-        }
-
-        return $this->loginFromProfile($provider, $profile);
+        return $this->finishXConnect($state, $code);
     }
 
     public function complete(Request $request): JsonResponse

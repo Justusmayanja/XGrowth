@@ -4,16 +4,19 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthError, AuthLink } from "@/components/auth/AuthScreen";
 import { BrandLogo } from "@/components/BrandLogo";
-import { SocialLogo, SocialName } from "@/components/SocialLogo";
+import { SocialName } from "@/components/SocialLogo";
 import { api, getToken, setToken } from "@/lib/api";
 import { getPostAuthPath, safeNext } from "@/lib/auth";
+
+const EMAIL_TIMEOUT = "The email is taking too long. Try again in a minute.";
 
 export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [providers, setProviders] = useState({ google: false, x: false });
   const [nextPath, setNextPath] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
 
   useEffect(() => {
     const next = safeNext(new URLSearchParams(window.location.search).get("next"));
@@ -30,25 +33,52 @@ export default function LoginPage() {
           // Stale token cleared in api.ts — stay on login
         });
     }
-
-    api<{ google: boolean; x: boolean }>("/auth/providers")
-      .then(setProviders)
-      .catch(() => setProviders({ google: false, x: false }));
   }, [router]);
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+  async function sendCode() {
+    setLoading(true);
+    setError("");
+    try {
+      await api(
+        "/auth/email/send",
+        {
+          method: "POST",
+          body: JSON.stringify({ purpose: "login", email }),
+        },
+        25000,
+        EMAIL_TIMEOUT,
+      );
+      setSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send the code");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onEmail(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    await sendCode();
+  }
+
+  async function onCode(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setError("");
     const form = new FormData(e.currentTarget);
     try {
-      const data = await api<{ token: string }>("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({
-          login: form.get("login"),
-          password: form.get("password"),
-        }),
-      });
+      const data = await api<{ token: string }>(
+        "/auth/email/verify",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            email,
+            code: String(form.get("code") ?? "").trim(),
+          }),
+        },
+        25000,
+        EMAIL_TIMEOUT,
+      );
       setToken(data.token);
       router.push(nextPath ?? (await getPostAuthPath()));
     } catch (err) {
@@ -56,15 +86,6 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function startProvider(provider: "google" | "x") {
-    if (!providers[provider]) {
-      const name = provider === "google" ? "Google" : "X";
-      setError(`${name} sign-in is not turned on for this server yet. Use your email or username.`);
-      return;
-    }
-    window.location.href = `/api/auth/${provider}/redirect`;
   }
 
   const registerHref = nextPath ? `/register?next=${encodeURIComponent(nextPath)}` : "/register";
@@ -97,30 +118,70 @@ export default function LoginPage() {
           <div className="auth-form">
             <h1>Sign in</h1>
             <AuthError>{error}</AuthError>
-            <form onSubmit={onSubmit} className="space-y-4">
-              <div>
-                <label htmlFor="login">Email or username</label>
-                <input id="login" name="login" autoComplete="username" required />
-              </div>
-              <div>
-                <label htmlFor="password">Password</label>
-                <input id="password" name="password" type="password" autoComplete="current-password" required />
-              </div>
-              <button type="submit" className="th-cta" disabled={loading}>
-                {loading ? "Signing in…" : "Sign in"}
-              </button>
-            </form>
-            <p className="auth-split">or</p>
-            <div className="auth-socials">
-              <button type="button" className="auth-social" onClick={() => startProvider("google")}>
-                <SocialLogo brand="google" />
-                Google
-              </button>
-              <button type="button" className="auth-social" onClick={() => startProvider("x")}>
-                <SocialLogo brand="x" />
-                X
-              </button>
-            </div>
+            {sent ? (
+              <form onSubmit={onCode} className="space-y-4">
+                <p className="text-sm text-[#b7c6d8]">
+                  We sent a 6-digit code to <strong className="text-[#e7eef6]">{email}</strong>. It expires in 10 minutes.
+                </p>
+                <div>
+                  <label htmlFor="code">Code</label>
+                  <input
+                    id="code"
+                    name="code"
+                    className="otp"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{6}"
+                    minLength={6}
+                    maxLength={6}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <button type="submit" className="th-cta" disabled={loading}>
+                  {loading ? "Signing in…" : "Sign in"}
+                </button>
+                <div className="flex items-center justify-between text-sm">
+                  <button
+                    type="button"
+                    className="text-[#9ec0ea] underline underline-offset-4"
+                    onClick={() => {
+                      setSent(false);
+                      setError("");
+                    }}
+                  >
+                    Use a different email
+                  </button>
+                  <button
+                    type="button"
+                    className="text-[#9ec0ea] underline underline-offset-4"
+                    disabled={loading}
+                    onClick={() => void sendCode()}
+                  >
+                    Send a new code
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={onEmail} className="space-y-4">
+                <div>
+                  <label htmlFor="email">Email</label>
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                  />
+                  <p className="mt-1.5 text-xs text-[#7f93ab]">We email a code. It expires in 10 minutes.</p>
+                </div>
+                <button type="submit" className="th-cta" disabled={loading}>
+                  {loading ? "Sending code…" : "Email me a code"}
+                </button>
+              </form>
+            )}
             <p className="mt-6 text-sm text-[#b7c6d8]">
               New here? <AuthLink href={registerHref}>Create an account</AuthLink>
             </p>

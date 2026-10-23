@@ -2,7 +2,6 @@
 
 import { FormEvent, useState } from "react";
 import { toast } from "sonner";
-import { SettingsToggle } from "@/components/settings/SettingsToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,9 +16,6 @@ type Props = {
 
 export function AccountSettingsCard({ account, onUpdated }: Props) {
   const [name, setName] = useState(account.name);
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [password, setPassword] = useState("");
-  const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [saving, setSaving] = useState(false);
   const [revoking, setRevoking] = useState(false);
 
@@ -27,20 +23,11 @@ export function AccountSettingsCard({ account, onUpdated }: Props) {
     e.preventDefault();
     setSaving(true);
     try {
-      const body: Record<string, string> = { name };
-      if (password) {
-        body.current_password = currentPassword;
-        body.password = password;
-        body.password_confirmation = passwordConfirmation;
-      }
       const res = await api<{ account: AccountInfo; message: string }>("/account", {
         method: "PATCH",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ name }),
       });
       onUpdated(res.account);
-      setCurrentPassword("");
-      setPassword("");
-      setPasswordConfirmation("");
       toast.success(res.message);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not update account");
@@ -65,7 +52,7 @@ export function AccountSettingsCard({ account, onUpdated }: Props) {
     <Card>
       <CardHeader>
         <CardTitle>Account</CardTitle>
-        <CardDescription>Your login details and session security</CardDescription>
+        <CardDescription>Your name and email. Sign-in codes are sent to this email.</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={saveAccount} className="space-y-4">
@@ -76,39 +63,6 @@ export function AccountSettingsCard({ account, onUpdated }: Props) {
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input id="email" value={account.email} disabled />
-          </div>
-          <div className="rounded-lg border border-border p-4 space-y-3">
-            <p className="text-sm font-medium">Change password</p>
-            <div className="space-y-2">
-              <Label htmlFor="current_password">Current password</Label>
-              <Input
-                id="current_password"
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">New password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password_confirmation">Confirm new password</Label>
-              <Input
-                id="password_confirmation"
-                type="password"
-                value={passwordConfirmation}
-                onChange={(e) => setPasswordConfirmation(e.target.value)}
-                autoComplete="new-password"
-              />
-            </div>
           </div>
           <Button type="submit" disabled={saving}>
             {saving ? "Saving…" : "Save account"}

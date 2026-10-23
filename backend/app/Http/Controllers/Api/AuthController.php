@@ -3,15 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
+use App\Services\Auth\EmailCodeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
-    public function register(Request $request): JsonResponse
+    public function __construct(private EmailCodeService $codes) {}
+
+    public function sendCode(Request $request): JsonResponse
     {
         if ($request->filled('username')) {
             $request->merge([
@@ -19,68 +19,55 @@ class AuthController extends Controller
             ]);
         }
 
+        if ($request->filled('email')) {
+            $request->merge([
+                'email' => strtolower(trim((string) $request->input('email'))),
+            ]);
+        }
+
         $validated = $request->validate([
-            'setup' => ['nullable', 'in:email,manual'],
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
-            'username' => ['exclude_unless:setup,manual', 'required', 'string', 'min:3', 'max:30', 'regex:/^[A-Za-z0-9_]+$/', 'unique:users,username'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'purpose' => ['required', 'in:login,register'],
+            'email' => ['required', 'string', 'email', 'max:255'],
+            'name' => ['exclude_unless:purpose,register', 'required', 'string', 'max:255'],
+            'username' => ['exclude_unless:purpose,register', 'required', 'string', 'min:3', 'max:30', 'regex:/^[A-Za-z0-9_]+$/', 'unique:users,username'],
         ], [
-            'email.unique' => 'That email already has an account. Sign in instead.',
+            'email.email' => 'Enter a valid email.',
+            'name.required' => 'Enter your name.',
             'username.required' => 'Choose a username.',
             'username.unique' => 'That username is taken.',
             'username.regex' => 'Use letters, numbers, and underscores only.',
-            'password.min' => 'Use at least 8 characters.',
-            'password.confirmed' => 'Those passwords do not match.',
         ]);
 
-        $user = User::create([
-            'name' => $validated['name'],
-            'username' => isset($validated['username']) ? strtolower($validated['username']) : null,
-            'email' => $validated['email'],
-            'password' => $validated['password'],
-            'subscription_plan' => 'creator',
-        ]);
+        $result = $this->codes->send(
+            $validated['purpose'],
+            $validated['email'],
+            $validated['name'] ?? null,
+            $validated['username'] ?? null,
+        );
 
-        $token = $user->createToken('api')->plainTextToken;
-
-        return response()->json([
-            'user' => $user,
-            'token' => $token,
-        ], 201);
+        return response()->json($result);
     }
 
-    public function login(Request $request): JsonResponse
+    public function verifyCode(Request $request): JsonResponse
     {
+        if ($request->filled('email')) {
+            $request->merge([
+                'email' => strtolower(trim((string) $request->input('email'))),
+            ]);
+        }
+
         $validated = $request->validate([
-            'email' => ['required_without:login', 'nullable', 'string'],
-            'login' => ['required_without:email', 'nullable', 'string'],
-            'password' => ['required', 'string'],
+            'email' => ['required', 'string', 'email', 'max:255'],
+            'code' => ['required', 'string', 'digits:6'],
+        ], [
+            'code.digits' => 'Enter the 6-digit code from your email.',
         ]);
 
-        $login = trim((string) ($validated['login'] ?? $validated['email'] ?? ''));
-        $user = str_contains($login, '@')
-            ? User::query()->where('email', $login)->first()
-            : User::query()->where('username', strtolower($login))->first();
+        $result = $this->codes->verify($validated['email'], $validated['code']);
+        $status = $result['created'] ? 201 : 200;
+        unset($result['created']);
 
-        if (! $user || ! $user->password || ! Hash::check($validated['password'], $user->password)) {
-            throw ValidationException::withMessages([
-                'email' => ['That email or username and password do not match.'],
-            ]);
-        }
-
-        if ($user->is_blocked) {
-            throw ValidationException::withMessages([
-                'email' => ['This account has been suspended. Contact support for help.'],
-            ]);
-        }
-
-        $token = $user->createToken('api')->plainTextToken;
-
-        return response()->json([
-            'user' => $user,
-            'token' => $token,
-        ]);
+        return response()->json($result, $status);
     }
 
     public function logout(Request $request): JsonResponse
