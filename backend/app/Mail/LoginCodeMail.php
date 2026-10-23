@@ -28,6 +28,7 @@ class LoginCodeMail extends Mailable
     {
         return new Content(
             view: 'mail.login-code',
+            text: 'mail.login-code-text',
         );
     }
 }

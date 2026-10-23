@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\PlatformSetup;
 use App\Models\Trend;
+use App\Services\AICore\DeskMomentService;
 use App\Services\TrendEngine\OpportunityScorerService;
 use App\Services\XApi\XApiService;
 use Throwable;
@@ -16,6 +17,7 @@ class DashboardController extends Controller
     public function __construct(
         private readonly OpportunityScorerService $opportunityScorer,
         private readonly XApiService $x,
+        private readonly DeskMomentService $moments,
     ) {}
 
     public function stats(Request $request): JsonResponse
@@ -128,12 +130,12 @@ class DashboardController extends Controller
 
         $ideas = [];
         if ($profile?->onboarding_completed) {
-            $ideas = collect($this->opportunityScorer->rankedForProfile($profile, 4))
-                ->map(fn ($item) => [
-                    'name' => $item['trend']->name,
-                    'suggestion' => $item['suggestion'],
-                ])
+            $recent = (clone $posts)->latest()->limit(6)->pluck('content')
+                ->map(fn ($content) => mb_substr(trim((string) $content), 0, 180))
+                ->filter()
+                ->values()
                 ->all();
+            $ideas = $this->moments->forProfile($user, $profile, $platform, $recent);
         }
 
         return response()->json([

@@ -113,7 +113,7 @@ function Section({
 
 function IdeaList({ desk, verb }: { desk: Desk; verb: string }) {
   if (desk.ideas.length === 0) {
-    return <p className="text-sm text-muted-foreground">Ideas show here once your niche is set.</p>;
+    return <p className="text-sm text-muted-foreground">Fresh moments for this account show here.</p>;
   }
   return (
     <ul className="divide-y divide-border">
@@ -173,7 +173,7 @@ function XBody({ desk }: { desk: Desk }) {
     <div className="grid gap-6 lg:grid-cols-2">
       <Section
         title="Moments in your niche"
-        description="What people are talking about right now."
+        description="Written for this account. A new set when you come back."
         action={
           <Link href="/trends" className="text-sm text-muted-foreground hover:text-foreground">
             All topics
@@ -316,7 +316,7 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
           return;
         }
         setChosen(state.platforms);
-        setDesk(await api<Desk>(`/dashboard/platform/${platform}`));
+        setDesk(await api<Desk>(`/dashboard/platform/${platform}`, undefined, 20000, "The dashboard is taking too long. Refresh in a moment."));
       } catch (err) {
         if (!getToken()) {
           router.replace("/login");

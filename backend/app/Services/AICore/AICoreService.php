@@ -2,6 +2,7 @@
 
 namespace App\Services\AICore;
 
+use App\Models\AccountProfile;
 use App\Models\AiRule;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
@@ -261,6 +262,126 @@ PROMPT;
         return array_slice($niches, 0, 3);
     }
 
+    /**
+     * Fresh post moments for one account. Each call is asked to avoid the last set.
+     *
+     * @param  list<array{name?: string, suggestion?: string}>  $avoid
+     * @param  list<string>  $recentPosts
+     * @return list<array{name: string, suggestion: string}>
+     */
+    public function suggestMoments(User $user, AccountProfile $profile, string $platform, array $avoid = [], array $recentPosts = []): array
+    {
+        $this->ensureConfigured();
+        $this->usage->assertCanGenerate($user);
+
+        $platformName = match ($platform) {
+            'tiktok' => 'TikTok',
+            'youtube' => 'YouTube',
+            default => 'X',
+        };
+        $niche = $profile->resolvedNiche();
+        $tone = str_replace('_', ' ', $profile->primaryTone());
+        $goal = $profile->goalSentenceFor($platform);
+        $description = trim((string) $profile->description);
+        $audience = trim((string) $profile->audience);
+        $leans = [
+            'a specific number from their work',
+            'a small disagreement with common advice',
+            'a memory from this week',
+            'a question their audience will argue about',
+            'a shortcut people get wrong',
+            'something they stopped doing',
+        ];
+        $lean = $leans[random_int(0, count($leans) - 1)];
+
+        $systemPrompt = $this->buildSystemPrompt(
+            'desk_moments',
+            'You invent specific post moments for one social account. Write like a sharp editor. A moment is something this person could publish today. Never return a category label, the niche name by itself, or a line that starts with "Strong moment", "Good time", or "Watch".',
+        );
+
+        $userPrompt = "Invent exactly 4 fresh moments for this {$platformName} account.\n\n";
+        $userPrompt .= "- Niche: {$niche}\n";
+        $userPrompt .= "- Voice: {$tone}\n";
+        $userPrompt .= "- What they are trying to do: {$goal}\n";
+        if ($description !== '') {
+            $userPrompt .= "- How they describe the account: {$description}\n";
+        }
+        if ($audience !== '') {
+            $userPrompt .= "- Audience: {$audience}\n";
+        }
+        $userPrompt .= "\nLean this set toward {$lean}.\n";
+        $userPrompt .= "Make the four unlike each other: one observation, one short story, one question people will answer, and one opinion.\n";
+        $userPrompt .= "Use details only this account would know. Do not write a content calendar.\n\n";
+        $userPrompt .= "Do not repeat these earlier moments:\n";
+        if ($avoid === []) {
+            $userPrompt .= "- None yet. This is the first set.\n";
+        } else {
+            foreach ($avoid as $item) {
+                $name = trim((string) ($item['name'] ?? ''));
+                if ($name !== '') {
+                    $userPrompt .= '- '.str_replace("\n", ' ', $name)."\n";
+                }
+            }
+        }
+        $userPrompt .= "\nDo not reuse these recent posts:\n";
+        if ($recentPosts === []) {
+            $userPrompt .= "- None yet.\n";
+        } else {
+            foreach ($recentPosts as $post) {
+                $line = trim(str_replace("\n", ' ', $post));
+                if ($line !== '') {
+                    $userPrompt .= '- '.mb_substr($line, 0, 180)."\n";
+                }
+            }
+        }
+        $userPrompt .= <<<'PROMPT'
+
+Return JSON:
+{
+  "moments": [
+    {
+      "name": "a concrete hook under 80 characters",
+      "suggestion": "one sentence on the angle, under 140 characters"
+    }
+  ]
+}
+PROMPT;
+
+        $result = $this->chatJson($systemPrompt, $userPrompt, 1.0);
+
+        $moments = [];
+        foreach ($result['parsed']['moments'] ?? [] as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $name = trim((string) ($item['name'] ?? ''));
+            $suggestion = trim((string) ($item['suggestion'] ?? ''));
+            if ($name === '' || $suggestion === '') {
+                continue;
+            }
+            $moments[] = [
+                'name' => mb_substr($name, 0, 90),
+                'suggestion' => mb_substr($suggestion, 0, 180),
+            ];
+        }
+
+        if (count($moments) < 3) {
+            throw new RuntimeException('OpenAI returned no post moments.');
+        }
+
+        $this->usage->record($user, [
+            'feature' => 'desk_moments',
+            'model' => $this->model(),
+            'input_tokens' => $result['input_tokens'],
+            'output_tokens' => $result['output_tokens'],
+            'total_tokens' => $result['total_tokens'],
+            'web_search_calls' => 0,
+            'used_web_search' => false,
+        ]);
+
+        return array_slice($moments, 0, 4);
+    }
+
     private function formatInstructions(string $contentType): string
     {
         return match ($contentType) {
@@ -437,7 +558,7 @@ PROMPT;
      *     web_search_calls: int
      * }
      */
-    private function chatJson(string $system, string $user): array
+    private function chatJson(string $system, string $user, float $temperature = 0.8): array
     {
         try {
             $response = OpenAI::chat()->create([
@@ -447,7 +568,7 @@ PROMPT;
                     ['role' => 'user', 'content' => $user],
                 ],
                 'response_format' => ['type' => 'json_object'],
-                'temperature' => 0.8,
+                'temperature' => $temperature,
             ]);
         } catch (\Throwable $e) {
             Log::error('OpenAI request failed', ['error' => $e->getMessage()]);
