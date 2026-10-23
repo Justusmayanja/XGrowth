@@ -178,7 +178,7 @@ export default function LoginPage() {
                   <p className="mt-1.5 text-xs text-[#7f93ab]">We email a code. It expires in 10 minutes.</p>
                 </div>
                 <button type="submit" className="th-cta" disabled={loading}>
-                  {loading ? "Sending code…" : "Email me a code"}
+                  {loading ? "Logging in…" : "Login"}
                 </button>
               </form>
             )}

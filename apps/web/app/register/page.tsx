@@ -213,7 +213,7 @@ export default function RegisterPage() {
             />
           </div>
           <button type="submit" className="th-cta" disabled={loading}>
-            {loading ? "Sending code…" : "Email me a code"}
+            {loading ? "Creating account…" : "Create account"}
           </button>
         </form>
       )}
