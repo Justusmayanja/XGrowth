@@ -84,7 +84,6 @@ jobs:
             backend/ "$DEST:/home/ytfucmimat/xpulse/backend/"
           rsync -az --delete -e "$RSYNC" \
             --exclude /tmp \
-            --exclude /public \
             --exclude stderr.log \
             --exclude startup-path.txt \
             deploy/node-app/ "$DEST:/home/ytfucmimat/xpulse/web/"

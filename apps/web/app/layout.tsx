@@ -58,6 +58,13 @@ export const metadata: Metadata = {
       "YouTube can make the video and post it, or wait for you. TikTok waits for your yes. X posts when the moment is right.",
     type: "website",
   },
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/brand/m7-mark.png", type: "image/png" },
+    ],
+    apple: "/brand/mackie17-mark.png",
+  },
 };
 
 export default function RootLayout({
