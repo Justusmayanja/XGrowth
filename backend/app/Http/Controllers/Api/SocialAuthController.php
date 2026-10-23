@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\XApi\XApiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,6 +16,10 @@ use Throwable;
 
 class SocialAuthController extends Controller
 {
+    public function __construct(
+        private readonly XApiService $x,
+    ) {}
+
     public function providers(): JsonResponse
     {
         return response()->json([
@@ -29,6 +34,13 @@ class SocialAuthController extends Controller
             return $this->fail($this->unavailableMessage($provider));
         }
 
+        if ($provider === 'x') {
+            return redirect()->away($this->x->authorizationUrl([
+                'provider' => 'x',
+                'purpose' => 'login',
+            ]));
+        }
+
         $verifier = $this->verifier();
         $state = Crypt::encryptString(json_encode([
             'provider' => $provider,
@@ -36,30 +48,16 @@ class SocialAuthController extends Controller
             'exp' => now()->addMinutes(10)->timestamp,
         ]));
 
-        $query = $provider === 'google'
-            ? [
-                'client_id' => config('services.google.client_id'),
-                'redirect_uri' => config('services.google.redirect'),
-                'response_type' => 'code',
-                'scope' => 'openid email profile',
-                'state' => $state,
-                'prompt' => 'select_account',
-            ]
-            : [
-                'response_type' => 'code',
-                'client_id' => config('services.x.client_id'),
-                'redirect_uri' => config('services.x.redirect'),
-                'scope' => 'users.read tweet.read offline.access',
-                'state' => $state,
-                'code_challenge' => $this->challenge($verifier),
-                'code_challenge_method' => 'S256',
-            ];
+        $query = [
+            'client_id' => config('services.google.client_id'),
+            'redirect_uri' => config('services.google.redirect'),
+            'response_type' => 'code',
+            'scope' => 'openid email profile',
+            'state' => $state,
+            'prompt' => 'select_account',
+        ];
 
-        $url = $provider === 'google'
-            ? 'https://accounts.google.com/o/oauth2/v2/auth'
-            : 'https://twitter.com/i/oauth2/authorize';
-
-        return redirect()->away($url.'?'.http_build_query($query));
+        return redirect()->away('https://accounts.google.com/o/oauth2/v2/auth?'.http_build_query($query));
     }
 
     public function callback(Request $request, string $provider): RedirectResponse
@@ -85,6 +83,10 @@ class SocialAuthController extends Controller
         $code = (string) $request->query('code', '');
         if ($code === '') {
             return $this->fail('The sign-in did not come back with a code. Try again.');
+        }
+
+        if ($provider === 'x' && ($state['purpose'] ?? 'login') === 'connect') {
+            return $this->finishXConnect($state, $code);
         }
 
         try {
@@ -148,6 +150,7 @@ class SocialAuthController extends Controller
             (string) ($pending['name'] ?? 'Mackie17 member'),
             $username,
         );
+        $this->x->attachRemembered($user);
 
         return response()->json([
             'user' => $user,
@@ -204,6 +207,10 @@ class SocialAuthController extends Controller
             return $this->fail('This account has been suspended. Contact support for help.');
         }
 
+        if ($provider === 'x') {
+            $this->x->attachRemembered($user);
+        }
+
         $token = $user->createToken('api')->plainTextToken;
 
         return redirect()->away($this->frontend('/auth/callback#token='.urlencode($token)));
@@ -254,26 +261,36 @@ class SocialAuthController extends Controller
      */
     private function xProfile(string $code, string $verifier): array
     {
-        $token = Http::asForm()
-            ->withBasicAuth((string) config('services.x.client_id'), (string) config('services.x.client_secret'))
-            ->post('https://api.twitter.com/2/oauth2/token', [
-                'code' => $code,
-                'grant_type' => 'authorization_code',
-                'redirect_uri' => config('services.x.redirect'),
-                'code_verifier' => $verifier,
-            ])->throw()->json();
+        $token = $this->x->exchange($code, $verifier);
+        $profile = $this->x->profile($token['access_token']);
+        if ($profile['id'] !== '') {
+            $this->x->rememberToken($profile['id'], $token);
+        }
 
-        $info = Http::withToken($token['access_token'])
-            ->get('https://api.twitter.com/2/users/me', [
-                'user.fields' => 'name,username',
-            ])->throw()->json('data');
+        return $profile;
+    }
 
-        return [
-            'id' => (string) ($info['id'] ?? ''),
-            'email' => null,
-            'name' => (string) ($info['name'] ?? ''),
-            'username' => isset($info['username']) ? strtolower((string) $info['username']) : null,
-        ];
+    /**
+     * @param  array<string, mixed>  $state
+     */
+    private function finishXConnect(array $state, string $code): RedirectResponse
+    {
+        $next = in_array($state['next'] ?? null, ['/settings', '/onboarding'], true)
+            ? $state['next']
+            : '/settings';
+        $user = User::query()->find($state['user_id'] ?? 0);
+
+        if (! $user || $user->is_blocked) {
+            return redirect()->away($this->frontend($next.'?x=error'));
+        }
+
+        try {
+            $this->x->connectFromCode($user, $code, (string) ($state['verifier'] ?? ''));
+        } catch (Throwable) {
+            return redirect()->away($this->frontend($next.'?x=error'));
+        }
+
+        return redirect()->away($this->frontend($next.'?x=connected'));
     }
 
     private function freeUsername(?string $username): ?string
@@ -302,11 +319,6 @@ class SocialAuthController extends Controller
     private function verifier(): string
     {
         return rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
-    }
-
-    private function challenge(string $verifier): string
-    {
-        return rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
     }
 
     private function fail(string $message): RedirectResponse

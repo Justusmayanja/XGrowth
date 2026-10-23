@@ -288,7 +288,7 @@ export function OnboardingWizard() {
 
   useEffect(() => {
     if (step?.kind === "chapter" && step.stage === "connect" && !xStatus) {
-      api<XConnectStatus>("/connected-accounts/x/status")
+      api<XConnectStatus>("/connected-accounts/x/status?next=/onboarding")
         .then(setXStatus)
         .catch(() =>
           setXStatus({ available: false, connected: false, message: "Could not check the X connection." })

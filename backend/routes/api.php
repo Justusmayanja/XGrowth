@@ -75,6 +75,7 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
 
         Route::post('/content/generate', [ContentController::class, 'generate']);
         Route::post('/content/drafts', [ContentController::class, 'saveDraft']);
+        Route::post('/content/drafts/{post}/publish', [ContentController::class, 'publish']);
         Route::put('/content/drafts/{post}', [ContentController::class, 'updateDraft']);
         Route::delete('/content/drafts/{post}', [ContentController::class, 'destroy']);
         Route::get('/content/posts', [ContentController::class, 'index']);
@@ -93,6 +94,7 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
 
         Route::get('/connected-accounts', [ConnectedAccountController::class, 'index']);
         Route::get('/connected-accounts/x/status', [ConnectedAccountController::class, 'connectStatus']);
+        Route::delete('/connected-accounts/x', [ConnectedAccountController::class, 'disconnect']);
     });
 
     Route::post('/billing/preview', [BillingController::class, 'preview']);

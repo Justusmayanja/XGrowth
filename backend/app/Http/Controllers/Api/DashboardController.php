@@ -5,9 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\PlatformSetup;
 use App\Models\Trend;
-use App\Services\GrowthAgent\GrowthAgentService;
 use App\Services\TrendEngine\OpportunityScorerService;
-use App\Services\TrendEngine\TrendEngineService;
+use App\Services\XApi\XApiService;
+use Throwable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -15,6 +15,7 @@ class DashboardController extends Controller
 {
     public function __construct(
         private readonly OpportunityScorerService $opportunityScorer,
+        private readonly XApiService $x,
     ) {}
 
     public function stats(Request $request): JsonResponse
@@ -27,15 +28,12 @@ class DashboardController extends Controller
         $postedCount = (clone $posts)->where('status', 'posted')->count();
         $draftCount = (clone $posts)->where('status', 'draft')->count();
 
-        $preview = ! $hasXConnected;
-        $seed = crc32($user->id.($profile?->niche ?? 'general'));
+        $live = $hasXConnected ? $this->liveActivity($user) : null;
 
-        $followersTotal = $preview ? 840 + ($seed % 4200) : 0;
-        $followersToday = $preview ? ($seed % 9) + 1 : 0;
-        $followersWeek = $preview ? ($seed % 35) + 8 : 0;
-        $impressionsTotal = $preview
-            ? 12000 + ($seed % 80000)
-            : (int) (clone $posts)->where('status', 'posted')->sum('impressions');
+        $followersTotal = $live['followers'] ?? 0;
+        $followersToday = 0;
+        $followersWeek = 0;
+        $impressionsTotal = $live['impressions'] ?? (int) (clone $posts)->where('status', 'posted')->sum('impressions');
 
         $topOpportunity = null;
         if ($profile?->onboarding_completed) {
@@ -59,20 +57,20 @@ class DashboardController extends Controller
                 ],
                 'impressions' => [
                     'total' => $impressionsTotal,
-                    'change_percent' => $preview ? round(8 + ($seed % 22), 1) : 0,
+                    'change_percent' => 0,
                 ],
-                'engagement_rate' => $preview ? round(2.4 + ($seed % 30) / 10, 1) : 0,
-                'profile_visits' => $preview ? 120 + ($seed % 400) : 0,
-                'growth_score' => $profile?->onboarding_completed ? min(95, 68 + ($seed % 25)) : 0,
+                'engagement_rate' => $live['engagement_rate'] ?? 0,
+                'profile_visits' => 0,
+                'growth_score' => $profile?->onboarding_completed ? 70 : 0,
                 'posts_posted' => $postedCount,
                 'posts_draft' => $draftCount,
                 'connected_accounts' => $user->connectedAccounts()->where('is_active', true)->count(),
-                'preview_metrics' => $preview,
+                'preview_metrics' => ! $hasXConnected,
                 'top_opportunity' => $topOpportunity,
             ],
-            'note' => $preview
-                ? 'Preview metrics shown until your X account is connected.'
-                : null,
+            'note' => $hasXConnected
+                ? null
+                : 'Connect X to load live followers and impressions.',
         ]);
     }
 
@@ -88,7 +86,7 @@ class DashboardController extends Controller
         $connected = $user->connectedAccounts()
             ->where('platform', $platform)
             ->where('is_active', true)
-            ->first(['id', 'username']);
+            ->first();
 
         $posts = $user->posts()->where(function ($query) use ($platform) {
             if ($platform === 'x') {
@@ -102,7 +100,8 @@ class DashboardController extends Controller
         $drafts = (clone $posts)->where('status', 'draft')->latest()->limit(5)
             ->get(['id', 'content', 'content_type', 'created_at']);
 
-        $preview = $connected === null;
+        $preview = $platform !== 'x' && $connected === null;
+        $live = $platform === 'x' ? $this->liveActivity($user) : null;
         $seed = crc32($user->id.$platform.($profile?->niche ?? 'general'));
 
         $metrics = match ($platform) {
@@ -116,18 +115,19 @@ class DashboardController extends Controller
                 ['label' => 'Watch hours', 'value' => $preview ? 40 + ($seed % 900) : 0, 'sub' => 'Last 28 days'],
                 ['label' => 'Views', 'value' => $preview ? 2400 + ($seed % 50000) : 0, 'sub' => 'Last 28 days'],
             ],
-            default => [
-                ['label' => 'Followers', 'value' => $preview ? 840 + ($seed % 4200) : 0, 'sub' => '+'.($preview ? ($seed % 35) + 8 : 0).' this week'],
-                ['label' => 'Impressions', 'value' => $preview ? 12000 + ($seed % 80000) : (int) (clone $posts)->where('status', 'posted')->sum('impressions'), 'sub' => 'Last 7 days'],
-                ['label' => 'Engagement', 'value' => $preview ? round(2.4 + ($seed % 30) / 10, 1) : 0, 'sub' => 'Percent of impressions', 'suffix' => '%'],
+            default => $live ? [
+                ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Live from X'],
+                ['label' => 'Impressions', 'value' => $live['impressions'], 'sub' => 'Recent posts'],
+                ['label' => 'Engagement', 'value' => $live['engagement_rate'], 'sub' => 'Recent posts', 'suffix' => '%'],
+            ] : [
+                ['label' => 'Followers', 'value' => 0, 'sub' => $connected ? 'Could not load from X' : 'Connect X'],
+                ['label' => 'Impressions', 'value' => 0, 'sub' => $connected ? 'Could not load from X' : 'Connect X'],
+                ['label' => 'Engagement', 'value' => 0, 'sub' => $connected ? 'Could not load from X' : 'Connect X', 'suffix' => '%'],
             ],
         };
 
         $ideas = [];
         if ($profile?->onboarding_completed) {
-            if (Trend::count() === 0) {
-                app(TrendEngineService::class)->seedMockTrends();
-            }
             $ideas = collect($this->opportunityScorer->rankedForProfile($profile, 4))
                 ->map(fn ($item) => [
                     'name' => $item['trend']->name,
@@ -158,10 +158,6 @@ class DashboardController extends Controller
 
     public function trends(Request $request): JsonResponse
     {
-        if (Trend::count() === 0) {
-            app(TrendEngineService::class)->seedMockTrends();
-        }
-
         $profile = $request->user()->accountProfile;
 
         if ($profile?->onboarding_completed) {
@@ -194,10 +190,6 @@ class DashboardController extends Controller
             return response()->json(['opportunities' => []]);
         }
 
-        if (Trend::count() === 0) {
-            app(TrendEngineService::class)->seedMockTrends();
-        }
-
         $ranked = $this->opportunityScorer->rankedForProfile($profile, 5);
 
         return response()->json([
@@ -211,5 +203,28 @@ class DashboardController extends Controller
                 'suggestion' => $item['suggestion'],
             ]),
         ]);
+    }
+
+    /**
+     * @return array{followers: int, impressions: int, engagement_rate: float, tweets: list<array<string, mixed>>}|null
+     */
+    private function liveActivity(mixed $user): ?array
+    {
+        $account = $user->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->first();
+
+        if (! $account) {
+            return null;
+        }
+
+        try {
+            return $this->x->accountActivity($account);
+        } catch (Throwable $e) {
+            report($e);
+
+            return null;
+        }
     }
 }

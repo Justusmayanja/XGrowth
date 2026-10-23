@@ -12,6 +12,7 @@ import { PrivacySettingsCard } from "@/components/settings/PrivacySettingsCard";
 import { ProfileForm } from "@/components/settings/ProfileForm";
 import { SafetySummaryCard } from "@/components/settings/SafetySummaryCard";
 import { PlatformSetupCard } from "@/components/setup/PlatformSetupCard";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import type {
   AccountInfo,
@@ -36,7 +37,7 @@ export default function SettingsPage() {
         automation: AutomationSettings;
         notifications: NotificationSettings;
       }>("/account/settings"),
-      api<XConnectStatus>("/connected-accounts/x/status"),
+      api<XConnectStatus>("/connected-accounts/x/status?next=/settings"),
       api<SafetyStatus>("/safety/status"),
     ])
       .then(([settings, x, s]) => {
@@ -47,6 +48,15 @@ export default function SettingsPage() {
         setSafety(s);
       })
       .finally(() => setLoading(false));
+
+    const flag = new URLSearchParams(window.location.search).get("x");
+    if (flag === "connected") toast.success("X is connected.");
+    if (flag === "error") toast.error("X could not be connected. Try again.");
+    if (flag) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("x");
+      window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+    }
   }, []);
 
   if (loading || !account) {
@@ -69,7 +79,12 @@ export default function SettingsPage() {
 
       <ProfileForm />
 
-      <ConnectedAccountCard status={xStatus} />
+      <ConnectedAccountCard
+        status={xStatus}
+        onDisconnected={() => {
+          api<XConnectStatus>("/connected-accounts/x/status?next=/settings").then(setXStatus);
+        }}
+      />
 
       <NotificationSettingsCard initial={notifications} />
 

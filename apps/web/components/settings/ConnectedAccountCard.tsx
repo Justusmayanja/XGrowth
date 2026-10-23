@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { type SocialBrand, SocialName } from "@/components/SocialLogo";
 import type { XConnectStatus } from "@/lib/settings";
 
 type Props = {
   status: XConnectStatus | null;
+  onDisconnected?: (status: XConnectStatus) => void;
 };
 
 const pending: Array<{ name: string; brand: SocialBrand; href: string; note: string }> = [
@@ -25,10 +28,20 @@ const pending: Array<{ name: string; brand: SocialBrand; href: string; note: str
   },
 ];
 
-export function ConnectedAccountCard({ status }: Props) {
+export function ConnectedAccountCard({ status, onDisconnected }: Props) {
   function connect() {
     if (status?.authorize_url) {
       window.location.href = status.authorize_url;
+    }
+  }
+
+  async function disconnect() {
+    try {
+      const next = await api<XConnectStatus>("/connected-accounts/x", { method: "DELETE" });
+      onDisconnected?.(next);
+      toast.success("X disconnected");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not disconnect X");
     }
   }
 
@@ -53,8 +66,8 @@ export function ConnectedAccountCard({ status }: Props) {
             <>
               {status.username && <p className="mt-2 text-sm">@{status.username}</p>}
               <p className="mt-2 text-sm text-muted-foreground">{status.message}</p>
-              <Button variant="outline" size="sm" className="mt-3" disabled>
-                Disconnect is not available yet
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => void disconnect()}>
+                Disconnect
               </Button>
             </>
           ) : (

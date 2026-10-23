@@ -89,7 +89,7 @@ export default function AnalyticsPage() {
         </DeskHeading>
         {data.preview_metrics && (
           <Badge variant="outline" className="border-amber-500/40 text-amber-300">
-            Sample numbers. Connect X for live totals.
+            Connect X for live totals.
           </Badge>
         )}
       </div>
@@ -160,6 +160,9 @@ export default function AnalyticsPage() {
             <CardDescription>Ranked by impressions</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {data.top_posts.length === 0 && (
+              <p className="text-sm text-muted-foreground">No posts from X yet.</p>
+            )}
             {data.top_posts.map((post, i) => (
               <div key={post.id} className="rounded-lg border border-border p-4">
                 <div className="mb-2 flex items-center justify-between gap-2">

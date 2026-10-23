@@ -5,12 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AccountProfile;
 use App\Models\Post;
-use App\Models\Trend;
 use App\Models\User;
 use App\Services\AICore\AiContextBuilder;
 use App\Services\AICore\AICoreService;
 use App\Services\TrendEngine\OpportunityScorerService;
-use App\Services\TrendEngine\TrendEngineService;
+use App\Services\GrowthAgent\SafetyEngineService;
+use App\Services\XApi\XApiService;
 use App\Support\SetupCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -77,10 +77,6 @@ class ContentController extends Controller
         $trends = [];
 
         if ($profile?->onboarding_completed) {
-            if (Trend::count() === 0) {
-                app(TrendEngineService::class)->seedMockTrends();
-            }
-
             foreach ($this->opportunityScorer->rankedForProfile($profile, 3) as $item) {
                 $trends[] = mb_substr($item['trend']->name, 0, 80);
             }
@@ -118,6 +114,50 @@ class ContentController extends Controller
         ]);
 
         return response()->json(['post' => $post], 201);
+    }
+
+    public function publish(Request $request, Post $post, XApiService $x, SafetyEngineService $safety): JsonResponse
+    {
+        if ($post->user_id !== $request->user()->id) {
+            abort(403);
+        }
+
+        if ($post->status !== 'draft') {
+            return response()->json(['message' => 'Only a draft can be posted.'], 422);
+        }
+
+        if (SetupCatalog::platformForContentType($post->content_type) !== 'x') {
+            return response()->json(['message' => 'Only X drafts can be posted from here.'], 422);
+        }
+
+        $account = $request->user()->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->first();
+
+        if (! $account) {
+            return response()->json(['message' => 'Connect X before posting.'], 422);
+        }
+
+        if (! $safety->canAct($request->user(), 'post')) {
+            return response()->json(['message' => 'The daily post limit is reached.'], 429);
+        }
+
+        try {
+            $platformPostId = $x->publishText($account, $post->content, $post->content_type);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 502);
+        }
+
+        $post->update([
+            'status' => 'posted',
+            'platform_post_id' => $platformPostId,
+            'connected_account_id' => $account->id,
+            'posted_at' => now(),
+        ]);
+        $safety->recordAction($request->user(), 'post');
+
+        return response()->json(['post' => $post->fresh()]);
     }
 
     public function updateDraft(Request $request, Post $post): JsonResponse

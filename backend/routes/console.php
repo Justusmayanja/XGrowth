@@ -25,8 +25,8 @@ Artisan::command('xpulse:evaluate', function () {
 
 Artisan::command('xpulse:seed-trends', function () {
     $trends = app(TrendEngineService::class)->fetchGlobalTrends(force: true);
-    $this->info('Seeded '.count($trends).' trend(s).');
-})->purpose('Seed mock trends for local development');
+    $this->info('Refreshed '.count($trends).' trend(s).');
+})->purpose('Refresh the shared trend catalog from X');
 
 Artisan::command('xpulse:reset-safety', function () {
     $deleted = app(SafetyEngineService::class)->resetDailyBudgets();

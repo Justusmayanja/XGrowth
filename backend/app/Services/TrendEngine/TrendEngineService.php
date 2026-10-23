@@ -4,18 +4,21 @@ namespace App\Services\TrendEngine;
 
 use App\Models\Trend;
 use App\Services\Admin\PlatformSettingsService;
+use App\Services\XApi\XApiService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Throwable;
 
 class TrendEngineService
 {
     public function __construct(
         private readonly PlatformSettingsService $settings,
+        private readonly XApiService $x,
     ) {}
 
     /**
-     * Refresh the shared trend catalog. Called on the admin-configured schedule.
-     * Uses mock data until X API integration (final stage).
+     * Refresh the shared trend catalog from X. Called on the admin-configured schedule.
      */
     public function fetchGlobalTrends(bool $force = false): array
     {
@@ -25,10 +28,54 @@ class TrendEngineService
             return Trend::query()->orderByDesc('score')->limit(20)->get()->all();
         }
 
-        $trends = $this->seedMockTrends();
+        if (! $this->x->configured()) {
+            Log::info('Trend fetch skipped — X app credentials are not set');
+
+            return Trend::query()->orderByDesc('score')->limit(20)->get()->all();
+        }
+
+        try {
+            $topics = $this->x->trendingTopics();
+        } catch (Throwable $e) {
+            Log::warning('X trend fetch failed', ['error' => $e->getMessage()]);
+
+            return Trend::query()->orderByDesc('score')->limit(20)->get()->all();
+        }
+
+        if ($topics === []) {
+            return Trend::query()->orderByDesc('score')->limit(20)->get()->all();
+        }
+
+        Trend::query()->where('metadata->source', 'mock')->delete();
+
+        $max = max(1, ...array_map(fn (array $topic) => $topic['tweet_count'], $topics));
+        $seeded = [];
+
+        foreach (array_slice($topics, 0, 15) as $item) {
+            $slug = Str::slug($item['name']);
+            if ($slug === '') {
+                continue;
+            }
+
+            $score = $item['tweet_count'] > 0 ? round(40 + (60 * ($item['tweet_count'] / $max)), 1) : 50;
+            $seeded[] = Trend::updateOrCreate(
+                ['slug' => $slug],
+                [
+                    'name' => $item['name'],
+                    'score' => $score,
+                    'velocity' => 0,
+                    'growth_rate' => 0,
+                    'competition' => $score >= 80 ? 'high' : ($score >= 60 ? 'medium' : 'low'),
+                    'niche_tags' => [],
+                    'detected_at' => now(),
+                    'metadata' => ['source' => 'x'],
+                ]
+            );
+        }
+
         Cache::put('trends:last_fetched_at', now()->timestamp, now()->addDay());
 
-        return $trends;
+        return $seeded;
     }
 
     public function shouldFetchNow(): bool

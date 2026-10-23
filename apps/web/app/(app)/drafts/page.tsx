@@ -81,6 +81,19 @@ export default function DraftsPage() {
     }
   }
 
+  async function publishDraft(id: number) {
+    setSavingId(id);
+    try {
+      await api(`/content/drafts/${id}/publish`, { method: "POST" });
+      setDrafts((current) => current.filter((draft) => draft.id !== id));
+      toast.success("Posted to X");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not post to X");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   async function deleteDraft(id: number) {
     await api(`/content/drafts/${id}`, { method: "DELETE" });
     setDrafts((current) => current.filter((draft) => draft.id !== id));
@@ -145,6 +158,11 @@ export default function DraftsPage() {
                     <span className="text-xs text-muted-foreground">
                       {new Date(draft.created_at).toLocaleString()}
                     </span>
+                    {platform === "x" && (
+                      <Button size="sm" disabled={savingId === draft.id} onClick={() => publishDraft(draft.id)}>
+                        {savingId === draft.id ? "Posting…" : "Post to X"}
+                      </Button>
+                    )}
                     <Button size="sm" variant="secondary" onClick={() => startEdit(draft)}>
                       Edit
                     </Button>

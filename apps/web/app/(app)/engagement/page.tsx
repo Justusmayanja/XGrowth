@@ -79,6 +79,10 @@ export default function EngagementPage() {
         <div className="space-y-4">
           {loading ? (
             <p className="text-muted-foreground">Loading conversations…</p>
+          ) : posts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No conversations yet. Connect X and set a niche to see posts worth answering.
+            </p>
           ) : (
             posts.map((post) => (
               <Card key={post.id}>

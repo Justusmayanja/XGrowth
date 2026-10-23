@@ -4,66 +4,60 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\AICore\AICoreService;
+use App\Services\XApi\XApiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use RuntimeException;
+use Throwable;
 
 class EngagementController extends Controller
 {
     public function __construct(
         private readonly AICoreService $aiCore,
+        private readonly XApiService $x,
     ) {}
 
     public function feed(Request $request): JsonResponse
     {
         $profile = $request->user()->accountProfile;
-        $niche = $profile?->resolvedNiche() ?? 'your niche';
-        $tone = $profile?->primaryTone() ?? 'professional';
+        $niche = $profile?->resolvedNiche() ?? '';
+        $account = $request->user()->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->first();
 
-        $templates = [
-            [
-                'id' => 'mock-1',
-                'author' => '@niche_insider',
-                'author_followers' => 28400,
-                'content' => "Unpopular opinion: the conversation around {$niche} is missing the real story. Everyone's reacting to headlines — not what's actually happening.",
-                'likes' => 1240,
-                'reposts' => 318,
-                'replies' => 89,
-                'minutes_ago' => 12,
-                'opportunity_score' => 88,
-            ],
-            [
-                'id' => 'mock-2',
-                'author' => '@trend_watch',
-                'author_followers' => 51200,
-                'content' => "This is blowing up faster than expected. If you're building in {$niche}, now is the moment to say something useful — not generic.",
-                'likes' => 890,
-                'reposts' => 201,
-                'replies' => 56,
-                'minutes_ago' => 28,
-                'opportunity_score' => 79,
-            ],
-            [
-                'id' => 'mock-3',
-                'author' => '@daily_pulse',
-                'author_followers' => 9800,
-                'content' => "Genuine question for people in {$niche}: what's the one take nobody wants to say out loud?",
-                'likes' => 456,
-                'reposts' => 67,
-                'replies' => 142,
-                'minutes_ago' => 45,
-                'opportunity_score' => 91,
-            ],
+        $stats = [
+            'replies_sent_today' => 0,
+            'profile_visits_from_replies' => 0,
+            'followers_gained_from_engagement' => 0,
         ];
 
+        if (! $account) {
+            return response()->json([
+                'posts' => [],
+                'stats' => $stats,
+                'note' => 'Connect X to see conversations in your niche.',
+            ]);
+        }
+
+        try {
+            $posts = $this->x->searchNiche($account, $niche);
+        } catch (Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'posts' => [],
+                'stats' => $stats,
+                'note' => 'X did not return conversations. '.$e->getMessage(),
+            ]);
+        }
+
         return response()->json([
-            'posts' => $templates,
-            'stats' => [
-                'replies_sent_today' => 0,
-                'profile_visits_from_replies' => 0,
-                'followers_gained_from_engagement' => 0,
-            ],
-            'note' => "Sample feed tailored to {$niche}. Reply drafts use live OpenAI; live X data connects in a later stage.",
+            'posts' => $posts,
+            'stats' => $stats,
+            'note' => $posts === []
+                ? 'No recent public posts matched this niche.'
+                : null,
         ]);
     }
 
