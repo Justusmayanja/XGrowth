@@ -275,7 +275,7 @@ export default function ContentStudioPage() {
                     checked={useWebSearch}
                     disabled={webSearchDisabled}
                     onChange={(e) => setUseWebSearch(e.target.checked)}
-                    className="mt-1 rounded border-border"
+                    className="mt-0.5 size-4 shrink-0"
                   />
                   <span>
                     <span className="font-medium">Look up current facts</span>

@@ -111,6 +111,22 @@ label {
   outline-offset: 0;
 }
 
+.desk input[type="checkbox"],
+.desk input[type="radio"],
+.setup input[type="checkbox"],
+.setup input[type="radio"],
+input[type="checkbox"],
+input[type="radio"] {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: 0 0 auto;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  accent-color: var(--primary);
+}
+
 .desk .bg-surface-2,
 .desk .hover\:bg-surface-2:hover {
   background-color: var(--surface-2);
