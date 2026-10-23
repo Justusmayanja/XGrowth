@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useState, type ChangeEvent } from "react";
+import { FormEvent, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { AuthError, AuthLink } from "@/components/auth/AuthScreen";
+import { CodeDigits } from "@/components/auth/CodeDigits";
 import { SetupFrame } from "@/components/setup/SetupFrame";
 import { api, getToken, setToken } from "@/lib/api";
 import { getPostAuthPath, safeNext } from "@/lib/auth";
@@ -15,6 +16,9 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [nextPath, setNextPath] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [boxes, setBoxes] = useState(0);
+  const codeRef = useRef("");
+  const busy = useRef(false);
   const [fields, setFields] = useState({
     username: "",
     name: "",
@@ -54,6 +58,8 @@ export default function RegisterPage() {
         25000,
         EMAIL_TIMEOUT,
       );
+      codeRef.current = "";
+      setBoxes((current) => current + 1);
       setSent(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send the code");
@@ -67,11 +73,16 @@ export default function RegisterPage() {
     await sendCode();
   }
 
-  async function onCode(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function verify(code: string) {
+    const digits = code.replace(/\D/g, "");
+    if (digits.length !== 6) {
+      setError("Enter all 6 digits.");
+      return;
+    }
+    if (busy.current) return;
+    busy.current = true;
     setLoading(true);
     setError("");
-    const form = new FormData(e.currentTarget);
     try {
       const data = await api<{ token: string }>(
         "/auth/email/verify",
@@ -79,7 +90,7 @@ export default function RegisterPage() {
           method: "POST",
           body: JSON.stringify({
             email: fields.email,
-            code: String(form.get("code") ?? "").trim(),
+            code: digits,
           }),
         },
         25000,
@@ -89,7 +100,10 @@ export default function RegisterPage() {
       router.push(nextPath ?? "/onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the account");
+      codeRef.current = "";
+      setBoxes((current) => current + 1);
     } finally {
+      busy.current = false;
       setLoading(false);
     }
   }
@@ -142,10 +156,17 @@ export default function RegisterPage() {
     >
       <AuthError>{error}</AuthError>
       {sent ? (
-        <form onSubmit={onCode} className="space-y-4">
+        <form
+          key="code"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void verify(codeRef.current);
+          }}
+          className="flex flex-col gap-4"
+        >
           <button
             type="button"
-            className="text-sm text-[#9ec0ea] underline underline-offset-4"
+            className="self-start text-sm text-[#9ec0ea] underline underline-offset-4"
             onClick={() => {
               setSent(false);
               setError("");
@@ -154,26 +175,24 @@ export default function RegisterPage() {
             Change these details
           </button>
           <div>
-            <label htmlFor="code">Code</label>
-            <input
-              id="code"
-              name="code"
-              className="otp"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]{6}"
-              minLength={6}
-              maxLength={6}
-              required
-              autoFocus
+            <p id="code-label" className="mb-1.5 text-sm font-medium text-foreground">
+              Code
+            </p>
+            <CodeDigits
+              key={boxes}
+              disabled={loading}
+              onChange={(code) => {
+                codeRef.current = code;
+              }}
+              onComplete={(code) => void verify(code)}
             />
           </div>
-          <button type="submit" className="th-cta" disabled={loading}>
+          <button type="submit" className="th-cta w-full" disabled={loading}>
             {loading ? "Creating account…" : "Create the account"}
           </button>
           <button
             type="button"
-            className="text-sm text-[#9ec0ea] underline underline-offset-4"
+            className="self-start text-sm text-[#9ec0ea] underline underline-offset-4"
             disabled={loading}
             onClick={() => void sendCode()}
           >
@@ -181,7 +200,7 @@ export default function RegisterPage() {
           </button>
         </form>
       ) : (
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form key="details" onSubmit={onSubmit} className="space-y-4">
           <div>
             <label htmlFor="username">Username</label>
             <input

@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthError, AuthLink } from "@/components/auth/AuthScreen";
+import { CodeDigits } from "@/components/auth/CodeDigits";
 import { BrandLogo } from "@/components/BrandLogo";
 import { SocialName } from "@/components/SocialLogo";
 import { api, getToken, setToken } from "@/lib/api";
@@ -17,6 +18,9 @@ export default function LoginPage() {
   const [nextPath, setNextPath] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
+  const [boxes, setBoxes] = useState(0);
+  const codeRef = useRef("");
+  const busy = useRef(false);
 
   useEffect(() => {
     const next = safeNext(new URLSearchParams(window.location.search).get("next"));
@@ -48,6 +52,8 @@ export default function LoginPage() {
         25000,
         EMAIL_TIMEOUT,
       );
+      codeRef.current = "";
+      setBoxes((current) => current + 1);
       setSent(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send the code");
@@ -61,11 +67,16 @@ export default function LoginPage() {
     await sendCode();
   }
 
-  async function onCode(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function verify(code: string) {
+    const digits = code.replace(/\D/g, "");
+    if (digits.length !== 6) {
+      setError("Enter all 6 digits.");
+      return;
+    }
+    if (busy.current) return;
+    busy.current = true;
     setLoading(true);
     setError("");
-    const form = new FormData(e.currentTarget);
     try {
       const data = await api<{ token: string }>(
         "/auth/email/verify",
@@ -73,7 +84,7 @@ export default function LoginPage() {
           method: "POST",
           body: JSON.stringify({
             email,
-            code: String(form.get("code") ?? "").trim(),
+            code: digits,
           }),
         },
         25000,
@@ -83,7 +94,10 @@ export default function LoginPage() {
       router.push(nextPath ?? (await getPostAuthPath()));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed");
+      codeRef.current = "";
+      setBoxes((current) => current + 1);
     } finally {
+      busy.current = false;
       setLoading(false);
     }
   }
@@ -119,26 +133,31 @@ export default function LoginPage() {
             <h1>Sign in</h1>
             <AuthError>{error}</AuthError>
             {sent ? (
-              <form onSubmit={onCode} className="space-y-4">
+              <form
+                key="code"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void verify(codeRef.current);
+                }}
+                className="flex flex-col gap-4"
+              >
                 <p className="text-sm text-[#b7c6d8]">
                   We sent a 6-digit code to <strong className="text-[#e7eef6]">{email}</strong>. It expires in 10 minutes.
                 </p>
                 <div>
-                  <label htmlFor="code">Code</label>
-                  <input
-                    id="code"
-                    name="code"
-                    className="otp"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    pattern="[0-9]{6}"
-                    minLength={6}
-                    maxLength={6}
-                    required
-                    autoFocus
+                  <p id="code-label" className="mb-1.5 text-sm font-medium text-foreground">
+                    Code
+                  </p>
+                  <CodeDigits
+                    key={boxes}
+                    disabled={loading}
+                    onChange={(code) => {
+                      codeRef.current = code;
+                    }}
+                    onComplete={(code) => void verify(code)}
                   />
                 </div>
-                <button type="submit" className="th-cta" disabled={loading}>
+                <button type="submit" className="th-cta w-full" disabled={loading}>
                   {loading ? "Signing in…" : "Sign in"}
                 </button>
                 <div className="flex items-center justify-between text-sm">

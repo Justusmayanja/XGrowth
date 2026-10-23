@@ -50,20 +50,21 @@ label {
   outline-offset: 2px;
 }
 
-.auth-screen input.otp,
-.setup input.otp {
-  letter-spacing: 0.42em;
-  text-align: center;
-  font-size: 1.25rem;
-  font-variant-numeric: tabular-nums;
+.code-digits {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.45rem;
 }
 
-.auth-screen input.otp,
-.setup input.otp {
-  letter-spacing: 0.42em;
+input.code-digit {
+  width: 100%;
+  min-width: 0;
+  height: 3.1rem;
+  padding: 0;
   text-align: center;
   font-size: 1.25rem;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
 .auth-screen .th-cta {
