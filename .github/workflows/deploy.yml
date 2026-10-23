@@ -1,0 +1,94 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: mbstring, xml, curl, zip, bcmath, intl
+          coverage: none
+
+      - name: Composer install
+        working-directory: backend
+        run: composer install --no-dev --no-interaction --prefer-dist --no-scripts --optimize-autoloader
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Build the site
+        working-directory: apps/web
+        env:
+          NEXT_STANDALONE: "1"
+          NEXT_PUBLIC_API_URL: https://mackie17.com/api
+          API_PROXY_TARGET: https://mackie17.com
+        run: npm ci && npm run build
+
+      - name: Assemble the Node app
+        run: |
+          set -euo pipefail
+          ROOT="apps/web/.next/standalone"
+          if [[ -f "$ROOT/apps/web/server.js" ]]; then
+            APP="$ROOT/apps/web"
+            echo "apps/web/passenger.cjs" > "$ROOT/startup-path.txt"
+          else
+            APP="$ROOT"
+            echo "passenger.cjs" > "$ROOT/startup-path.txt"
+          fi
+          mkdir -p "$APP/.next"
+          cp -a apps/web/.next/static "$APP/.next/static"
+          rm -rf "$APP/public"
+          cp -a apps/web/public "$APP/public"
+          cp deploy/cpanel/passenger.cjs "$APP/passenger.cjs"
+          rm -rf deploy/node-app
+          mkdir -p deploy/node-app
+          cp -a "$ROOT/." deploy/node-app/
+
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Publish to cPanel
+        env:
+          SSH_HOST: 66.29.148.149
+          SSH_PORT: "21098"
+          SSH_USER: ytfucmimat
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+          RSYNC="ssh -p $SSH_PORT -o StrictHostKeyChecking=yes"
+          DEST="$SSH_USER@$SSH_HOST"
+          ssh -p "$SSH_PORT" "$DEST" "mkdir -p /home/ytfucmimat/xpulse/backend /home/ytfucmimat/xpulse/web /home/ytfucmimat/mackie17.com/api"
+          rsync -az --delete -e "$RSYNC" \
+            --exclude .env \
+            --exclude node_modules \
+            --exclude storage/logs \
+            --exclude storage/framework/cache/data \
+            --exclude storage/framework/sessions \
+            --exclude storage/framework/views \
+            --exclude storage/app/public \
+            --exclude 'bootstrap/cache/*.php' \
+            backend/ "$DEST:/home/ytfucmimat/xpulse/backend/"
+          rsync -az --delete -e "$RSYNC" \
+            --exclude /tmp \
+            --exclude /public \
+            --exclude stderr.log \
+            --exclude startup-path.txt \
+            deploy/node-app/ "$DEST:/home/ytfucmimat/xpulse/web/"
+          rsync -az -e "$RSYNC" \
+            deploy/cpanel/api/ "$DEST:/home/ytfucmimat/mackie17.com/api/"
+          STARTUP="$(cat deploy/node-app/startup-path.txt)"
+          ssh -p "$SSH_PORT" "$DEST" "bash -s" -- "$STARTUP" < scripts/cpanel-publish.sh

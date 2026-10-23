@@ -7,3 +7,4 @@
 /apps/web/.next
 /apps/web/.env.local
 /docs/_share_api.json
+/deploy/node-app

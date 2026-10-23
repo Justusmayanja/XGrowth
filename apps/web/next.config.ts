@@ -9,6 +9,9 @@ if (!process.env.WATCHPACK_POLLING) {
 const apiOrigin = process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {
+  ...(process.env.NEXT_STANDALONE === "1"
+    ? { output: "standalone" as const, images: { unoptimized: true } }
+    : {}),
   reactStrictMode: true,
   onDemandEntries: {
     maxInactiveAge: 15 * 60 * 1000,
