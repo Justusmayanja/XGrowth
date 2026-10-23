@@ -14,6 +14,7 @@ import { SafetySummaryCard } from "@/components/settings/SafetySummaryCard";
 import { PlatformSetupCard } from "@/components/setup/PlatformSetupCard";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { usePlatform } from "@/lib/platform";
 import type {
   AccountInfo,
   AutomationSettings,
@@ -23,6 +24,7 @@ import type {
 } from "@/lib/settings";
 
 export default function SettingsPage() {
+  const platform = usePlatform();
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [automation, setAutomation] = useState<AutomationSettings | null>(null);
   const [notifications, setNotifications] = useState<NotificationSettings | null>(null);
@@ -67,7 +69,7 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <DeskHeading icon={Settings} title="Settings">
         <p className="text-muted-foreground">
-          Account, posting rules, and X, TikTok, and YouTube
+          {platform === "x" ? "Account, posting rules, and X." : "Account and posting rules."}
         </p>
       </DeskHeading>
 

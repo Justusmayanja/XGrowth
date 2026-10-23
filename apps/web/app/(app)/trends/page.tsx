@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { usePlatform } from "@/lib/platform";
 
 type Trend = {
   name: string;
@@ -19,6 +20,7 @@ type Trend = {
 };
 
 export default function TrendsPage() {
+  const platform = usePlatform();
   const [trends, setTrends] = useState<Trend[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -33,7 +35,9 @@ export default function TrendsPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <DeskHeading icon={Hash} title="Topics">
           <p className="text-muted-foreground">
-            Subjects in your niche, scored for whether they deserve a post on X, TikTok, or YouTube
+            {platform === "x"
+              ? "Subjects in your niche, scored for whether they deserve a post on X."
+              : "Subjects in your niche, scored for this account."}
           </p>
         </DeskHeading>
         <Link href="/growth-agent">

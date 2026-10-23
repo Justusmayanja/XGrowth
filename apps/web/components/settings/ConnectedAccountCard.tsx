@@ -4,6 +4,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { usePlatform } from "@/lib/platform";
 import { Button } from "@/components/ui/button";
 import { type SocialBrand, SocialName } from "@/components/SocialLogo";
 import type { XConnectStatus } from "@/lib/settings";
@@ -29,6 +30,8 @@ const pending: Array<{ name: string; brand: SocialBrand; href: string; note: str
 ];
 
 export function ConnectedAccountCard({ status, onDisconnected }: Props) {
+  const platform = usePlatform();
+
   function connect() {
     if (status?.authorize_url) {
       window.location.href = status.authorize_url;
@@ -50,8 +53,9 @@ export function ConnectedAccountCard({ status, onDisconnected }: Props) {
       <CardHeader>
         <CardTitle>Platforms</CardTitle>
         <CardDescription>
-          X can publish today. TikTok and YouTube can be drafted now, and connected when each
-          platform approves access.
+          {platform === "x"
+            ? "Connect X to read replies and mentions, and to publish."
+            : "Connect the accounts this desk can publish to."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -93,19 +97,19 @@ export function ConnectedAccountCard({ status, onDisconnected }: Props) {
           )}
         </div>
 
-        {pending.map((platform) => (
+        {platform !== "x" && pending.map((network) => (
           <Link
-            key={platform.name}
-            href={platform.href}
+            key={network.name}
+            href={network.href}
             className="block rounded-[0.75rem] border border-border p-4 transition hover:border-[#3f3f46] hover:bg-[#1c1d21]"
           >
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-sm font-medium">
-                <SocialName brand={platform.brand}>{platform.name}</SocialName>
+                <SocialName brand={network.brand}>{network.name}</SocialName>
               </p>
               <p className="text-xs text-[#9ec0ea]">Open Compose</p>
             </div>
-            <p className="mt-2 text-sm text-muted-foreground">{platform.note}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{network.note}</p>
           </Link>
         ))}
       </CardContent>

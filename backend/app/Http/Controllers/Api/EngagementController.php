@@ -8,7 +8,6 @@ use App\Services\XApi\XApiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use RuntimeException;
-use Throwable;
 
 class EngagementController extends Controller
 {
@@ -40,23 +39,24 @@ class EngagementController extends Controller
             ]);
         }
 
-        try {
-            $posts = $this->x->searchNiche($account, $niche);
-        } catch (Throwable $e) {
-            report($e);
+        $feed = $this->x->replyFeed($account, $niche);
+        foreach ($feed['errors'] as $error) {
+            report(new RuntimeException($error));
+        }
 
+        if ($feed['posts'] === [] && $feed['errors'] !== []) {
             return response()->json([
                 'posts' => [],
                 'stats' => $stats,
-                'note' => 'X did not return conversations. '.$e->getMessage(),
+                'note' => 'X did not return conversations. '.$feed['errors'][0],
             ]);
         }
 
         return response()->json([
-            'posts' => $posts,
+            'posts' => $feed['posts'],
             'stats' => $stats,
-            'note' => $posts === []
-                ? 'No recent public posts matched this niche.'
+            'note' => $feed['posts'] === []
+                ? 'No replies, mentions, or matching posts came back from X.'
                 : null,
         ]);
     }

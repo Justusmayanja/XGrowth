@@ -1,7 +1,7 @@
 "use client";
 
 import { MessageCircle } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { DeskHeading } from "@/components/DeskHeading";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ type ViralPost = {
   replies: number;
   minutes_ago: number;
   opportunity_score: number;
+  kind?: "mention" | "niche";
 };
 
 type ReplyDraft = { content: string; tone: string };
@@ -69,19 +70,17 @@ export default function EngagementPage() {
     <div className="space-y-6">
       <DeskHeading icon={MessageCircle} title="Replies">
         <p className="text-muted-foreground">
-          X conversations worth answering. TikTok comments and YouTube replies open in Compose until those networks connect.
+          Replies and mentions on your X account, plus public posts in your niche worth answering.
         </p>
       </DeskHeading>
-
-      {note && <p className="text-sm text-muted-foreground">{note}</p>}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-4">
           {loading ? (
-            <p className="text-muted-foreground">Loading conversations…</p>
+            <p className="text-muted-foreground">Loading replies from X…</p>
           ) : posts.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No conversations yet. Connect X and set a niche to see posts worth answering.
+              {note || "No replies or mentions yet. Connect X to load them."}
             </p>
           ) : (
             posts.map((post) => (
@@ -89,7 +88,7 @@ export default function EngagementPage() {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between gap-2">
                     <CardTitle className="text-sm font-medium">{post.author}</CardTitle>
-                    <Badge variant="secondary">Score {post.opportunity_score}</Badge>
+                    <Badge variant="secondary">{post.kind === "mention" ? "Reply" : `Score ${post.opportunity_score}`}</Badge>
                   </div>
                   <CardDescription>
                     {(post.author_followers / 1000).toFixed(1)}K followers · {post.minutes_ago}m ago

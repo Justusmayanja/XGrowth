@@ -113,6 +113,64 @@ class XLiveFeaturesTest extends TestCase
             ->assertJsonPath('posts.0.id', '55')
             ->assertJsonPath('posts.0.author', '@cook')
             ->assertJsonMissing(['author' => '@niche_insider']);
+
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), '/tweets/search/recent')) {
+                return false;
+            }
+
+            $query = (string) $request->data()['query'];
+
+            return str_contains($query, 'budget')
+                && str_contains($query, 'cooking')
+                && ! str_contains($query, 'lang:en');
+        });
+    }
+
+    public function test_a_real_reply_is_shown_when_the_niche_search_is_empty(): void
+    {
+        $user = User::factory()->create();
+        $user->accountProfile()->create([
+            'custom_niche' => 'budget cooking',
+            'onboarding_completed' => true,
+        ]);
+        ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'mackie',
+            'access_token' => 'user-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api.twitter.com/2/users/42/mentions*' => Http::response([
+                'data' => [[
+                    'id' => '88',
+                    'text' => 'A reply that already exists',
+                    'author_id' => '9',
+                    'created_at' => now()->subMinutes(2)->toIso8601String(),
+                    'public_metrics' => ['like_count' => 1, 'retweet_count' => 0, 'reply_count' => 0],
+                ]],
+                'includes' => [
+                    'users' => [[
+                        'id' => '9',
+                        'username' => 'reader',
+                        'public_metrics' => ['followers_count' => 40],
+                    ]],
+                ],
+            ]),
+            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/engagement/feed')
+            ->assertOk()
+            ->assertJsonPath('posts.0.id', '88')
+            ->assertJsonPath('posts.0.author', '@reader')
+            ->assertJsonPath('posts.0.kind', 'mention')
+            ->assertJsonPath('note', null);
     }
 
     public function test_trends_come_from_x_and_mock_rows_are_removed(): void

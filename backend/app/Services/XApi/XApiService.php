@@ -200,12 +200,16 @@ class XApiService
 
             $user = $me->json('data') ?? [];
             $tweets = Http::withToken($token)->get('https://api.twitter.com/2/users/'.($user['id'] ?? 'me').'/tweets', [
-                'max_results' => 10,
-                'exclude' => 'retweets,replies',
+                'max_results' => 100,
+                'exclude' => 'retweets',
                 'tweet.fields' => 'public_metrics,created_at',
             ]);
 
-            $rows = $tweets->successful() ? ($tweets->json('data') ?? []) : [];
+            if ($tweets->failed()) {
+                throw new RuntimeException($this->apiError($tweets));
+            }
+
+            $rows = $tweets->json('data') ?? [];
             $normalized = [];
             $impressions = 0;
             $engagements = 0;
@@ -242,20 +246,60 @@ class XApiService
     }
 
     /**
-     * @return list<array<string, mixed>>
+     * Mentions, direct replies, and niche posts from X.
+     *
+     * @return array{posts: list<array<string, mixed>>, errors: list<string>}
      */
-    public function searchNiche(ConnectedAccount $account, string $niche): array
+    public function replyFeed(ConnectedAccount $account, string $niche): array
     {
-        $phrase = trim(preg_replace('/\s+/', ' ', preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $niche) ?? '') ?? '');
-        if ($phrase === '' || strcasecmp($phrase, 'your niche') === 0) {
-            return [];
+        $ownId = (string) ($account->platform_account_id ?? '');
+        $posts = [];
+        $errors = [];
+
+        foreach ([
+            fn () => $this->mentions($account),
+            fn () => $this->repliesToAccount($account),
+            fn () => $this->searchNiche($account, $niche),
+        ] as $load) {
+            try {
+                $posts = array_merge($posts, $load());
+            } catch (\Throwable $e) {
+                $errors[] = $e->getMessage();
+            }
         }
 
-        $query = '"'.str_replace('"', '', mb_substr($phrase, 0, 80)).'" -is:retweet lang:en';
+        $seen = [];
+        $unique = [];
+        foreach ($posts as $post) {
+            $id = (string) ($post['id'] ?? '');
+            if ($id === '' || isset($seen[$id])) {
+                continue;
+            }
+            if ($ownId !== '' && (string) ($post['author_id'] ?? '') === $ownId) {
+                continue;
+            }
+            $seen[$id] = true;
+            unset($post['author_id']);
+            $unique[] = $post;
+        }
+
+        usort($unique, fn (array $a, array $b) => ($a['minutes_ago'] ?? 0) <=> ($b['minutes_ago'] ?? 0));
+
+        return [
+            'posts' => array_slice($unique, 0, 20),
+            'errors' => $errors,
+        ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function mentions(ConnectedAccount $account): array
+    {
         $token = $this->accessToken($account);
-        $response = Http::withToken($token)->get('https://api.twitter.com/2/tweets/search/recent', [
-            'query' => $query,
-            'max_results' => 10,
+        $userId = (string) ($account->platform_account_id ?: $this->authenticatedUserId($token));
+        $response = Http::withToken($token)->get('https://api.twitter.com/2/users/'.$userId.'/mentions', [
+            'max_results' => 25,
             'tweet.fields' => 'public_metrics,created_at,author_id',
             'expansions' => 'author_id',
             'user.fields' => 'username,public_metrics',
@@ -265,34 +309,37 @@ class XApiService
             throw new RuntimeException($this->apiError($response));
         }
 
-        $users = collect($response->json('includes.users') ?? [])->keyBy('id');
-        $posts = [];
+        return $this->normalizeTweets($response->json() ?? [], 'mention');
+    }
 
-        foreach ($response->json('data') ?? [] as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-            $author = $users->get($row['author_id'] ?? '');
-            $metrics = $row['public_metrics'] ?? [];
-            $likes = (int) ($metrics['like_count'] ?? 0);
-            $reposts = (int) ($metrics['retweet_count'] ?? 0);
-            $replies = (int) ($metrics['reply_count'] ?? 0);
-            $created = isset($row['created_at']) ? \Illuminate\Support\Carbon::parse($row['created_at']) : now();
-
-            $posts[] = [
-                'id' => (string) ($row['id'] ?? ''),
-                'author' => '@'.($author['username'] ?? 'x'),
-                'author_followers' => (int) ($author['public_metrics']['followers_count'] ?? 0),
-                'content' => (string) ($row['text'] ?? ''),
-                'likes' => $likes,
-                'reposts' => $reposts,
-                'replies' => $replies,
-                'minutes_ago' => max(0, (int) $created->diffInMinutes(now())),
-                'opportunity_score' => (int) min(100, round(20 + ($replies * 2) + ($likes / 20) + ($reposts / 10))),
-            ];
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function repliesToAccount(ConnectedAccount $account): array
+    {
+        $username = strtolower((string) preg_replace('/[^A-Za-z0-9_]/', '', (string) $account->username));
+        if ($username === '') {
+            return [];
         }
 
-        return $posts;
+        return $this->searchRecent(
+            $account,
+            'to:'.$username.' -from:'.$username.' -is:retweet',
+            'mention',
+        );
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function searchNiche(ConnectedAccount $account, string $niche): array
+    {
+        $query = $this->nicheQuery($niche);
+        if ($query === null) {
+            return [];
+        }
+
+        return $this->searchRecent($account, $query, 'niche');
     }
 
     /**
@@ -373,6 +420,100 @@ class XApiService
         $account->save();
 
         return $account->access_token;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function searchRecent(ConnectedAccount $account, string $query, string $kind): array
+    {
+        $token = $this->accessToken($account);
+        $response = Http::withToken($token)->get('https://api.twitter.com/2/tweets/search/recent', [
+            'query' => $query,
+            'max_results' => 25,
+            'tweet.fields' => 'public_metrics,created_at,author_id',
+            'expansions' => 'author_id',
+            'user.fields' => 'username,public_metrics',
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException($this->apiError($response));
+        }
+
+        return $this->normalizeTweets($response->json() ?? [], $kind);
+    }
+
+    /**
+     * @param  array<string, mixed>  $json
+     * @return list<array<string, mixed>>
+     */
+    private function normalizeTweets(array $json, string $kind): array
+    {
+        $users = collect($json['includes']['users'] ?? [])->keyBy('id');
+        $posts = [];
+
+        foreach ($json['data'] ?? [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $author = $users->get($row['author_id'] ?? '');
+            $metrics = is_array($row['public_metrics'] ?? null) ? $row['public_metrics'] : [];
+            $likes = (int) ($metrics['like_count'] ?? 0);
+            $reposts = (int) ($metrics['retweet_count'] ?? 0);
+            $replies = (int) ($metrics['reply_count'] ?? 0);
+            $created = isset($row['created_at']) ? \Illuminate\Support\Carbon::parse($row['created_at']) : now();
+
+            $posts[] = [
+                'id' => (string) ($row['id'] ?? ''),
+                'author_id' => (string) ($row['author_id'] ?? ''),
+                'author' => '@'.(is_array($author) ? ($author['username'] ?? 'x') : 'x'),
+                'author_followers' => (int) (is_array($author) ? ($author['public_metrics']['followers_count'] ?? 0) : 0),
+                'content' => (string) ($row['text'] ?? ''),
+                'likes' => $likes,
+                'reposts' => $reposts,
+                'replies' => $replies,
+                'minutes_ago' => max(0, (int) $created->diffInMinutes(now())),
+                'opportunity_score' => (int) min(100, round(20 + ($replies * 2) + ($likes / 20) + ($reposts / 10))),
+                'kind' => $kind,
+            ];
+        }
+
+        return $posts;
+    }
+
+    private function nicheQuery(string $niche): ?string
+    {
+        $phrase = trim(preg_replace('/\s+/', ' ', preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $niche) ?? '') ?? '');
+        if ($phrase === '' || in_array(strtolower($phrase), ['your niche', 'general', 'niche'], true)) {
+            return null;
+        }
+
+        $words = array_values(array_unique(array_filter(
+            preg_split('/\s+/', mb_strtolower($phrase)) ?: [],
+            fn ($word) => is_string($word)
+                && mb_strlen($word) >= 3
+                && ! in_array($word, ['the', 'and', 'for', 'with', 'your', 'from', 'that', 'this', 'you', 'are'], true)
+        )));
+        $words = array_slice($words, 0, 6);
+        if ($words === []) {
+            return null;
+        }
+
+        $terms = count($words) > 1
+            ? '("'.implode(' ', array_slice($words, 0, 4)).'" OR '.implode(' OR ', $words).')'
+            : $words[0];
+
+        return $terms.' -is:retweet';
+    }
+
+    private function authenticatedUserId(string $token): string
+    {
+        $response = Http::withToken($token)->get('https://api.twitter.com/2/users/me');
+        if ($response->failed() || ! is_string($response->json('data.id'))) {
+            throw new RuntimeException($this->apiError($response));
+        }
+
+        return $response->json('data.id');
     }
 
     /**
