@@ -4,48 +4,62 @@ import { Hash } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { DeskHeading } from "@/components/DeskHeading";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingMark } from "@/components/LoadingMark";
 import { api } from "@/lib/api";
 import { usePlatform } from "@/lib/platform";
 
-type Trend = {
+type Post = {
   name: string;
-  angle?: string;
-  draft?: string;
+  post: string;
 };
 
 export default function TrendsPage() {
   const platform = usePlatform();
-  const [trends, setTrends] = useState<Trend[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<Trend | null>(null);
+  const [selected, setSelected] = useState<Post | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    api<{ trends: Trend[]; note?: string | null }>("/trends")
-      .then((r) => {
-        setTrends(r.trends);
-        setNote(r.note ?? "");
-        setSelected(r.trends[0] ?? null);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    setLoading(true);
+    const load =
+      platform === "x"
+        ? api<{ ideas: { name: string; suggestion?: string }[] }>(`/dashboard/platform/${platform}`).then((desk) => {
+            const next = (desk.ideas ?? []).map((idea) => ({
+              name: idea.name,
+              post: idea.suggestion?.trim() || idea.name,
+            }));
+            setPosts(next);
+            setNote("");
+            setSelected(next[0] ?? null);
+          })
+        : api<{ trends: { name: string; draft?: string }[]; note?: string | null }>("/trends").then((r) => {
+            const next = r.trends.map((topic) => ({
+              name: topic.name,
+              post: topic.draft?.trim() || topic.name,
+            }));
+            setPosts(next);
+            setNote(r.note ?? "");
+            setSelected(next[0] ?? null);
+          });
 
-  const active = selected ?? trends[0] ?? null;
+    load.finally(() => setLoading(false));
+  }, [platform]);
+
+  const active = selected ?? posts[0] ?? null;
 
   async function saveDraft() {
-    if (!active?.draft) {
+    if (!active?.post) {
       return;
     }
     setSaving(true);
     try {
       await api("/content/drafts", {
         method: "POST",
-        body: JSON.stringify({ content: active.draft, content_type: "tweet" }),
+        body: JSON.stringify({ content: active.post, content_type: "tweet" }),
       });
       toast.success("Saved to drafts");
     } catch (err) {
@@ -60,35 +74,33 @@ export default function TrendsPage() {
       <DeskHeading icon={Hash} title="Topics">
         <p className="text-muted-foreground">
           {platform === "x"
-            ? "Three to five conversations happening now, written as a post from this account."
+            ? "The same posts as Today."
             : "Topics for this account."}
         </p>
       </DeskHeading>
 
       {loading ? (
         <LoadingMark />
-      ) : trends.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{note || "Connect X to load topics from the account."}</p>
+      ) : posts.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{note || "Nothing here yet. Open Today after X is connected."}</p>
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="space-y-4">
-            {note && <p className="text-sm text-muted-foreground">{note}</p>}
-            {trends.map((topic) => {
-              const on = active?.name === topic.name;
+            {posts.map((item) => {
+              const on = active?.name === item.name && active?.post === item.post;
               return (
                 <button
-                  key={topic.name}
+                  key={`${item.name}-${item.post}`}
                   type="button"
-                  onClick={() => setSelected(topic)}
+                  onClick={() => setSelected(item)}
                   className={`w-full rounded-lg border p-4 text-left transition-colors ${
                     on ? "border-foreground/30 bg-white/[0.04]" : "border-border hover:bg-white/[0.03]"
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium">{topic.name}</span>
-                    <Badge variant="secondary">Now</Badge>
-                  </div>
-                  {topic.angle && <p className="mt-2 text-sm text-muted-foreground">{topic.angle}</p>}
+                  <p className="font-medium">{item.name}</p>
+                  {item.post !== item.name && (
+                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{item.post}</p>
+                  )}
                 </button>
               );
             })}
@@ -96,23 +108,19 @@ export default function TrendsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>A post for this</CardTitle>
-              <CardDescription>
-                {active ? active.name : "Pick a topic"}
-              </CardDescription>
+              <CardTitle>{active?.name ?? "Post"}</CardTitle>
+              <CardDescription>The post from Today</CardDescription>
             </CardHeader>
             <CardContent>
-              {active?.draft ? (
+              {active?.post ? (
                 <>
-                  <p className="mb-4 text-sm leading-relaxed">{active.draft}</p>
+                  <p className="mb-4 text-sm leading-relaxed">{active.post}</p>
                   <Button size="sm" variant="secondary" onClick={saveDraft} disabled={saving}>
                     {saving ? "Saving…" : "Save to drafts"}
                   </Button>
                 </>
               ) : (
-                <p className="text-sm text-muted-foreground">
-                  A post for this topic is not ready yet.
-                </p>
+                <p className="text-sm text-muted-foreground">Nothing to show yet.</p>
               )}
             </CardContent>
           </Card>

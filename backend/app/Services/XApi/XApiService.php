@@ -352,7 +352,8 @@ class XApiService
     {
         foreach ([
             'https://api.twitter.com/2/users/personalized_trends',
-            'https://api.twitter.com/2/trends/by/woeid/1',
+            'https://api.twitter.com/2/trends/by/woeid/23424977',
+            'https://api.twitter.com/2/trends/by/woeid/23424975',
         ] as $url) {
             try {
                 $response = Http::withToken($token)->timeout(8)->get($url);
@@ -365,9 +366,15 @@ class XApiService
             }
 
             $topics = [];
-            foreach (array_slice($this->topicsFromTrends($response->json() ?? []), 0, 12) as $topic) {
+            foreach ($this->topicsFromTrends($response->json() ?? []) as $topic) {
+                if (! $this->isEnglishPhrase($topic['name'])) {
+                    continue;
+                }
                 $posts = $topic['tweet_count'] > 0 ? $topic['tweet_count'] : null;
                 $topics[] = $this->topicRow($topic['name'], $posts, null, null, null);
+                if (count($topics) === 8) {
+                    break;
+                }
             }
 
             if ($topics !== []) {
@@ -376,6 +383,26 @@ class XApiService
         }
 
         return [];
+    }
+
+    /**
+     * A topic people can read in English: a short phrase, not a hashtag or another language.
+     */
+    public function isEnglishPhrase(string $name): bool
+    {
+        $name = trim((string) preg_replace('/\s+/', ' ', $name));
+        if ($name === '' || str_starts_with($name, '#')) {
+            return false;
+        }
+
+        if (preg_match('/[#@]|[^\x00-\x7F]/', $name)) {
+            return false;
+        }
+
+        $words = preg_split('/[^A-Za-z]+/', $name) ?: [];
+        $words = array_values(array_filter($words, fn ($word) => strlen($word) >= 2));
+
+        return count($words) >= 2;
     }
 
     /**
@@ -390,42 +417,22 @@ class XApiService
             return [];
         }
 
-        $grouped = [];
-        foreach ($rows as $row) {
-            preg_match_all('/#([\p{L}\p{N}_]{2,40})/u', $row['content'], $matches);
-            $tags = array_unique($matches[1] ?? []);
-            if ($tags === []) {
-                continue;
-            }
-            foreach ($tags as $tag) {
-                $key = mb_strtolower($tag);
-                if (! isset($grouped[$key])) {
-                    $grouped[$key] = ['name' => '#'.$tag, 'posts' => 0, 'impressions' => 0, 'likes' => 0, 'replies' => 0];
-                }
-                $grouped[$key]['posts']++;
-                $grouped[$key]['impressions'] += $row['impressions'];
-                $grouped[$key]['likes'] += $row['likes'];
-                $grouped[$key]['replies'] += $row['replies'];
-            }
-        }
-
-        if ($grouped !== []) {
-            uasort($grouped, fn (array $a, array $b) => $b['impressions'] <=> $a['impressions']);
-
-            return array_map(
-                fn (array $row) => $this->topicRow($row['name'], $row['posts'], $row['impressions'], $row['likes'], $row['replies']),
-                array_slice(array_values($grouped), 0, 12)
-            );
-        }
-
         usort($rows, fn (array $a, array $b) => $b['impressions'] <=> $a['impressions']);
         $topics = [];
-        foreach (array_slice($rows, 0, 8) as $row) {
-            $name = trim(preg_replace('/\s+/', ' ', $row['content']) ?? '');
-            if ($name === '') {
+        $seen = [];
+        foreach ($rows as $row) {
+            $name = trim((string) preg_replace('/https?:\/\/\S+/', '', (string) $row['content']));
+            $name = trim((string) preg_replace('/#\S+/', '', $name));
+            $name = trim((string) preg_replace('/\s+/', ' ', $name));
+            $key = mb_strtolower($name);
+            if ($key === '' || isset($seen[$key]) || ! $this->isEnglishPhrase($name)) {
                 continue;
             }
+            $seen[$key] = true;
             $topics[] = $this->topicRow(mb_substr($name, 0, 80), 1, $row['impressions'], $row['likes'], $row['replies']);
+            if (count($topics) === 8) {
+                break;
+            }
         }
 
         return $topics;
@@ -464,7 +471,7 @@ class XApiService
 
     private function topicCacheKey(ConnectedAccount $account): string
     {
-        return 'x-topics:'.$account->id;
+        return 'x-topics:en:'.$account->id;
     }
 
     private function replyCacheKey(ConnectedAccount $account): string

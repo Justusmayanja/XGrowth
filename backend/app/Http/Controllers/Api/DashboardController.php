@@ -134,10 +134,20 @@ class DashboardController extends Controller
         $ideas = [];
         if ($platform === 'x' && $connected) {
             try {
-                $ideas = array_map(fn (array $topic) => [
-                    'name' => $topic['name'],
-                    'suggestion' => $topic['figures'],
-                ], array_slice($this->x->accountTopics($connected)['topics'], 0, 5));
+                foreach (array_slice($this->trendEngine->topicsForPage($user)['trends'], 0, 5) as $topic) {
+                    $name = trim((string) ($topic['name'] ?? ''));
+                    $draft = trim((string) ($topic['draft'] ?? ''));
+                    if ($name === '' || ! $this->x->isEnglishPhrase($name)) {
+                        continue;
+                    }
+                    if ($draft !== '' && ! $this->x->isEnglishPhrase($draft)) {
+                        continue;
+                    }
+                    $ideas[] = [
+                        'name' => $name,
+                        'suggestion' => $draft,
+                    ];
+                }
             } catch (Throwable) {
                 $ideas = [];
             }

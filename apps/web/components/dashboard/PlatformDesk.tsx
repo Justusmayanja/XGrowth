@@ -145,7 +145,7 @@ function IdeaList({ desk, verb, loose = false }: { desk: Desk; verb: string; loo
       <p className="text-sm text-muted-foreground">
         {desk.platform === "x"
           ? desk.connected
-            ? "X did not return topics for this account yet."
+            ? "No English topics from X yet."
             : "Connect X and topics from the account show here."
           : "Topics for this account show here."}
       </p>
@@ -209,8 +209,8 @@ function XBody({ desk }: { desk: Desk }) {
           title="Topics"
           description={
             moments
-              ? `${moments} from your X account.`
-              : "A few topics from your X account."
+              ? `${moments} English posts from what people are talking about.`
+              : "English posts from what people are talking about."
           }
           action={
             <Link href="/trends" className="text-sm text-muted-foreground hover:text-foreground">

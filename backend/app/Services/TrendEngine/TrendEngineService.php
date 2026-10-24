@@ -144,7 +144,10 @@ class TrendEngineService
         $drafted = [];
         if ($this->ai->isConfigured()) {
             try {
-                $drafted = $this->ai->draftTrendingTopics($user, $names, $user->accountProfile);
+                $drafted = array_values(array_filter(
+                    $this->ai->draftTrendingTopics($user, $names, $user->accountProfile),
+                    fn (array $item) => $this->x->isEnglishPhrase($item['name']) && $this->x->isEnglishPhrase($item['draft'])
+                ));
             } catch (Throwable $e) {
                 Log::warning('Topic drafts were not written', [
                     'user_id' => $user->id,

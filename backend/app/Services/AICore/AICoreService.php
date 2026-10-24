@@ -374,8 +374,9 @@ PROMPT;
         );
 
         $userPrompt = 'Today is '.now()->toFormattedDateString().".\n";
-        $userPrompt .= "These are the conversations X is showing right now. Pick 3, 4, or 5 of them. If fewer than 3 are listed, use only those.\n";
+        $userPrompt .= "These are English conversations people are having right now. Pick 3, 4, or 5 of them. If fewer than 3 are listed, use only those.\n";
         $userPrompt .= "Keep each name exactly as written. Do not invent a different story.\n";
+        $userPrompt .= "Write the angle and the post in plain English. No hashtags, and no other language.\n";
         $userPrompt .= "A conversation does not have to be about this account. Write from this account's side anyway: a lender answers a cost crisis, a third club answers praise of two rivals.\n";
         $userPrompt .= "Never quote them.\n\n";
         $userPrompt .= "Conversations:\n";

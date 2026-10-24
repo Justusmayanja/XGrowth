@@ -250,6 +250,53 @@ class XLiveFeaturesTest extends TestCase
         });
     }
 
+    public function test_topics_skip_other_languages_and_hashtags(): void
+    {
+        config(['openai.api_key' => '']);
+        $user = User::factory()->create();
+        ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'mackie',
+            'access_token' => 'user-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api.twitter.com/2/users/personalized_trends*' => Http::response([
+                'data' => [
+                    ['trend_name' => 'たかほー'],
+                    ['trend_name' => '#LulaEmCopacabana'],
+                    ['trend_name' => '#sbhawks'],
+                    ['trend_name' => '日本シリーズ'],
+                    ['trend_name' => '#YouManiacSeriesEP9'],
+                ],
+            ]),
+            'https://api.twitter.com/2/trends/by/woeid/23424977*' => Http::response([
+                'data' => [
+                    ['trend_name' => 'Rent prices this week', 'tweet_count' => 12000],
+                    ['trend_name' => 'Arsenal and City in form', 'tweet_count' => 8400],
+                    ['trend_name' => '#sbhawks', 'tweet_count' => 900],
+                ],
+            ]),
+        ]);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->getJson('/api/trends')
+            ->assertOk()
+            ->assertJsonPath('trends.0.name', 'Rent prices this week')
+            ->assertJsonPath('trends.1.name', 'Arsenal and City in form')
+            ->assertJsonCount(2, 'trends');
+
+        $body = $response->getContent();
+        $this->assertStringNotContainsString('たかほー', $body);
+        $this->assertStringNotContainsString('日本シリーズ', $body);
+        $this->assertStringNotContainsString('#sbhawks', $body);
+        $this->assertStringNotContainsString('#YouManiacSeriesEP9', $body);
+    }
+
     public function test_topics_fall_back_to_the_accounts_own_posts(): void
     {
         config(['openai.api_key' => '']);
@@ -266,6 +313,8 @@ class XLiveFeaturesTest extends TestCase
 
         Http::fake([
             'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
+            'https://api.twitter.com/2/trends/by/woeid/23424977*' => Http::response(['data' => []], 404),
+            'https://api.twitter.com/2/trends/by/woeid/23424975*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/trends/by/woeid/1*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/users/42/tweets*' => Http::response([
                 'data' => [[
@@ -286,7 +335,7 @@ class XLiveFeaturesTest extends TestCase
             ->getJson('/api/trends')
             ->assertOk()
             ->assertJsonPath('source', 'posts')
-            ->assertJsonPath('trends.0.name', '#weeknights')
+            ->assertJsonPath('trends.0.name', 'Rice again')
             ->assertJsonPath('trends.0.draft', '');
 
         $this->assertStringNotContainsString('X did not send a count', $this->actingAs($user, 'sanctum')->getJson('/api/trends')->getContent());
@@ -378,6 +427,8 @@ class XLiveFeaturesTest extends TestCase
 
         Http::fake([
             'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
+            'https://api.twitter.com/2/trends/by/woeid/23424977*' => Http::response(['data' => []], 404),
+            'https://api.twitter.com/2/trends/by/woeid/23424975*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/trends/by/woeid/1*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/users/me*' => Http::response([
                 'data' => [
@@ -435,6 +486,8 @@ class XLiveFeaturesTest extends TestCase
 
         Http::fake([
             'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
+            'https://api.twitter.com/2/trends/by/woeid/23424977*' => Http::response(['data' => []], 404),
+            'https://api.twitter.com/2/trends/by/woeid/23424975*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/trends/by/woeid/1*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/users/me*' => Http::response([
                 'data' => [
