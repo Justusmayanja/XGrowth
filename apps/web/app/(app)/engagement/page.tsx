@@ -1,9 +1,12 @@
 "use client";
 
-import { Heart, MessageCircle, Repeat2 } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import { DeskHeading } from "@/components/DeskHeading";
 import { toast } from "sonner";
-import { Avatar, TimelineColumn, TimelineHeader, avatarColor, compactCount, minutesLabel } from "@/components/x/timeline";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
 
 type ViralPost = {
@@ -64,90 +67,74 @@ export default function EngagementPage() {
   }
 
   return (
-    <TimelineColumn>
-      <TimelineHeader title="Replies" />
-      {loading && <p className="px-4 py-8 text-[15px] text-[#71767b]">Loading replies from X…</p>}
-      {!loading && posts.length === 0 && (
-        <div className="px-8 py-12">
-          <h2 className="text-[28px] font-extrabold leading-tight text-[#e7e9ea]">No conversations yet</h2>
-          <p className="mt-2 max-w-sm text-[15px] leading-5 text-[#71767b]">
-            {note || "Replies, mentions, and posts in your niche show up here."}
-          </p>
-        </div>
-      )}
-      {posts.map((post) => {
-        const handle = post.author.startsWith("@") ? post.author : `@${post.author}`;
-        const name = handle.slice(1);
-        const open = activePost?.id === post.id;
-        return (
-          <article key={post.id} className="border-b border-[#2f3336] px-4 py-3 transition-colors hover:bg-white/[0.03]">
-            {post.kind === "mention" && (
-              <p className="mb-1 ml-[52px] text-[13px] font-medium text-[#71767b]">Mentioned you</p>
-            )}
-            <div className="flex gap-3">
-              <Avatar name={name} color={avatarColor(handle)} />
-              <div className="min-w-0 flex-1">
-                <p className="flex min-w-0 flex-wrap items-center gap-x-1 text-[15px] leading-5">
-                  <span className="truncate font-bold text-[#e7e9ea]">{name}</span>
-                  <span className="truncate text-[#71767b]">{handle}</span>
-                  <span className="text-[#71767b]">·</span>
-                  <span className="text-[#71767b]">{minutesLabel(post.minutes_ago)}</span>
-                </p>
-                <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-5 text-[#e7e9ea]">{post.content}</p>
-                <div className="mt-2 flex max-w-md items-center justify-between text-[#71767b]">
-                  <button
-                    type="button"
-                    onClick={() => generateReplies(post)}
-                    aria-label={`${post.replies} replies. Draft a reply`}
-                    className="inline-flex items-center rounded-full p-2 hover:bg-[#1d9bf0]/10 hover:text-[#1d9bf0]"
-                  >
-                    <MessageCircle className="size-[18px]" strokeWidth={1.8} />
-                    {post.replies > 0 && (
-                      <span className="min-w-[1ch] px-1 text-[13px] tabular-nums">{compactCount(post.replies)}</span>
-                    )}
-                  </button>
-                  <span className="inline-flex items-center p-2" aria-label={`${post.reposts} reposts`}>
-                    <Repeat2 className="size-[18px]" strokeWidth={1.8} />
-                    {post.reposts > 0 && (
-                      <span className="min-w-[1ch] px-1 text-[13px] tabular-nums">{compactCount(post.reposts)}</span>
-                    )}
-                  </span>
-                  <span className="inline-flex items-center p-2" aria-label={`${post.likes} likes`}>
-                    <Heart className="size-[18px]" strokeWidth={1.8} />
-                    {post.likes > 0 && (
-                      <span className="min-w-[1ch] px-1 text-[13px] tabular-nums">{compactCount(post.likes)}</span>
-                    )}
-                  </span>
-                </div>
-                {open && (
-                  <div className="mt-2 border-t border-[#2f3336] pt-3">
-                    <p className="text-[13px] text-[#71767b]">Replying to {handle}</p>
-                    {generating && <p className="mt-3 text-[15px] text-[#71767b]">Writing replies…</p>}
-                    {!generating && drafts.length === 0 && (
-                      <p className="mt-3 text-[15px] text-[#71767b]">No reply options came back for this post.</p>
-                    )}
-                    {drafts.map((draft, index) => (
-                      <div key={index} className="mt-3 flex gap-3">
-                        <Avatar name="You" />
-                        <div className="min-w-0 flex-1">
-                          <p className="whitespace-pre-wrap break-words text-[15px] leading-5 text-[#e7e9ea]">{draft.content}</p>
-                          <button
-                            type="button"
-                            onClick={() => saveAsDraft(draft.content)}
-                            className="mt-2 rounded-full border border-[#536471] px-4 py-1 text-sm font-bold text-[#e7e9ea] hover:bg-[#1d9bf0]/10 hover:text-[#1d9bf0]"
-                          >
-                            Save draft
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+    <div className="space-y-6">
+      <DeskHeading icon={MessageCircle} title="Replies">
+        <p className="text-muted-foreground">
+          Replies and mentions on your X account, plus public posts in your niche worth answering.
+        </p>
+      </DeskHeading>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="space-y-4">
+          {loading ? (
+            <p className="text-muted-foreground">Loading replies from X…</p>
+          ) : posts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {note || "No replies or mentions yet. Connect X to load them."}
+            </p>
+          ) : (
+            posts.map((post) => (
+              <Card key={post.id}>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-sm font-medium">{post.author}</CardTitle>
+                    <Badge variant="secondary">{post.kind === "mention" ? "Reply" : `Score ${post.opportunity_score}`}</Badge>
                   </div>
-                )}
+                  <CardDescription>
+                    {(post.author_followers / 1000).toFixed(1)}K followers · {post.minutes_ago}m ago
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="mb-3 text-sm leading-relaxed">{post.content}</p>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    {post.likes.toLocaleString()} likes · {post.reposts} reposts · {post.replies} replies
+                  </p>
+                  <Button size="sm" variant="secondary" onClick={() => generateReplies(post)}>
+                    Draft replies
+                  </Button>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Reply drafts</CardTitle>
+            <CardDescription>
+              {activePost
+                ? `Options for ${activePost.author}'s post`
+                : "Choose a post to draft replies"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {generating && <p className="text-sm text-muted-foreground">Preparing replies…</p>}
+            {!generating && drafts.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Pick a conversation on the left to see reply options in your voice.
+              </p>
+            )}
+            {drafts.map((draft, i) => (
+              <div key={i} className="mb-4 rounded-lg border border-border p-3 last:mb-0">
+                <p className="mb-3 text-sm leading-relaxed">{draft.content}</p>
+                <Button size="sm" variant="outline" onClick={() => saveAsDraft(draft.content)}>
+                  Save to drafts
+                </Button>
               </div>
-            </div>
-          </article>
-        );
-      })}
-    </TimelineColumn>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }

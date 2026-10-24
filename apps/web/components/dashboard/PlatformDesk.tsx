@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, getToken } from "@/lib/api";
-import { XHome, type XDesk } from "@/components/dashboard/XHome";
 import { contentFormatLabel } from "@/lib/content-formats";
 import {
   formatMultiLabels,
@@ -20,9 +19,20 @@ import {
 
 type Metric = { label: string; value: number; sub: string; suffix?: string };
 
-type Desk = XDesk & {
+type Desk = {
   platform: Platform;
+  chosen: boolean;
+  setup: {
+    completed: boolean;
+    goals: string[];
+    settings: { automation_level?: number; mode?: string; publish?: string };
+  };
+  connected: { username?: string | null } | null;
   preview: boolean;
+  metrics: Metric[];
+  counts: { drafts: number; posted: number };
+  drafts: { id: number; content: string; content_type: string; created_at: string }[];
+  ideas: { name: string; suggestion?: string }[];
 };
 
 const LEDE: Record<Platform, string> = {
@@ -143,6 +153,180 @@ function DraftList({ desk, empty }: { desk: Desk; empty: string }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function XPanel({
+  title,
+  description,
+  action,
+  children,
+}: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="overflow-hidden rounded-2xl bg-[#16181c]">
+      <div className="flex items-start justify-between gap-4 px-4 pb-2 pt-3">
+        <div>
+          <h2 className="text-xl font-extrabold tracking-tight text-[#e7e9ea]">{title}</h2>
+          {description && <p className="mt-0.5 text-[15px] leading-5 text-[#71767b]">{description}</p>}
+        </div>
+        {action}
+      </div>
+      <div className="pb-2">{children}</div>
+    </section>
+  );
+}
+
+function XLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link href={href} className="shrink-0 text-[15px] text-[#1d9bf0] hover:underline">
+      {children}
+    </Link>
+  );
+}
+
+function XIdeaList({ desk }: { desk: Desk }) {
+  if (desk.ideas.length === 0) {
+    return <p className="px-4 pb-3 text-[15px] text-[#71767b]">Fresh moments for this account show here.</p>;
+  }
+  return (
+    <ul>
+      {desk.ideas.map((idea) => (
+        <li key={idea.name} className="transition-colors hover:bg-white/[0.03]">
+          <div className="flex items-start justify-between gap-4 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-[15px] font-bold leading-5 text-[#e7e9ea]">{idea.name}</p>
+              {idea.suggestion && <p className="mt-0.5 text-[15px] leading-5 text-[#e7e9ea]">{idea.suggestion}</p>}
+            </div>
+            <XLink href={composeHref(desk.platform, idea.name)}>Write a post</XLink>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function XDraftList({ desk }: { desk: Desk }) {
+  if (desk.drafts.length === 0) {
+    return <p className="px-4 pb-3 text-[15px] text-[#71767b]">Nothing waiting. Write a post from a moment on the left.</p>;
+  }
+  return (
+    <ul>
+      {desk.drafts.map((draft) => (
+        <li key={draft.id} className="transition-colors hover:bg-white/[0.03]">
+          <Link href="/drafts" className="block px-4 py-3">
+            <p className="line-clamp-3 whitespace-pre-wrap break-words text-[15px] leading-5 text-[#e7e9ea]">{draft.content}</p>
+            <p className="mt-1 text-[13px] text-[#71767b]">
+              {contentFormatLabel(draft.content_type)} · {new Date(draft.created_at).toLocaleDateString()}
+            </p>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function XDeskView({ desk, chosen, goals }: { desk: Desk; chosen: Platform[]; goals: string }) {
+  return (
+    <div className="mx-auto w-full max-w-[1000px] space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-4 px-1">
+        <div>
+          <h1 className="text-xl font-extrabold tracking-tight text-[#e7e9ea]">X</h1>
+          <p className="mt-1 max-w-xl text-[15px] leading-5 text-[#71767b]">{LEDE.x}</p>
+        </div>
+        {PLATFORM_ORDER.some((item) => !chosen.includes(item)) && (
+          <div className="flex flex-wrap gap-3">
+            {PLATFORM_ORDER.filter((item) => !chosen.includes(item)).map((item) => (
+              <Link key={item} href={`/onboarding?platform=${item}`} className="text-[15px] text-[#1d9bf0] hover:underline">
+                Add {platformName(item)}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <section className="grid overflow-hidden rounded-2xl bg-[#16181c] sm:grid-cols-3">
+        <div className="px-4 py-3">
+          <p className="text-[13px] text-[#71767b]">Posting</p>
+          <p className="mt-0.5 text-[15px] leading-5 text-[#e7e9ea]">{postingLine(desk)}</p>
+        </div>
+        <div className="border-t border-[#2f3336] px-4 py-3 sm:border-l sm:border-t-0">
+          <p className="text-[13px] text-[#71767b]">Goals</p>
+          <p className="mt-0.5 text-[15px] leading-5 text-[#e7e9ea]">{goals}</p>
+          <Link href="/onboarding?platform=x" className="mt-1 inline-block text-[13px] text-[#1d9bf0] hover:underline">
+            Change
+          </Link>
+        </div>
+        <div className="border-t border-[#2f3336] px-4 py-3 sm:border-l sm:border-t-0">
+          <p className="text-[13px] text-[#71767b]">Account</p>
+          {desk.connected ? (
+            <p className="mt-0.5 text-[15px] leading-5 text-[#e7e9ea]">
+              {desk.connected.username ? `@${desk.connected.username}` : "Connected"}
+            </p>
+          ) : (
+            <Link href="/settings" className="mt-0.5 inline-block text-[15px] text-[#1d9bf0] hover:underline">
+              Connect X
+            </Link>
+          )}
+        </div>
+      </section>
+
+      <section className="grid overflow-hidden rounded-2xl bg-[#16181c] sm:grid-cols-3">
+        {desk.metrics.map((metric, index) => (
+          <div
+            key={metric.label}
+            className={`px-4 py-3 ${index > 0 ? "border-t border-[#2f3336] sm:border-l sm:border-t-0" : ""}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[13px] text-[#71767b]">{metric.label}</p>
+              {desk.preview && (
+                <Badge variant="outline" className="text-[10px] font-normal text-[#71767b]">
+                  Sample
+                </Badge>
+              )}
+            </div>
+            <p className="mt-1 text-[22px] font-extrabold tabular-nums leading-none text-[#e7e9ea]">
+              {metric.value.toLocaleString()}
+              {metric.suffix ?? ""}
+            </p>
+            <p className="mt-1 text-[13px] text-[#71767b]">{metric.sub}</p>
+          </div>
+        ))}
+      </section>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <XPanel
+          title="Moments in your niche"
+          description="Written for this account. A new set when you come back."
+          action={<XLink href="/trends">All topics</XLink>}
+        >
+          <XIdeaList desk={desk} />
+        </XPanel>
+        <div className="space-y-4">
+          <XPanel
+            title="Ready to go out"
+            description="Drafts waiting for a strong moment or your yes."
+            action={<XLink href="/growth-agent">Queue</XLink>}
+          >
+            <XDraftList desk={desk} />
+          </XPanel>
+          <XPanel title="Replies" description="Conversations in your niche worth joining.">
+            <div className="px-4 pb-3">
+              <Link
+                href="/engagement"
+                className="inline-flex rounded-full bg-[#eff3f4] px-4 py-1.5 text-sm font-bold text-black hover:bg-white"
+              >
+                Open replies
+              </Link>
+            </div>
+          </XPanel>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -284,15 +468,6 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
 
   const name = platformName(platform);
 
-  if (platform === "x") {
-    const goals = desk
-      ? desk.setup.goals.length
-        ? formatMultiLabels(desk.setup.goals, PLATFORM_GOALS.x)
-        : "Not set"
-      : "";
-    return <XHome desk={desk} chosen={chosen} error={error} posting={desk ? postingLine(desk) : ""} goals={goals} />;
-  }
-
   const header = (
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div>
@@ -343,6 +518,10 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
   }
 
   const goals = desk.setup.goals.length ? formatMultiLabels(desk.setup.goals, PLATFORM_GOALS[platform]) : "Not set";
+
+  if (platform === "x") {
+    return <XDeskView desk={desk} chosen={chosen} goals={goals} />;
+  }
 
   return (
     <div className="space-y-6">

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { FileText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DeskHeading } from "@/components/DeskHeading";
-import { Avatar, TimelineColumn, TimelineHeader, relativeTime } from "@/components/x/timeline";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -101,97 +100,6 @@ export default function DraftsPage() {
     toast.success("Draft deleted");
   }
 
-  if (platform === "x") {
-    return (
-      <TimelineColumn>
-        <TimelineHeader title="Drafts" />
-        <Link
-          href="/content-studio?platform=x&format=tweet"
-          className="flex gap-3 border-b border-[#2f3336] px-4 py-3 hover:bg-white/[0.03]"
-        >
-          <Avatar name="You" />
-          <span className="pt-2 text-xl text-[#71767b]">What's happening?</span>
-        </Link>
-        {loading && <p className="px-4 py-8 text-[15px] text-[#71767b]">Loading drafts…</p>}
-        {!loading && drafts.length === 0 && (
-          <div className="px-8 py-12">
-            <h2 className="text-[28px] font-extrabold leading-tight text-[#e7e9ea]">No drafts yet</h2>
-            <p className="mt-2 text-[15px] text-[#71767b]">{copy.empty}</p>
-            <Link
-              href="/content-studio?platform=x&format=tweet"
-              className="mt-5 inline-flex rounded-full bg-[#1d9bf0] px-5 py-2.5 text-[15px] font-bold text-white hover:bg-[#1a8cd8]"
-            >
-              Post
-            </Link>
-          </div>
-        )}
-        {drafts.map((draft) => (
-          <article key={draft.id} className="border-b border-[#2f3336] px-4 py-3">
-            <div className="flex gap-3">
-              <Avatar name="You" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-3">
-                  <p className="min-w-0 text-[15px] leading-5">
-                    <span className="font-bold text-[#e7e9ea]">You</span>
-                    <span className="text-[#71767b]"> · {relativeTime(draft.created_at)}</span>
-                    <span className="text-[#71767b]"> · {contentFormatLabel(draft.content_type)}</span>
-                    {draft.virality_predicted != null && (
-                      <span className="text-[#71767b]"> · Score {Math.round(Number(draft.virality_predicted))}</span>
-                    )}
-                  </p>
-                  {editingId !== draft.id && (
-                    <button
-                      type="button"
-                      disabled={savingId === draft.id}
-                      onClick={() => publishDraft(draft.id)}
-                      className="shrink-0 rounded-full bg-[#eff3f4] px-4 py-1.5 text-sm font-bold text-black hover:bg-white disabled:opacity-50"
-                    >
-                      {savingId === draft.id ? "Posting…" : "Post"}
-                    </button>
-                  )}
-                </div>
-                {editingId === draft.id ? (
-                  <div className="mt-2">
-                    <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={4} />
-                    <div className="mt-2 flex gap-2">
-                      <button
-                        type="button"
-                        disabled={savingId === draft.id}
-                        onClick={() => saveEdit(draft.id)}
-                        className="rounded-full bg-[#1d9bf0] px-4 py-1.5 text-sm font-bold text-white hover:bg-[#1a8cd8] disabled:opacity-50"
-                      >
-                        {savingId === draft.id ? "Saving…" : "Save"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingId(null)}
-                        className="rounded-full border border-[#536471] px-4 py-1.5 text-sm font-bold text-[#e7e9ea] hover:bg-white/10"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-5 text-[#e7e9ea]">{draft.content}</p>
-                    <div className="mt-2 flex gap-1 text-[13px]">
-                      <button type="button" onClick={() => startEdit(draft)} className="rounded-full px-3 py-1.5 font-bold text-[#1d9bf0] hover:bg-[#1d9bf0]/10">
-                        Edit
-                      </button>
-                      <button type="button" onClick={() => deleteDraft(draft.id)} className="rounded-full px-3 py-1.5 font-bold text-[#71767b] hover:bg-[#f4212e]/10 hover:text-[#f4212e]">
-                        Delete
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </article>
-        ))}
-      </TimelineColumn>
-    );
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
@@ -250,6 +158,11 @@ export default function DraftsPage() {
                     <span className="text-xs text-muted-foreground">
                       {new Date(draft.created_at).toLocaleString()}
                     </span>
+                    {platform === "x" && (
+                      <Button size="sm" disabled={savingId === draft.id} onClick={() => publishDraft(draft.id)}>
+                        {savingId === draft.id ? "Posting…" : "Post to X"}
+                      </Button>
+                    )}
                     <Button size="sm" variant="secondary" onClick={() => startEdit(draft)}>
                       Edit
                     </Button>
