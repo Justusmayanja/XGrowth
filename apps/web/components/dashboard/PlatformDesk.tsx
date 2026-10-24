@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, getToken } from "@/lib/api";
+import { XHome, type XDesk } from "@/components/dashboard/XHome";
 import { contentFormatLabel } from "@/lib/content-formats";
 import {
   formatMultiLabels,
@@ -19,20 +20,9 @@ import {
 
 type Metric = { label: string; value: number; sub: string; suffix?: string };
 
-type Desk = {
+type Desk = XDesk & {
   platform: Platform;
-  chosen: boolean;
-  setup: {
-    completed: boolean;
-    goals: string[];
-    settings: { automation_level?: number; mode?: string; publish?: string };
-  };
-  connected: { username?: string | null } | null;
   preview: boolean;
-  metrics: Metric[];
-  counts: { drafts: number; posted: number };
-  drafts: { id: number; content: string; content_type: string; created_at: string }[];
-  ideas: { name: string; suggestion?: string }[];
 };
 
 const LEDE: Record<Platform, string> = {
@@ -168,42 +158,6 @@ function Learned({ desk }: { desk: Desk }) {
   );
 }
 
-function XBody({ desk }: { desk: Desk }) {
-  return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <Section
-        title="Moments in your niche"
-        description="Written for this account. A new set when you come back."
-        action={
-          <Link href="/trends" className="text-sm text-muted-foreground hover:text-foreground">
-            All topics
-          </Link>
-        }
-      >
-        <IdeaList desk={desk} verb="Write a post" />
-      </Section>
-      <div className="space-y-6">
-        <Section
-          title="Ready to go out"
-          description="Drafts waiting for a strong moment or your yes."
-          action={
-            <Link href="/growth-agent" className="text-sm text-muted-foreground hover:text-foreground">
-              Queue
-            </Link>
-          }
-        >
-          <DraftList desk={desk} empty="Nothing waiting. Write a post from a moment on the left." />
-        </Section>
-        <Section title="Replies" description="Conversations in your niche worth joining.">
-          <Link href="/engagement">
-            <Button variant="secondary" size="sm">Open replies</Button>
-          </Link>
-        </Section>
-      </div>
-    </div>
-  );
-}
-
 function Pipeline({ steps }: { steps: { label: string; value: number | string; hint: string }[] }) {
   return (
     <Card>
@@ -330,6 +284,15 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
 
   const name = platformName(platform);
 
+  if (platform === "x") {
+    const goals = desk
+      ? desk.setup.goals.length
+        ? formatMultiLabels(desk.setup.goals, PLATFORM_GOALS.x)
+        : "Not set"
+      : "";
+    return <XHome desk={desk} chosen={chosen} error={error} posting={desk ? postingLine(desk) : ""} goals={goals} />;
+  }
+
   const header = (
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div>
@@ -433,7 +396,6 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
         ))}
       </div>
 
-      {platform === "x" && <XBody desk={desk} />}
       {platform === "tiktok" && <TikTokBody desk={desk} />}
       {platform === "youtube" && <YouTubeBody desk={desk} />}
     </div>

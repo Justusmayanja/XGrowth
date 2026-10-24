@@ -10,6 +10,7 @@ import {
   Clock,
   FileText,
   Hash,
+  House,
   Lightbulb,
   ListOrdered,
   Menu,
@@ -34,7 +35,7 @@ const NAV: Record<Platform, NavGroup[]> = {
     {
       label: "Desk",
       links: [
-        { href: "/dashboard/x", label: "Today", icon: Sun },
+        { href: "/dashboard/x", label: "Home", icon: House },
         { href: "/content-studio", label: "Compose", icon: PenLine },
         { href: "/drafts", label: "Drafts", icon: FileText },
         { href: "/growth-agent", label: "Queue", icon: ListOrdered },
@@ -116,6 +117,7 @@ function PlatformSwitch({ current, onNavigate }: { current: Platform; onNavigate
 
   const shown = chosen.includes(current) ? chosen : [...chosen, current];
   if (shown.length < 2) {
+    if (current === "x") return null;
     return <p className="mb-4 px-2 text-sm font-medium">{platformName(current)}</p>;
   }
 
@@ -139,10 +141,25 @@ function PlatformSwitch({ current, onNavigate }: { current: Platform; onNavigate
   );
 }
 
+type SessionUser = {
+  name?: string | null;
+  username?: string | null;
+  email?: string | null;
+  connected_accounts?: { platform: string; username?: string | null; is_active?: boolean }[];
+};
+
 export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const platform = usePlatform();
+  const [session, setSession] = useState<SessionUser | null>(null);
+
+  useEffect(() => {
+    if (platform !== "x") return;
+    api<{ user: SessionUser }>("/auth/me")
+      .then((res) => setSession(res.user))
+      .catch(() => setSession({ name: "Account" }));
+  }, [platform]);
 
   async function logout() {
     clearToken();
@@ -168,7 +185,16 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
         </button>
       </div>
       <PlatformSwitch current={platform} onNavigate={onNavigate} />
-      <nav className="flex flex-1 flex-col gap-3">
+      {platform === "x" && (
+        <Link
+          href={withPlatform("/content-studio", "x")}
+          onClick={() => onNavigate?.()}
+          className="mx-1 mb-3 flex h-[52px] items-center justify-center rounded-full bg-[#e7e9ea] text-[17px] font-bold text-black hover:bg-white"
+        >
+          Post
+        </Link>
+      )}
+      <nav className={`flex flex-1 flex-col gap-3 ${platform === "x" ? "overflow-y-auto" : ""}`}>
         {NAV[platform].map((group) => (
           <div key={group.label}>
             <p className="px-2 pb-1 text-[11px] text-[#71717a]">{group.label}</p>
@@ -184,10 +210,10 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
                     onClick={() => onNavigate?.()}
                     aria-current={active ? "page" : undefined}
                     className={`desk-nav-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#52525b] ${
-                      active ? "is-on" : ""
-                    }`}
+                      platform === "x" ? "x-nav" : ""
+                    } ${active ? "is-on" : ""}`}
                   >
-                    <Icon strokeWidth={1.7} />
+                    <Icon strokeWidth={platform === "x" && active ? 2.5 : 1.7} />
                     {link.label}
                   </Link>
                 );
@@ -196,9 +222,14 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
           </div>
         ))}
       </nav>
+      {platform === "x" && <XAccount session={session} onNavigate={onNavigate} />}
       <button
         onClick={logout}
-        className="mt-3 px-2 py-1 text-left text-sm text-[#a1a1aa] hover:text-[#ececee]"
+        className={
+          platform === "x"
+            ? "mt-1 rounded-full px-3 py-2 text-left text-[15px] text-[#e7e9ea] hover:bg-white/10"
+            : "mt-3 px-2 py-1 text-left text-sm text-[#a1a1aa] hover:text-[#ececee]"
+        }
       >
         Sign out
       </button>
@@ -210,8 +241,50 @@ type AppShellProps = {
   children: React.ReactNode;
 };
 
+function XAccount({ session, onNavigate }: { session: SessionUser | null; onNavigate?: () => void }) {
+  if (!session) {
+    return (
+      <div className="mt-2 flex items-center gap-3 px-3 py-2" aria-hidden>
+        <div className="h-10 w-10 animate-pulse rounded-full bg-[#2f3336]" />
+        <div className="space-y-2">
+          <div className="h-3 w-24 animate-pulse rounded-full bg-[#2f3336]" />
+          <div className="h-3 w-16 animate-pulse rounded-full bg-[#2f3336]" />
+        </div>
+      </div>
+    );
+  }
+
+  const xAccount = session.connected_accounts?.find((account) => account.platform === "x" && account.is_active);
+  const title = session.name || session.username || "Account";
+  const handle = xAccount?.username
+    ? `@${xAccount.username.replace(/^@/, "")}`
+    : session.username
+      ? `@${session.username}`
+      : session.email || "";
+  const letter = (title.replace(/^@/, "")[0] || "M").toUpperCase();
+
+  return (
+    <Link
+      href={withPlatform("/settings", "x")}
+      onClick={() => onNavigate?.()}
+      className="mt-2 flex items-center gap-3 rounded-full px-3 py-2 hover:bg-white/10"
+    >
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#1d9bf0] text-sm font-bold text-white">
+        {letter}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-[15px] font-bold leading-5 text-[#e7e9ea]">{title}</span>
+        {handle && <span className="block truncate text-[15px] leading-5 text-[#71767b]">{handle}</span>}
+      </span>
+    </Link>
+  );
+}
+
 export function AppShell({ children }: AppShellProps) {
+  const pathname = usePathname();
+  const platform = usePlatform();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const xHome = platform === "x" && pathname === "/dashboard/x";
 
   useEffect(() => {
     document.body.style.overflow = mobileOpen ? "hidden" : "";
@@ -244,8 +317,16 @@ export function AppShell({ children }: AppShellProps) {
       )}
 
       <Sidebar mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)} />
-      <main className="min-h-screen overflow-x-hidden px-4 pb-10 pt-20 lg:ml-60 lg:px-8 lg:pb-12 lg:pt-8">
-        <TrialBanner />
+      <main
+        className={
+          xHome
+            ? "min-h-screen overflow-x-hidden px-0 pb-16 pt-0 lg:ml-60 lg:pb-0"
+            : "min-h-screen overflow-x-hidden px-4 pb-10 pt-20 lg:ml-60 lg:px-8 lg:pb-12 lg:pt-8"
+        }
+      >
+        <div className={xHome ? "px-4 lg:px-8" : undefined}>
+          <TrialBanner />
+        </div>
         {children}
       </main>
     </div>
