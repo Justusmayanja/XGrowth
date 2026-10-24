@@ -47,6 +47,8 @@ class GrowthAgentController extends Controller
         }
 
         $profile->update($validated);
+        $profile->refresh();
+        $profile->rememberXSettings();
 
         return response()->json(['settings' => $profile->only([
             'mode', 'automation_level', 'max_silence_minutes', 'onboarding_completed',

@@ -106,6 +106,10 @@ class AICoreService
             $userPrompt .= "\nThis is ORIGINAL evergreen content — do not reference breaking news or current trends.\n";
         }
 
+        if (! empty($params['score_virality'])) {
+            $userPrompt .= "\nScore virality only for this niche. Use 60 or higher only if people in that niche would share or reply today. When web search is available, check what that audience is already talking about before you score.\n";
+        }
+
         $userPrompt .= <<<'PROMPT'
 
 Return JSON:

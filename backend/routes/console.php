@@ -1,6 +1,5 @@
 <?php
 
-use App\Jobs\EvaluateAllGrowthOpportunitiesJob;
 use App\Jobs\FetchGlobalTrendsJob;
 use App\Jobs\SafetyResetJob;
 use App\Models\User;
@@ -79,7 +78,6 @@ if (config('queue.default') === 'redis') {
     foreach ($trendFetchTimes as $time) {
         Schedule::job(new FetchGlobalTrendsJob)->dailyAt($time);
     }
-    Schedule::job(new EvaluateAllGrowthOpportunitiesJob)->cron("*/{$evalInterval} * * * *");
     Schedule::job(new SafetyResetJob)->dailyAt('00:05');
 } else {
     foreach ($trendFetchTimes as $time) {
@@ -87,7 +85,11 @@ if (config('queue.default') === 'redis') {
             ->dailyAt($time)
             ->name("fetch-trends-{$time}");
     }
-    Schedule::call(fn () => app(GrowthAgentService::class)->evaluateAllUsers())
-        ->cron("*/{$evalInterval} * * * *");
     Schedule::call(fn () => app(SafetyEngineService::class)->resetDailyBudgets())->dailyAt('00:05');
 }
+
+// Run in the scheduler process. A queued job never posts when no queue worker is running.
+Schedule::call(fn () => app(GrowthAgentService::class)->evaluateAllUsers())
+    ->cron("*/{$evalInterval} * * * *")
+    ->name('growth-evaluation')
+    ->withoutOverlapping(15);

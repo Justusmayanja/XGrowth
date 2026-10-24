@@ -80,10 +80,18 @@ class AccountSettingsController extends Controller
         }
 
         $profile->update($validated);
+        $profile->refresh();
+        $profile->rememberXSettings();
+
+        $fullAuto = (int) $profile->automation_level === 3
+            && $profile->auto_post_enabled
+            && ! $profile->engine_paused;
 
         return response()->json([
-            'automation' => $this->automationPayload($profile->fresh()),
-            'message' => 'Automation settings saved.',
+            'automation' => $this->automationPayload($profile),
+            'message' => $fullAuto
+                ? 'Full automation is on. Mackie17 will draft and post on X even when you are offline.'
+                : 'Automation settings saved.',
         ]);
     }
 

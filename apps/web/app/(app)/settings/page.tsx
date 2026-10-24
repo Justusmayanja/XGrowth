@@ -69,13 +69,21 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <DeskHeading icon={Settings} title="Settings">
         <p className="text-muted-foreground">
-          {platform === "x" ? "Account, posting rules, and X." : "Account and posting rules."}
+          {platform === "x"
+            ? "Choose full automation or stay in control of what X publishes."
+            : "Account and posting rules."}
         </p>
       </DeskHeading>
 
+      {platform === "x" && (
+        <AutomationSettingsCard initial={automation} xConnected={Boolean(xStatus?.connected)} />
+      )}
+
       <AccountSettingsCard account={account} onUpdated={setAccount} />
 
-      <AutomationSettingsCard initial={automation} />
+      {platform !== "x" && (
+        <AutomationSettingsCard initial={automation} xConnected={Boolean(xStatus?.connected)} />
+      )}
 
       <PlatformSetupCard />
 

@@ -9,6 +9,8 @@ use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use App\Services\AICore\AICoreService;
 use App\Services\TrendEngine\OpportunityScorerService;
+use App\Services\XApi\XApiService;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
@@ -20,7 +22,10 @@ class GrowthAgentService
         private readonly GrowthBrainService $growthBrain,
         private readonly AICoreService $aiCore,
         private readonly PlatformSettingsService $settings,
+        private readonly XApiService $xApi,
     ) {}
+
+    private bool $draftedThisRun = false;
 
     public function evaluateAllUsers(): int
     {
@@ -52,6 +57,7 @@ class GrowthAgentService
         }
 
         $profile = $user->accountProfile;
+        $this->draftedThisRun = false;
 
         if ($profile->engine_paused) {
             return $this->logDecision(
@@ -64,10 +70,25 @@ class GrowthAgentService
             );
         }
 
+        if ($this->canUnattendedPost($profile)) {
+            $queued = $this->publishQueuedDraft($user, $profile);
+            if ($queued !== null) {
+                return $queued;
+            }
+        }
+
         $prefilterLimit = max(1, $this->settings->getInt('growth_brain_prefilter_limit', 5));
         $ranked = $this->opportunityScorer->rankedForProfile($profile, $prefilterLimit);
 
         if ($ranked === []) {
+            if ($this->shouldFillSilence($user, $profile)) {
+                return $this->evaluateOriginalFallback(
+                    $user,
+                    $profile,
+                    app(\App\Services\AICore\AiContextBuilder::class)->contentMixDigest($user),
+                );
+            }
+
             $this->logDecision($user, 'WAIT', null, 0, 'No trends available to evaluate yet', []);
 
             return 'WAIT';
@@ -75,7 +96,7 @@ class GrowthAgentService
 
         if ($this->growthBrain->isEnabled()) {
             try {
-                return $this->evaluateWithBrain($user, $profile, $ranked);
+                return $this->finish($user, $profile, $this->evaluateWithBrain($user, $profile, $ranked));
             } catch (RuntimeException $e) {
                 Log::warning('Growth brain fallback to rules', [
                     'user_id' => $user->id,
@@ -84,7 +105,7 @@ class GrowthAgentService
             }
         }
 
-        return $this->evaluateWithRules($user, $profile, $ranked);
+        return $this->finish($user, $profile, $this->evaluateWithRules($user, $profile, $ranked));
     }
 
     /**
@@ -125,51 +146,16 @@ class GrowthAgentService
             );
         }
 
-        $action = null;
         if ($decision === 'POST') {
-            $automation = (int) ($profile->automation_level ?? 1);
-            $canAutoPost = $automation >= 2 && $profile->auto_post_enabled;
-
-            if ($canAutoPost) {
-                $draft = $this->maybeGenerateDraft(
-                    $user,
-                    $profile,
-                    $trend,
-                    $evaluation['content_angle'],
-                    $evaluation['content_source'],
-                );
-                if ($draft) {
-                    $context['draft_post_id'] = $draft->id;
-                    $context['draft_preview'] = mb_substr($draft->content, 0, 160);
-                }
-
-                return $this->logDecision(
-                    $user,
-                    'POST',
-                    'draft_prepared',
-                    $score,
-                    $reason,
-                    $context
-                );
-            }
-
-            $this->maybeGenerateDraft(
+            return $this->actOnPostOpportunity(
                 $user,
                 $profile,
                 $trend,
                 $evaluation['content_angle'],
                 $evaluation['content_source'],
-            );
-
-            return $this->logDecision(
-                $user,
-                'WAIT',
-                'suggest_draft',
                 $score,
-                $profile->auto_post_enabled
-                    ? $reason.' — review draft in Content Studio'
-                    : $reason.' — auto-posting is off; review draft in Content Studio',
-                $context
+                $reason,
+                $context,
             );
         }
 
@@ -184,7 +170,7 @@ class GrowthAgentService
             );
         }
 
-        return $this->logDecision($user, $decision, $action, $score, $reason, $context);
+        return $this->logDecision($user, $decision, null, $score, $reason, $context);
     }
 
     /**
@@ -201,7 +187,6 @@ class GrowthAgentService
         $top = $ranked[0];
         $trend = $top['trend'];
         $score = $top['opportunity_score'];
-        $automation = $profile->automation_level ?? 1;
 
         $context = [
             'engine' => 'rules_fallback',
@@ -226,28 +211,15 @@ class GrowthAgentService
         $engageThreshold = $this->settings->getInt('rules_engage_threshold', 68);
 
         if ($score >= $postThreshold) {
-            $canAutoPost = $automation >= 2 && $profile->auto_post_enabled;
-
-            if ($canAutoPost) {
-                return $this->logDecision(
-                    $user,
-                    'POST',
-                    'draft_prepared',
-                    $score,
-                    "High opportunity ({$score}/100) on \"{$trend->name}\" — draft ready for your niche",
-                    $context
-                );
-            }
-
-            return $this->logDecision(
+            return $this->actOnPostOpportunity(
                 $user,
-                'WAIT',
-                'suggest_draft',
+                $profile,
+                $trend,
+                $trend->name,
+                'trend',
                 $score,
-                $automation === 0 || ! $profile->auto_post_enabled
-                    ? "Strong opportunity on \"{$trend->name}\" — auto-posting is off; review draft in Content Studio"
-                    : "Strong opportunity on \"{$trend->name}\" — review suggested draft in Content Studio",
-                $context
+                "High opportunity ({$score}/100) on \"{$trend->name}\" for your niche",
+                $context,
             );
         }
 
@@ -298,16 +270,233 @@ class GrowthAgentService
         $ideas = app(\App\Services\AICore\AiContextBuilder::class)->originalIdeasDigest($profile);
         $context['content_angle'] = $ideas[0] ?? 'Evergreen insight for your niche';
 
-        $this->maybeGenerateDraft($user, $profile, null, $context['content_angle'], 'original');
+        return $this->actOnPostOpportunity(
+            $user,
+            $profile,
+            null,
+            $context['content_angle'],
+            'original',
+            $score,
+            'Quiet stretch in your niche — original draft checked for virality',
+            $context,
+        );
+    }
+
+    private function finish(User $user, AccountProfile $profile, string $decision): string
+    {
+        if ($decision === 'POST' || $this->draftedThisRun || ! $this->shouldFillSilence($user, $profile)) {
+            return $decision;
+        }
+
+        return $this->evaluateOriginalFallback(
+            $user,
+            $profile,
+            app(\App\Services\AICore\AiContextBuilder::class)->contentMixDigest($user),
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function actOnPostOpportunity(
+        User $user,
+        AccountProfile $profile,
+        ?\App\Models\Trend $trend,
+        ?string $contentAngle,
+        string $contentSource,
+        float $score,
+        string $reason,
+        array $context,
+    ): string {
+        $draft = $this->maybeGenerateDraft($user, $profile, $trend, $contentAngle, $contentSource);
+
+        if (! $this->canUnattendedPost($profile)) {
+            if ($draft) {
+                $context['draft_post_id'] = $draft->id;
+                $context['draft_preview'] = mb_substr($draft->content, 0, 160);
+            }
+
+            return $this->logDecision(
+                $user,
+                'WAIT',
+                'suggest_draft',
+                $score,
+                $profile->auto_post_enabled
+                    ? $reason.' — review the draft before it goes live'
+                    : $reason.' — posting is off, so this stays a draft',
+                $context
+            );
+        }
+
+        return $this->publishOrHold($user, $profile, $draft, $score, $reason, $context);
+    }
+
+    private function publishQueuedDraft(User $user, AccountProfile $profile): ?string
+    {
+        if (! $this->safetyEngine->canAct($user, 'post')) {
+            return null;
+        }
+
+        $draft = Post::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'draft')
+            ->whereIn('content_type', ['tweet', 'thread'])
+            ->where('virality_predicted', '>=', $this->viralityFloor($profile))
+            ->latest('id')
+            ->first();
+
+        if (! $draft) {
+            return null;
+        }
+
+        return $this->publishOrHold(
+            $user,
+            $profile,
+            $draft,
+            (float) ($draft->virality_predicted ?? 0),
+            'A drafted post cleared the virality check for your niche',
+            [
+                'engine' => 'autopublish',
+                'content_source' => $draft->trend_id ? 'trend' : 'original',
+                'draft_post_id' => $draft->id,
+            ],
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function publishOrHold(
+        User $user,
+        AccountProfile $profile,
+        ?Post $draft,
+        float $score,
+        string $reason,
+        array $context,
+    ): string {
+        if (! $draft) {
+            return $this->logDecision(
+                $user,
+                'WAIT',
+                'draft_failed',
+                $score,
+                $reason.' — could not draft a post this round',
+                $context
+            );
+        }
+
+        $context['draft_post_id'] = $draft->id;
+        $context['draft_preview'] = mb_substr($draft->content, 0, 160);
+        $context['virality_predicted'] = $draft->virality_predicted;
+
+        $floor = $this->viralityFloor($profile);
+        $virality = (float) ($draft->virality_predicted ?? 0);
+
+        if ($virality < $floor) {
+            return $this->logDecision(
+                $user,
+                'WAIT',
+                'held_low_virality',
+                $score,
+                $reason." — held the draft (virality {$virality}/100, needs {$floor} in this niche)",
+                $context
+            );
+        }
+
+        $account = $user->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->first();
+
+        if (! $account) {
+            return $this->logDecision(
+                $user,
+                'WAIT',
+                'draft_prepared',
+                $score,
+                $reason.' — connect X and this draft can go live',
+                $context
+            );
+        }
+
+        if (! $this->safetyEngine->canAct($user, 'post')) {
+            return $this->logDecision(
+                $user,
+                'WAIT',
+                'draft_prepared',
+                $score,
+                'Daily post limit reached — the draft is saved',
+                $context
+            );
+        }
+
+        try {
+            $platformPostId = $this->xApi->publishText($account, $draft->content, $draft->content_type);
+        } catch (RuntimeException $e) {
+            Log::warning('Autopublish failed', [
+                'user_id' => $user->id,
+                'post_id' => $draft->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->logDecision(
+                $user,
+                'WAIT',
+                'publish_failed',
+                $score,
+                'Could not publish this draft. It will be tried again.',
+                $context
+            );
+        }
+
+        $draft->update([
+            'status' => 'posted',
+            'platform_post_id' => $platformPostId,
+            'connected_account_id' => $account->id,
+            'posted_at' => now(),
+        ]);
+        $this->safetyEngine->recordAction($user, 'post');
 
         return $this->logDecision(
             $user,
-            'WAIT',
-            'suggest_draft',
+            'POST',
+            'posted',
             $score,
-            'Content mix favors original posts — evergreen draft ready in Content Studio',
+            $reason.' — published automatically',
             $context
         );
+    }
+
+    private function canUnattendedPost(AccountProfile $profile): bool
+    {
+        return ! $profile->engine_paused
+            && (int) ($profile->automation_level ?? 1) >= 2
+            && (bool) $profile->auto_post_enabled;
+    }
+
+    private function viralityFloor(AccountProfile $profile): int
+    {
+        return (int) ($profile->automation_level ?? 1) >= 3 ? 60 : 75;
+    }
+
+    private function shouldFillSilence(User $user, AccountProfile $profile): bool
+    {
+        if ((int) ($profile->automation_level ?? 1) < 3 || ! $this->canUnattendedPost($profile)) {
+            return false;
+        }
+
+        if (! $this->safetyEngine->canAct($user, 'post')) {
+            return false;
+        }
+
+        $minutes = max(15, (int) ($profile->max_silence_minutes ?? 60));
+        $lastPosted = $user->posts()->where('status', 'posted')->latest('posted_at')->value('posted_at');
+
+        if (! $lastPosted) {
+            return true;
+        }
+
+        return Carbon::parse($lastPosted)->lte(now()->subMinutes($minutes));
     }
 
     private function maybeGenerateDraft(
@@ -317,11 +506,14 @@ class GrowthAgentService
         ?string $contentAngle,
         string $contentSource = 'trend',
     ): ?Post {
+        $this->draftedThisRun = true;
+
         if (! $this->aiCore->isConfigured()) {
             return null;
         }
 
         $isOriginal = $contentSource === 'original' || $trend === null;
+        $fullAuto = (int) ($profile->automation_level ?? 1) >= 3;
 
         try {
             if ($isOriginal) {
@@ -334,7 +526,7 @@ class GrowthAgentService
                     : $trend->name;
             }
 
-            $result = $this->aiCore->generateContentVariants([
+            $params = [
                 'user' => $user,
                 'topic' => mb_substr($topic, 0, 500),
                 'tone' => $profile->primaryTone(),
@@ -344,9 +536,25 @@ class GrowthAgentService
                 'audience' => $profile->audience,
                 'description' => $profile->description,
                 'variant_count' => 1,
-                'use_web_search' => ! $isOriginal && $this->shouldUseWebSearchForTrend($trend),
+                'use_web_search' => $fullAuto || (! $isOriginal && $this->shouldUseWebSearchForTrend($trend)),
+                'score_virality' => true,
                 'content_source' => $isOriginal ? 'original' : 'trend',
-            ]);
+            ];
+
+            try {
+                $result = $this->aiCore->generateContentVariants($params);
+            } catch (RuntimeException $e) {
+                if (! $params['use_web_search']) {
+                    throw $e;
+                }
+
+                Log::warning('Autopilot web search failed, drafting without it', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+                $params['use_web_search'] = false;
+                $result = $this->aiCore->generateContentVariants($params);
+            }
 
             $variant = $result['variants'][0] ?? null;
             if (! $variant) {

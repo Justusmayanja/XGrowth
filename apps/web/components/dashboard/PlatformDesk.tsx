@@ -53,6 +53,23 @@ function composeHref(platform: Platform, topic?: string) {
   return `/content-studio?${params.toString()}`;
 }
 
+function paceLine(desk: Desk): string {
+  return desk.setup.settings.mode === "proactive" ? "Even on a quiet day" : "When something is happening";
+}
+
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const minutes = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 function postingLine(desk: Desk): string {
   if (desk.platform === "tiktok") return "Suggests a time, then waits for your yes";
   if (desk.platform === "youtube") {
@@ -111,21 +128,28 @@ function Section({
   );
 }
 
-function IdeaList({ desk, verb }: { desk: Desk; verb: string }) {
+function IdeaList({ desk, verb, loose = false }: { desk: Desk; verb: string; loose?: boolean }) {
   if (desk.ideas.length === 0) {
     return <p className="text-sm text-muted-foreground">Fresh moments for this account show here.</p>;
   }
   return (
-    <ul className="divide-y divide-border">
+    <ul className={loose ? "space-y-1" : "divide-y divide-border"}>
       {desk.ideas.map((idea) => (
-        <li key={idea.name} className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
+        <li
+          key={idea.name}
+          className={
+            loose
+              ? "group flex items-start justify-between gap-4 rounded-md px-2 py-2.5 transition-colors hover:bg-white/[0.04]"
+              : "flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0"
+          }
+        >
           <div className="min-w-0">
             <p className="font-medium">{idea.name}</p>
             {idea.suggestion && <p className="mt-0.5 text-sm text-muted-foreground">{idea.suggestion}</p>}
           </div>
           <Link
             href={composeHref(desk.platform, idea.name)}
-            className="flex shrink-0 items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+            className={`flex shrink-0 items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground ${loose ? "group-hover:text-foreground" : ""}`}
           >
             {verb}
             <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -136,18 +160,18 @@ function IdeaList({ desk, verb }: { desk: Desk; verb: string }) {
   );
 }
 
-function DraftList({ desk, empty }: { desk: Desk; empty: string }) {
+function DraftList({ desk, empty, loose = false }: { desk: Desk; empty: string; loose?: boolean }) {
   if (desk.drafts.length === 0) {
     return <p className="text-sm text-muted-foreground">{empty}</p>;
   }
   return (
-    <ul className="divide-y divide-border">
+    <ul className={loose ? "space-y-1" : "divide-y divide-border"}>
       {desk.drafts.map((draft) => (
-        <li key={draft.id} className="py-3 first:pt-0 last:pb-0">
+        <li key={draft.id} className={loose ? "rounded-md px-2 py-2.5 transition-colors hover:bg-white/[0.04]" : "py-3 first:pt-0 last:pb-0"}>
           <Link href="/drafts" className="block rounded-md hover:text-foreground">
             <p className="line-clamp-2 text-sm">{draft.content}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {contentFormatLabel(draft.content_type)} · {new Date(draft.created_at).toLocaleDateString()}
+              {contentFormatLabel(draft.content_type)} · {loose ? relativeTime(draft.created_at) : new Date(draft.created_at).toLocaleDateString()}
             </p>
           </Link>
         </li>
@@ -156,176 +180,156 @@ function DraftList({ desk, empty }: { desk: Desk; empty: string }) {
   );
 }
 
-function XPanel({
-  title,
-  description,
-  action,
-  children,
-}: {
-  title: string;
-  description?: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
+function XBody({ desk }: { desk: Desk }) {
+  const moments = desk.ideas.length;
+  const waiting = desk.counts.drafts;
   return (
-    <section className="overflow-hidden rounded-2xl bg-[#16181c]">
-      <div className="flex items-start justify-between gap-4 px-4 pb-2 pt-3">
-        <div>
-          <h2 className="text-xl font-extrabold tracking-tight text-[#e7e9ea]">{title}</h2>
-          {description && <p className="mt-0.5 text-[15px] leading-5 text-[#71767b]">{description}</p>}
-        </div>
-        {action}
+    <div className="grid gap-6 lg:grid-cols-2">
+      <div className="desk-arrive h-full" style={{ animationDelay: "120ms" }}>
+        <Section
+          title="Moments in your niche"
+          description={
+            moments
+              ? `${moments} written for this account. A new set when you come back.`
+              : "Written for this account. A new set when you come back."
+          }
+          action={
+            <Link href="/trends" className="text-sm text-muted-foreground hover:text-foreground">
+              All topics
+            </Link>
+          }
+        >
+          <IdeaList desk={desk} verb="Write a post" loose />
+        </Section>
       </div>
-      <div className="pb-2">{children}</div>
-    </section>
+      <div className="space-y-6">
+        <div className="desk-arrive" style={{ animationDelay: "160ms" }}>
+          <Section
+            title="Ready to go out"
+            description={
+              waiting
+                ? `${waiting} waiting for a strong moment or your yes.`
+                : "Drafts waiting for a strong moment or your yes."
+            }
+            action={
+              <Link href="/growth-agent" className="text-sm text-muted-foreground hover:text-foreground">
+                Queue
+              </Link>
+            }
+          >
+            <DraftList desk={desk} empty="Nothing waiting. Write a post from a moment on the left." loose />
+          </Section>
+        </div>
+        <div className="desk-arrive" style={{ animationDelay: "200ms" }}>
+          <Section
+            title="Replies"
+            description={
+              desk.connected
+                ? "Conversations in your niche worth joining."
+                : "Connect X and conversations in your niche show up here."
+            }
+          >
+            <Link href={desk.connected ? "/engagement" : "/settings"}>
+              <Button variant="secondary" size="sm">{desk.connected ? "Open replies" : "Connect X"}</Button>
+            </Link>
+          </Section>
+        </div>
+      </div>
+    </div>
   );
 }
 
-function XLink({ href, children }: { href: string; children: ReactNode }) {
+function XDeskSkeleton() {
   return (
-    <Link href={href} className="shrink-0 text-[15px] text-[#1d9bf0] hover:underline">
-      {children}
-    </Link>
-  );
-}
-
-function XIdeaList({ desk }: { desk: Desk }) {
-  if (desk.ideas.length === 0) {
-    return <p className="px-4 pb-3 text-[15px] text-[#71767b]">Fresh moments for this account show here.</p>;
-  }
-  return (
-    <ul>
-      {desk.ideas.map((idea) => (
-        <li key={idea.name} className="transition-colors hover:bg-white/[0.03]">
-          <div className="flex items-start justify-between gap-4 px-4 py-3">
-            <div className="min-w-0">
-              <p className="text-[15px] font-bold leading-5 text-[#e7e9ea]">{idea.name}</p>
-              {idea.suggestion && <p className="mt-0.5 text-[15px] leading-5 text-[#e7e9ea]">{idea.suggestion}</p>}
-            </div>
-            <XLink href={composeHref(desk.platform, idea.name)}>Write a post</XLink>
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function XDraftList({ desk }: { desk: Desk }) {
-  if (desk.drafts.length === 0) {
-    return <p className="px-4 pb-3 text-[15px] text-[#71767b]">Nothing waiting. Write a post from a moment on the left.</p>;
-  }
-  return (
-    <ul>
-      {desk.drafts.map((draft) => (
-        <li key={draft.id} className="transition-colors hover:bg-white/[0.03]">
-          <Link href="/drafts" className="block px-4 py-3">
-            <p className="line-clamp-3 whitespace-pre-wrap break-words text-[15px] leading-5 text-[#e7e9ea]">{draft.content}</p>
-            <p className="mt-1 text-[13px] text-[#71767b]">
-              {contentFormatLabel(draft.content_type)} · {new Date(draft.created_at).toLocaleDateString()}
-            </p>
-          </Link>
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-6" aria-busy="true" aria-label="Loading X">
+      <div className="grid gap-4 sm:grid-cols-3">
+        {[0, 1, 2].map((item) => (
+          <div key={item} className="h-24 animate-pulse rounded-lg bg-white/[0.04]" />
+        ))}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        {[0, 1, 2].map((item) => (
+          <div key={item} className="h-28 animate-pulse rounded-lg bg-white/[0.04]" />
+        ))}
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="h-64 animate-pulse rounded-lg bg-white/[0.04]" />
+        <div className="space-y-6">
+          <div className="h-40 animate-pulse rounded-lg bg-white/[0.04]" />
+          <div className="h-28 animate-pulse rounded-lg bg-white/[0.04]" />
+        </div>
+      </div>
+    </div>
   );
 }
 
 function XDeskView({ desk, chosen, goals }: { desk: Desk; chosen: Platform[]; goals: string }) {
   return (
-    <div className="mx-auto w-full max-w-[1000px] space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-4 px-1">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-extrabold tracking-tight text-[#e7e9ea]">X</h1>
-          <p className="mt-1 max-w-xl text-[15px] leading-5 text-[#71767b]">{LEDE.x}</p>
+          <h1 className="text-xl font-medium">X</h1>
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground">{LEDE.x}</p>
         </div>
-        {PLATFORM_ORDER.some((item) => !chosen.includes(item)) && (
-          <div className="flex flex-wrap gap-3">
-            {PLATFORM_ORDER.filter((item) => !chosen.includes(item)).map((item) => (
-              <Link key={item} href={`/onboarding?platform=${item}`} className="text-[15px] text-[#1d9bf0] hover:underline">
-                Add {platformName(item)}
-              </Link>
-            ))}
-          </div>
-        )}
+        <AddPlatforms chosen={chosen} />
       </div>
 
-      <section className="grid overflow-hidden rounded-2xl bg-[#16181c] sm:grid-cols-3">
-        <div className="px-4 py-3">
-          <p className="text-[13px] text-[#71767b]">Posting</p>
-          <p className="mt-0.5 text-[15px] leading-5 text-[#e7e9ea]">{postingLine(desk)}</p>
-        </div>
-        <div className="border-t border-[#2f3336] px-4 py-3 sm:border-l sm:border-t-0">
-          <p className="text-[13px] text-[#71767b]">Goals</p>
-          <p className="mt-0.5 text-[15px] leading-5 text-[#e7e9ea]">{goals}</p>
-          <Link href="/onboarding?platform=x" className="mt-1 inline-block text-[13px] text-[#1d9bf0] hover:underline">
-            Change
-          </Link>
-        </div>
-        <div className="border-t border-[#2f3336] px-4 py-3 sm:border-l sm:border-t-0">
-          <p className="text-[13px] text-[#71767b]">Account</p>
-          {desk.connected ? (
-            <p className="mt-0.5 text-[15px] leading-5 text-[#e7e9ea]">
-              {desk.connected.username ? `@${desk.connected.username}` : "Connected"}
-            </p>
-          ) : (
-            <Link href="/settings" className="mt-0.5 inline-block text-[15px] text-[#1d9bf0] hover:underline">
-              Connect X
+      <div className="desk-arrive grid gap-4 sm:grid-cols-3">
+        <Card className="h-full">
+          <CardContent className="pt-6">
+            <p className="text-xs text-muted-foreground">Posting</p>
+            <p className="mt-1 text-sm font-medium">{paceLine(desk)}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{postingLine(desk)}</p>
+          </CardContent>
+        </Card>
+        <Card className="h-full">
+          <CardContent className="pt-6">
+            <p className="text-xs text-muted-foreground">Goals</p>
+            <p className="mt-1 text-sm">{goals}</p>
+            <Link href="/onboarding?platform=x" className="mt-1 inline-block text-xs text-muted-foreground hover:text-foreground">
+              Change
             </Link>
-          )}
-        </div>
-      </section>
-
-      <section className="grid overflow-hidden rounded-2xl bg-[#16181c] sm:grid-cols-3">
-        {desk.metrics.map((metric, index) => (
-          <div
-            key={metric.label}
-            className={`px-4 py-3 ${index > 0 ? "border-t border-[#2f3336] sm:border-l sm:border-t-0" : ""}`}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[13px] text-[#71767b]">{metric.label}</p>
-              {desk.preview && (
-                <Badge variant="outline" className="text-[10px] font-normal text-[#71767b]">
-                  Sample
-                </Badge>
-              )}
-            </div>
-            <p className="mt-1 text-[22px] font-extrabold tabular-nums leading-none text-[#e7e9ea]">
-              {metric.value.toLocaleString()}
-              {metric.suffix ?? ""}
-            </p>
-            <p className="mt-1 text-[13px] text-[#71767b]">{metric.sub}</p>
-          </div>
-        ))}
-      </section>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <XPanel
-          title="Moments in your niche"
-          description="Written for this account. A new set when you come back."
-          action={<XLink href="/trends">All topics</XLink>}
-        >
-          <XIdeaList desk={desk} />
-        </XPanel>
-        <div className="space-y-4">
-          <XPanel
-            title="Ready to go out"
-            description="Drafts waiting for a strong moment or your yes."
-            action={<XLink href="/growth-agent">Queue</XLink>}
-          >
-            <XDraftList desk={desk} />
-          </XPanel>
-          <XPanel title="Replies" description="Conversations in your niche worth joining.">
-            <div className="px-4 pb-3">
-              <Link
-                href="/engagement"
-                className="inline-flex rounded-full bg-[#eff3f4] px-4 py-1.5 text-sm font-bold text-black hover:bg-white"
-              >
-                Open replies
+          </CardContent>
+        </Card>
+        <Card className="h-full">
+          <CardContent className="pt-6">
+            <p className="text-xs text-muted-foreground">Account</p>
+            {desk.connected ? (
+              <p className="mt-1 text-sm">{desk.connected.username ? `@${desk.connected.username}` : "Connected"}</p>
+            ) : (
+              <Link href="/settings" className="mt-1 inline-block text-sm underline underline-offset-4">
+                Connect X
               </Link>
-            </div>
-          </XPanel>
-        </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
+
+      <div className="desk-arrive grid gap-4 sm:grid-cols-3" style={{ animationDelay: "60ms" }}>
+        {desk.metrics.map((metric) => (
+          <Link key={metric.label} href="/analytics?platform=x" className="block h-full rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground">
+            <Card className="h-full">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm text-muted-foreground">{metric.label}</p>
+                  {desk.preview && (
+                    <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
+                      Sample
+                    </Badge>
+                  )}
+                </div>
+                <p className="mt-2 text-2xl font-medium tabular-nums">
+                  {metric.value.toLocaleString()}
+                  {metric.suffix ?? ""}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">{metric.sub}</p>
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
+      </div>
+
+      <XBody desk={desk} />
     </div>
   );
 }
@@ -491,7 +495,7 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
     return (
       <div className="space-y-6">
         {header}
-        <p className="text-muted-foreground">Loading…</p>
+        {platform === "x" ? <XDeskSkeleton /> : <p className="text-muted-foreground">Loading…</p>}
       </div>
     );
   }

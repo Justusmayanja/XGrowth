@@ -137,6 +137,24 @@ class AccountProfile extends Model
         return SetupCatalog::PURPOSES[$this->purpose ?? ''] ?? null;
     }
 
+    public function rememberXSettings(): void
+    {
+        $setup = PlatformSetup::query()
+            ->where('user_id', $this->user_id)
+            ->where('platform', 'x')
+            ->first();
+
+        if (! $setup) {
+            return;
+        }
+
+        $settings = is_array($setup->settings) ? $setup->settings : [];
+        $settings['automation_level'] = (int) $this->automation_level;
+        $settings['mode'] = $this->mode ?? 'reactive';
+        $setup->settings = $settings;
+        $setup->save();
+    }
+
     /** @return list<string> */
     private function parseMulti(?string $value): array
     {

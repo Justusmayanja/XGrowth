@@ -35,8 +35,12 @@ export type SafetyStatus = {
 };
 
 export const AUTOMATION_LEVELS = [
-  { value: 0, label: "Suggest only", hint: "Mackie17 drafts; you approve everything" },
-  { value: 1, label: "Semi-auto", hint: "Mackie17 drafts; you decide what goes live" },
-  { value: 2, label: "Mostly auto", hint: "Post when opportunity score is high" },
-  { value: 3, label: "Full auto", hint: "Mackie17 handles growth with minimal input" },
+  { value: 0, label: "I approve everything", hint: "Mackie17 only suggests. You post." },
+  { value: 1, label: "I decide what goes live", hint: "It drafts. You say yes." },
+  { value: 2, label: "Post when the moment is strong", hint: "It publishes the clear ones and holds the rest." },
+  {
+    value: 3,
+    label: "Full automation",
+    hint: "It drafts, checks whether the post can travel in your niche, and publishes while you are offline.",
+  },
 ];
