@@ -12,6 +12,7 @@ use App\Services\TrendEngine\OpportunityScorerService;
 use App\Services\TrendEngine\TrendEngineService;
 use App\Services\XApi\XApiService;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
@@ -71,13 +72,6 @@ class GrowthAgentService
                 'Growth Engine is paused — turn it back on in Settings when ready',
                 []
             );
-        }
-
-        if ($this->canUnattendedPost($profile)) {
-            $queued = $this->publishQueuedDraft($user, $profile);
-            if ($queued !== null) {
-                return $queued;
-            }
         }
 
         $prefilterLimit = max(1, $this->settings->getInt('growth_brain_prefilter_limit', 5));
@@ -201,6 +195,17 @@ class GrowthAgentService
         $mix = app(\App\Services\AICore\AiContextBuilder::class)->contentMixDigest($user);
 
         if ($mix['prefer'] === 'original') {
+            if ($this->canUnattendedPost($profile) && ! $this->shouldFillSilence($user, $profile)) {
+                return $this->logDecision(
+                    $user,
+                    'WAIT',
+                    'resting',
+                    0,
+                    'The niche is quiet, so nothing goes live yet.',
+                    ['engine' => 'rules_fallback', 'content_source' => 'original']
+                );
+            }
+
             return $this->evaluateOriginalFallback($user, $profile, $mix);
         }
 
@@ -328,6 +333,14 @@ class GrowthAgentService
         string $reason,
         array $context,
     ): string {
+        $context['content_source'] = $contentSource;
+        $context['trend_name'] = $trend?->name;
+
+        $hold = $this->nichePostHoldReason($user, $profile, $trend?->name, $score, $contentSource);
+        if ($hold !== null) {
+            return $this->logDecision($user, 'WAIT', 'resting', $score, $hold, $context);
+        }
+
         $draft = $this->maybeGenerateDraft($user, $profile, $trend, $contentAngle, $contentSource);
 
         if (! $this->canUnattendedPost($profile)) {
@@ -349,38 +362,6 @@ class GrowthAgentService
         }
 
         return $this->publishOrHold($user, $profile, $draft, $score, $reason, $context);
-    }
-
-    private function publishQueuedDraft(User $user, AccountProfile $profile): ?string
-    {
-        if (! $this->safetyEngine->canAct($user, 'post')) {
-            return null;
-        }
-
-        $draft = Post::query()
-            ->where('user_id', $user->id)
-            ->where('status', 'draft')
-            ->whereIn('content_type', ['tweet', 'thread'])
-            ->where('virality_predicted', '>=', $this->viralityFloor($profile))
-            ->latest('id')
-            ->first();
-
-        if (! $draft) {
-            return null;
-        }
-
-        return $this->publishOrHold(
-            $user,
-            $profile,
-            $draft,
-            (float) ($draft->virality_predicted ?? 0),
-            'A drafted post cleared the virality check for your niche',
-            [
-                'engine' => 'autopublish',
-                'content_source' => $draft->trend_id ? 'trend' : 'original',
-                'draft_post_id' => $draft->id,
-            ],
-        );
     }
 
     /**
@@ -450,9 +431,32 @@ class GrowthAgentService
             );
         }
 
+        $hold = $this->nichePostHoldReason(
+            $user,
+            $profile,
+            isset($context['trend_name']) ? (string) $context['trend_name'] : null,
+            $score,
+            (string) ($context['content_source'] ?? 'trend'),
+        );
+        if ($hold !== null) {
+            return $this->logDecision($user, 'WAIT', 'resting', $score, $hold, $context);
+        }
+
+        if (! Cache::add($this->publishLockKey($user->id), 1, now()->addMinutes(2))) {
+            return $this->logDecision(
+                $user,
+                'WAIT',
+                'resting',
+                $score,
+                'A post is already going out, so this one waits.',
+                $context
+            );
+        }
+
         try {
             $platformPostId = $this->xApi->publishText($account, $draft->content, $draft->content_type);
         } catch (RuntimeException $e) {
+            Cache::forget($this->publishLockKey($user->id));
             Log::warning('Autopublish failed', [
                 'user_id' => $user->id,
                 'post_id' => $draft->id,
@@ -475,6 +479,8 @@ class GrowthAgentService
             'connected_account_id' => $account->id,
             'posted_at' => now(),
         ]);
+        Cache::forget($this->publishLockKey($user->id));
+        Cache::forget($this->quietSinceKey($user->id));
         $this->safetyEngine->recordAction($user, 'post');
 
         return $this->logDecision(
@@ -487,6 +493,101 @@ class GrowthAgentService
         );
     }
 
+    /**
+     * A strong niche moment can post. A quiet stretch can wait, but not longer than three hours.
+     */
+    private function nichePostHoldReason(
+        User $user,
+        AccountProfile $profile,
+        ?string $moment,
+        float $score,
+        string $contentSource,
+    ): ?string {
+        if (! $this->canUnattendedPost($profile)) {
+            return null;
+        }
+
+        if ($this->postedMinutesAgo($user) < 20) {
+            return 'A post just went live. Another one waits for a later moment in the niche.';
+        }
+
+        if ($this->quietTooLong($user)) {
+            return null;
+        }
+
+        $name = trim((string) $moment);
+        if ($contentSource === 'original' || $name === '') {
+            return 'The niche is quiet, so nothing goes live yet.';
+        }
+
+        $hot = $this->settings->getInt('rules_post_threshold', 82);
+        if ($score < $hot) {
+            return "The niche moment is {$score}/100. It needs {$hot} before it goes live.";
+        }
+
+        $momentKey = mb_strtolower($name);
+        $posted = AiDecision::query()
+            ->where('user_id', $user->id)
+            ->where('action_taken', 'posted')
+            ->where('created_at', '>=', now()->subHours(3))
+            ->get(['context']);
+
+        foreach ($posted as $decision) {
+            $previous = mb_strtolower(trim((string) ($decision->context['trend_name'] ?? '')));
+            if ($previous !== '' && $previous === $momentKey) {
+                return 'This niche moment was already posted. The next one waits for a different spike, or until three hours have passed.';
+            }
+        }
+
+        return null;
+    }
+
+    private function shouldFillSilence(User $user, AccountProfile $profile): bool
+    {
+        if (! $this->canUnattendedPost($profile) || ! $this->safetyEngine->canAct($user, 'post')) {
+            return false;
+        }
+
+        return $this->quietTooLong($user);
+    }
+
+    private function quietTooLong(User $user): bool
+    {
+        $last = $user->posts()->where('status', 'posted')->latest('posted_at')->value('posted_at');
+        if ($last) {
+            return Carbon::parse($last)->lte(now()->subHours(3));
+        }
+
+        $started = Cache::get($this->quietSinceKey($user->id));
+        if (! is_numeric($started)) {
+            Cache::put($this->quietSinceKey($user->id), now()->timestamp, now()->addDays(14));
+
+            return false;
+        }
+
+        return Carbon::createFromTimestamp((int) $started)->lte(now()->subHours(3));
+    }
+
+    private function postedMinutesAgo(User $user): int
+    {
+        $last = $user->posts()->where('status', 'posted')->latest('posted_at')->value('posted_at');
+        if (! $last) {
+            return 9999;
+        }
+
+        return (int) abs(Carbon::parse($last)->diffInMinutes(now()));
+    }
+
+    private function quietSinceKey(int $userId): string
+    {
+        return "autopost:quiet-since:{$userId}";
+    }
+
+    private function publishLockKey(int $userId): string
+    {
+        return "autopost:lock:{$userId}";
+    }
+
     private function canUnattendedPost(AccountProfile $profile): bool
     {
         return ! $profile->engine_paused
@@ -497,26 +598,6 @@ class GrowthAgentService
     private function viralityFloor(AccountProfile $profile): int
     {
         return (int) ($profile->automation_level ?? 1) >= 3 ? 60 : 75;
-    }
-
-    private function shouldFillSilence(User $user, AccountProfile $profile): bool
-    {
-        if ((int) ($profile->automation_level ?? 1) < 3 || ! $this->canUnattendedPost($profile)) {
-            return false;
-        }
-
-        if (! $this->safetyEngine->canAct($user, 'post')) {
-            return false;
-        }
-
-        $minutes = max(15, (int) ($profile->max_silence_minutes ?? 60));
-        $lastPosted = $user->posts()->where('status', 'posted')->latest('posted_at')->value('posted_at');
-
-        if (! $lastPosted) {
-            return true;
-        }
-
-        return Carbon::parse($lastPosted)->lte(now()->subMinutes($minutes));
     }
 
     private function maybeGenerateDraft(

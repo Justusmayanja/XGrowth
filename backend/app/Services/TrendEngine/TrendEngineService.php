@@ -53,15 +53,9 @@ class TrendEngineService
             return [];
         }
 
-        $magnitudes = array_map(function (array $topic): int {
-            return max((int) ($topic['impressions'] ?? 0), (int) ($topic['posts'] ?? 0), (int) ($topic['likes'] ?? 0));
-        }, $live['topics']);
-        $max = max(1, ...$magnitudes);
-
         $ranked = [];
-        foreach ($live['topics'] as $index => $topic) {
-            $magnitude = $magnitudes[$index] ?? 0;
-            $score = round(50 + (50 * ($magnitude / $max)), 1);
+        foreach ($live['topics'] as $topic) {
+            $score = $this->heatScore($topic);
             $trend = new Trend([
                 'name' => $topic['name'],
                 'score' => $score,
@@ -79,6 +73,8 @@ class TrendEngineService
                 'suggestion' => $topic['figures'],
             ];
         }
+
+        usort($ranked, fn (array $a, array $b) => $b['opportunity_score'] <=> $a['opportunity_score']);
 
         return $ranked;
     }
@@ -126,15 +122,10 @@ class TrendEngineService
             return [];
         }
 
-        $magnitudes = array_map(function (array $topic): int {
-            return max((int) ($topic['impressions'] ?? 0), (int) ($topic['posts'] ?? 0), (int) ($topic['likes'] ?? 0));
-        }, $topics);
-        $max = max(1, ...$magnitudes);
         $ranked = [];
 
-        foreach ($topics as $index => $topic) {
-            $magnitude = $magnitudes[$index] ?? 0;
-            $score = round(50 + (50 * ($magnitude / $max)), 1);
+        foreach ($topics as $topic) {
+            $score = $this->heatScore($topic);
             $ranked[] = [
                 'trend' => new Trend([
                     'name' => $topic['name'],
@@ -151,7 +142,28 @@ class TrendEngineService
             ];
         }
 
+        usort($ranked, fn (array $a, array $b) => $b['opportunity_score'] <=> $a['opportunity_score']);
+
         return $ranked;
+    }
+
+    /**
+     * A quiet mention stays low. A real spike, such as a result that just landed, clears the post line.
+     *
+     * @param  array{likes?: int|null, replies?: int|null, impressions?: int|null, posts?: int|null}  $topic
+     */
+    private function heatScore(array $topic): float
+    {
+        $heat = ((int) ($topic['likes'] ?? 0) * 2)
+            + ((int) ($topic['replies'] ?? 0) * 4)
+            + ((int) ($topic['impressions'] ?? 0) / 50)
+            + ((int) ($topic['posts'] ?? 0) / 25);
+
+        if ($heat <= 0) {
+            return 30.0;
+        }
+
+        return round(min(100, 30 + (18 * log10(1 + $heat))), 1);
     }
 
     /**

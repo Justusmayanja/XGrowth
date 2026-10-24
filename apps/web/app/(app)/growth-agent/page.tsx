@@ -46,6 +46,7 @@ const actionLabel: Record<string, string> = {
   draft_prepared: "Draft",
   publish_failed: "Not published",
   draft_failed: "No draft",
+  resting: "Waiting",
 };
 
 const decisionVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -133,7 +134,7 @@ export default function GrowthAgentPage() {
               {settings.engine_paused
                 ? "Nothing is posted until you turn pause off."
                 : settings.automation_level >= 3 && settings.auto_post_enabled
-                  ? "Drafts are checked for your niche and published while you are offline."
+                  ? "A strong niche moment can be published while you are offline. A quiet day stays quiet."
                   : settings.automation_level === 2 && settings.auto_post_enabled
                     ? "Only a strong draft is published. The rest wait for you."
                     : "Drafts wait for your yes."}
@@ -142,8 +143,8 @@ export default function GrowthAgentPage() {
               <li>Post on its own: {settings.auto_post_enabled ? "On" : "Off"}</li>
               <li>Replies: {settings.auto_reply_enabled ? "On" : "Off"}</li>
               <li>Conversations: {settings.auto_engage_enabled ? "On" : "Off"}</li>
-              <li>Quiet days: {settings.mode === "proactive" ? "On" : "Off"}</li>
-              <li>Silence window: {settings.max_silence_minutes} minutes</li>
+              <li>Quiet days stay quiet</li>
+              <li>A quiet stretch ends by 3 hours</li>
             </ul>
             <Link href="/settings?platform=x">
               <Button type="button" variant="outline" size="sm">

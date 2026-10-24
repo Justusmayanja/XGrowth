@@ -7,14 +7,6 @@ import { SettingsToggle } from "@/components/settings/SettingsToggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { AUTOMATION_LEVELS, type AutomationSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
@@ -92,7 +84,7 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
   const status = paused
     ? "Paused. Nothing is posted until you turn pause off."
     : full && settings.auto_post_enabled
-      ? "Full automation is on. Mackie17 drafts a post, checks whether it can travel in your niche, and publishes it even when you are offline."
+      ? "Full automation is on. It posts when the niche spikes, including while you are offline. A quiet stretch can wait, but not longer than three hours."
       : full
         ? "Full automation is selected, but posting is off. Turn on “Post on its own” or nothing goes live."
         : settings.automation_level === 2 && settings.auto_post_enabled
@@ -249,35 +241,16 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
             <SettingsToggle
               id="posting_mode"
               label="Post on quiet days"
-              description="On writes an original post when your niche is quiet. Off waits for news and trends."
+              description="A quiet niche can wait. It still gets a post before three hours have passed."
               checked={settings.mode === "proactive"}
               onChange={(checked) => patch({ mode: checked ? "proactive" : "reactive" })}
               disabled={paused}
             />
           </div>
 
-          <div className="space-y-2">
-            <Label>Max silence before a post (minutes)</Label>
-            <Select
-              value={String(settings.max_silence_minutes)}
-              onValueChange={(v) => v && patch({ max_silence_minutes: Number(v) })}
-              disabled={paused}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[30, 60, 120, 240, 480].map((m) => (
-                  <SelectItem key={m} value={String(m)}>
-                    {m} minutes
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              In full automation, if nothing has gone live for this long, Mackie17 drafts an original post and publishes it when the virality check passes.
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Automation posts for a strong niche moment. If the niche stays quiet, the wait stops at three hours.
+          </p>
 
           <Link href="/growth-agent">
             <Button type="button" variant="outline">

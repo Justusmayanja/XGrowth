@@ -203,7 +203,7 @@ Content mix (mandatory):
 
 Other rules:
 - Respect safety.*_left — if post_left is 0, never decide POST.
-- If profile.automation is 3 and profile.auto_post is true, choose POST when the niche has a specific moment. The app checks virality and only publishes when the draft can travel, including while the person is offline.
+- If profile.automation is 3 and profile.auto_post is true, choose POST only when the niche has a specific hot moment, such as a result that just landed. A quiet day is WAIT. Never choose POST to fill time.
 - If profile.automation is below 2, POST means the moment is worth a draft. The app will not publish it.
 - Do not invent trends or metrics not in the input.
 

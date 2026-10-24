@@ -72,7 +72,7 @@ Schedule::call(fn () => app(BillingLifecycle::class)->sweep())
 
 $settings = app(PlatformSettingsService::class);
 $trendFetchTimes = $settings->getFetchTimes();
-$evalInterval = max(5, $settings->getInt('growth_evaluation_interval_minutes', 30));
+$evalInterval = min(59, max(30, $settings->getInt('growth_evaluation_interval_minutes', 30)));
 
 if (config('queue.default') === 'redis') {
     foreach ($trendFetchTimes as $time) {
