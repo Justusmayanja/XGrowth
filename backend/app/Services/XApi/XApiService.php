@@ -317,10 +317,10 @@ class XApiService
             $unique[] = $post;
         }
 
-        usort($unique, fn (array $a, array $b) => ($a['minutes_ago'] ?? 0) <=> ($b['minutes_ago'] ?? 0));
+        usort($unique, fn (array $a, array $b) => $this->replyRank($b) <=> $this->replyRank($a));
 
         $feed = [
-            'posts' => array_slice($unique, 0, 20),
+            'posts' => array_slice($unique, 0, 5),
             'errors' => $errors,
         ];
 
@@ -329,6 +329,20 @@ class XApiService
         }
 
         return $feed;
+    }
+
+    /**
+     * @param  array<string, mixed>  $post
+     */
+    private function replyRank(array $post): int
+    {
+        $engagement = ((int) ($post['likes'] ?? 0) * 2)
+            + ((int) ($post['replies'] ?? 0) * 3)
+            + (int) ($post['reposts'] ?? 0)
+            + intdiv((int) ($post['impressions'] ?? 0), 50);
+        $fresh = max(0, 180 - (int) ($post['minutes_ago'] ?? 0));
+
+        return ($engagement * 10) + $fresh;
     }
 
     /**
@@ -444,7 +458,7 @@ class XApiService
             'impressions' => $impressions,
             'likes' => $likes,
             'replies' => $replies,
-            'figures' => $parts === [] ? 'X did not send a count' : implode(' · ', $parts),
+            'figures' => implode(' · ', $parts),
         ];
     }
 

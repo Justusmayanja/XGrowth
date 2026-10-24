@@ -344,6 +344,110 @@ PROMPT;
     }
 
     /**
+     * Pick 3 to 5 of the conversations already happening and write a post for each.
+     * Names must come from the live list. No web search.
+     *
+     * @param  list<string>  $topics
+     * @return list<array{name: string, angle: string, draft: string}>
+     */
+    public function draftTrendingTopics(User $user, array $topics, ?AccountProfile $profile): array
+    {
+        $this->ensureConfigured();
+        $this->usage->assertCanGenerate($user);
+
+        $allowed = [];
+        foreach ($topics as $topic) {
+            $name = trim($topic);
+            if ($name === '') {
+                continue;
+            }
+            $allowed[mb_strtolower($name)] = $name;
+        }
+
+        if ($allowed === []) {
+            return [];
+        }
+
+        $systemPrompt = $this->buildSystemPrompt(
+            'content_generation',
+            'You choose a few conversations that are happening now and write a short post from this account\'s side. You never repeat the wording of the account notes.',
+        );
+
+        $userPrompt = 'Today is '.now()->toFormattedDateString().".\n";
+        $userPrompt .= "These are the conversations X is showing right now. Pick 3, 4, or 5 of them. If fewer than 3 are listed, use only those.\n";
+        $userPrompt .= "Keep each name exactly as written. Do not invent a different story.\n";
+        $userPrompt .= "A conversation does not have to be about this account. Write from this account's side anyway: a lender answers a cost crisis, a third club answers praise of two rivals.\n";
+        $userPrompt .= "Never quote them.\n\n";
+        $userPrompt .= "Conversations:\n";
+        foreach ($allowed as $name) {
+            $userPrompt .= '- '.$name."\n";
+        }
+
+        $notes = array_values(array_filter([
+            $profile && $profile->resolvedNiche() !== 'general' ? $profile->resolvedNiche() : null,
+            $profile?->description,
+            $profile?->audience,
+        ], fn ($note) => is_string($note) && trim($note) !== ''));
+
+        if ($notes !== []) {
+            $userPrompt .= "\nPrivate notes about who this account is. Never quote them:\n";
+            foreach ($notes as $note) {
+                $userPrompt .= '- '.trim($note)."\n";
+            }
+        }
+
+        $userPrompt .= <<<'PROMPT'
+
+Return JSON:
+{
+  "topics": [
+    {"name": "exact name from the list", "angle": "one sentence on how this account joins", "draft": "the post, under 280 characters"}
+  ]
+}
+PROMPT;
+
+        $result = $this->chatJson($systemPrompt, $userPrompt, 0.7);
+        $picked = [];
+
+        foreach ($result['parsed']['topics'] ?? [] as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $key = mb_strtolower(trim((string) ($item['name'] ?? '')));
+            if (! isset($allowed[$key])) {
+                continue;
+            }
+            $draft = trim((string) ($item['draft'] ?? ''));
+            if ($draft === '') {
+                continue;
+            }
+            $picked[] = [
+                'name' => $allowed[$key],
+                'angle' => mb_substr(trim((string) ($item['angle'] ?? '')), 0, 180),
+                'draft' => mb_substr($draft, 0, 280),
+            ];
+            unset($allowed[$key]);
+            if (count($picked) === 5) {
+                break;
+            }
+        }
+
+        if ($picked !== []) {
+            $this->usage->record($user, [
+                'feature' => 'topic_drafts',
+                'model' => $this->model(),
+                'input_tokens' => $result['input_tokens'],
+                'output_tokens' => $result['output_tokens'],
+                'total_tokens' => $result['total_tokens'],
+                'web_search_calls' => 0,
+                'used_web_search' => false,
+            ]);
+        }
+
+        return $picked;
+    }
+
+    /**
      * @param  list<array{content: string}>  $variants
      * @param  array<string, mixed>  $params
      */

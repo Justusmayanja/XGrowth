@@ -1,10 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LoadingMark } from "@/components/LoadingMark";
 import { toast } from "sonner";
 import { MultiSelectCards, SelectionHint } from "@/components/onboarding/MultiSelectCards";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,7 +51,7 @@ function profileToForm(profile: AccountProfile): ProfileFormState {
 
 export function ProfileForm() {
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
   const [profile, setProfile] = useState<ProfileFormState>({
     purpose: "creator",
     niches: ["football"],
@@ -61,6 +60,9 @@ export function ProfileForm() {
     audience: "",
     tones: ["professional"],
   });
+  const savedSnapshot = useRef<string | null>(null);
+  const request = useRef(0);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     api<{ profile: AccountProfile | null }>("/account/profile")
@@ -72,42 +74,56 @@ export function ProfileForm() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (loading) return;
+    const snapshot = JSON.stringify(profile);
+    if (savedSnapshot.current === null || savedSnapshot.current === snapshot) {
+      savedSnapshot.current = snapshot;
+      return;
+    }
+
+    const timer = setTimeout(() => void persist(profile, snapshot), 500);
+    return () => clearTimeout(timer);
+  }, [profile, loading]);
+
   function showLimitError() {
     toast.error(`You can select at most ${MAX_PROFILE_SELECTIONS} options.`);
   }
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  function update(next: ProfileFormState) {
+    setProfile(next);
+    setStatus("");
+  }
 
-    if (profile.niches.length === 0 || profile.tones.length === 0) {
-      toast.error("Select at least one niche and voice.");
-      return;
-    }
+  async function persist(next: ProfileFormState, snapshot: string) {
+    if (next.niches.length === 0 || next.tones.length === 0) return;
+    if (next.niches.includes("custom") && next.custom_niche.trim().length < 3) return;
+    if (next.description.trim() === "") return;
 
-    if (profile.niches.includes("custom") && profile.custom_niche.trim().length < 3) {
-      toast.error("Enter your custom niche.");
-      return;
-    }
-
-    setSaving(true);
+    const seq = ++request.current;
+    setStatus("Saving…");
     try {
-      const presetNiches = profile.niches.filter((niche) => niche !== "custom");
+      const presetNiches = next.niches.filter((niche) => niche !== "custom");
       await api<{ profile: AccountProfile }>("/account/profile", {
         method: "POST",
         body: JSON.stringify({
-          purpose: profile.purpose,
+          purpose: next.purpose,
           niche: presetNiches.length > 0 ? joinMultiValue(presetNiches) : null,
-          custom_niche: profile.niches.includes("custom") ? profile.custom_niche : null,
-          description: profile.description,
-          audience: profile.audience,
-          tone: joinMultiValue(profile.tones),
+          custom_niche: next.niches.includes("custom") ? next.custom_niche : null,
+          description: next.description,
+          audience: next.audience,
+          tone: joinMultiValue(next.tones),
         }),
       });
-      toast.success("Profile updated");
+      if (seq !== request.current) return;
+      savedSnapshot.current = snapshot;
+      setStatus("Saved");
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setStatus(""), 2000);
     } catch (err) {
+      if (seq !== request.current) return;
+      setStatus("");
       toast.error(err instanceof Error ? err.message : "Could not save profile");
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -120,16 +136,17 @@ export function ProfileForm() {
       <CardHeader>
         <CardTitle>Your Mackie17 profile</CardTitle>
         <CardDescription>
-          Shared by every platform. Pick up to 3 options per section where shown.
+          Shared by every platform. A choice applies immediately. Text is saved shortly after you stop typing.
+          {status ? <span className="ml-2 text-foreground">{status}</span> : null}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={onSubmit} className="space-y-6">
+        <div className="space-y-6">
           <div className="space-y-2">
             <Label>Using Mackie17 for</Label>
             <Select
               value={profile.purpose}
-              onValueChange={(v) => v && setProfile({ ...profile, purpose: v as Purpose })}
+              onValueChange={(v) => v && update({ ...profile, purpose: v as Purpose })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Choose one" />
@@ -151,7 +168,7 @@ export function ProfileForm() {
             <MultiSelectCards
               options={NICHES}
               selected={profile.niches}
-              onChange={(niches) => setProfile({ ...profile, niches })}
+              onChange={(niches) => update({ ...profile, niches })}
               onLimitReached={showLimitError}
             />
           </div>
@@ -162,7 +179,7 @@ export function ProfileForm() {
               <Input
                 id="custom_niche"
                 value={profile.custom_niche}
-                onChange={(e) => setProfile({ ...profile, custom_niche: e.target.value })}
+                onChange={(e) => update({ ...profile, custom_niche: e.target.value })}
               />
             </div>
           )}
@@ -173,7 +190,7 @@ export function ProfileForm() {
               id="description"
               rows={4}
               value={profile.description}
-              onChange={(e) => setProfile({ ...profile, description: e.target.value })}
+              onChange={(e) => update({ ...profile, description: e.target.value })}
               required
             />
           </div>
@@ -184,7 +201,7 @@ export function ProfileForm() {
               id="audience"
               rows={3}
               value={profile.audience}
-              onChange={(e) => setProfile({ ...profile, audience: e.target.value })}
+              onChange={(e) => update({ ...profile, audience: e.target.value })}
             />
           </div>
 
@@ -194,16 +211,13 @@ export function ProfileForm() {
             <MultiSelectCards
               options={TONES}
               selected={profile.tones}
-              onChange={(tones) => setProfile({ ...profile, tones })}
+              onChange={(tones) => update({ ...profile, tones })}
               onLimitReached={showLimitError}
               columns={1}
             />
           </div>
 
-          <Button type="submit" disabled={saving}>
-            {saving ? "Saving…" : "Save profile"}
-          </Button>
-        </form>
+        </div>
       </CardContent>
     </Card>
   );

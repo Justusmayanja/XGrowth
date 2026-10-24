@@ -84,6 +84,96 @@ class TrendEngineService
     }
 
     /**
+     * Three to five current topics for the Topics page, each with a post from this account.
+     * Live names come from X. The writing model runs once, then the result is cached.
+     *
+     * @return array{trends: list<array{name: string, angle: string, draft: string}>, source: string|null, note: string}
+     */
+    public function topicsForPage(User $user): array
+    {
+        $account = $user->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->first();
+
+        if (! $account) {
+            return [
+                'trends' => [],
+                'source' => null,
+                'note' => 'Connect X to load topics from the account.',
+            ];
+        }
+
+        try {
+            $live = $this->x->accountTopics($account);
+        } catch (Throwable $e) {
+            Log::warning('X topics were not available for the topics page', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'trends' => [],
+                'source' => null,
+                'note' => 'X did not return topics. '.$e->getMessage(),
+            ];
+        }
+
+        $names = [];
+        foreach (array_slice($live['topics'], 0, 12) as $topic) {
+            $name = trim((string) ($topic['name'] ?? ''));
+            if ($name !== '') {
+                $names[] = $name;
+            }
+        }
+
+        if ($names === []) {
+            return [
+                'trends' => [],
+                'source' => $live['source'],
+                'note' => 'X did not return topics for this account.',
+            ];
+        }
+
+        $cacheKey = 'x-topic-drafts:'.$user->id.':'.md5(implode("\n", $names));
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && isset($cached['trends']) && is_array($cached['trends'])) {
+            return $cached;
+        }
+
+        $drafted = [];
+        if ($this->ai->isConfigured()) {
+            try {
+                $drafted = $this->ai->draftTrendingTopics($user, $names, $user->accountProfile);
+            } catch (Throwable $e) {
+                Log::warning('Topic drafts were not written', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $wrote = $drafted !== [];
+        if (! $wrote) {
+            foreach (array_slice($names, 0, 5) as $name) {
+                $drafted[] = ['name' => $name, 'angle' => '', 'draft' => ''];
+            }
+        }
+
+        $payload = [
+            'trends' => $drafted,
+            'source' => $live['source'],
+            'note' => $wrote
+                ? 'A few conversations happening now, with a post written from this account.'
+                : 'These are on X right now. A post could not be written this time.',
+        ];
+
+        Cache::put($cacheKey, $payload, now()->addMinutes($wrote ? 30 : 10));
+
+        return $payload;
+    }
+
+    /**
      * Used when a draft needs a conversation and this X account did not return topics.
      * A connected account is never sent through the AI search.
      */

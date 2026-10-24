@@ -186,7 +186,7 @@ export default function GrowthAgentPage() {
                       </Badge>
                     ) : null}
                   </div>
-                  <p className="text-xs text-muted-foreground">{o.suggestion}</p>
+                  {o.suggestion ? <p className="text-xs text-muted-foreground">{o.suggestion}</p> : null}
                 </div>
               ))
             )}

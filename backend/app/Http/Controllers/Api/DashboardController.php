@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\PlatformSetup;
+use App\Services\TrendEngine\TrendEngineService;
 use App\Services\XApi\XApiService;
 use Throwable;
 use Illuminate\Http\JsonResponse;
@@ -13,6 +14,7 @@ class DashboardController extends Controller
 {
     public function __construct(
         private readonly XApiService $x,
+        private readonly TrendEngineService $trendEngine,
     ) {}
 
     public function stats(Request $request): JsonResponse
@@ -135,7 +137,7 @@ class DashboardController extends Controller
                 $ideas = array_map(fn (array $topic) => [
                     'name' => $topic['name'],
                     'suggestion' => $topic['figures'],
-                ], $this->x->accountTopics($connected)['topics']);
+                ], array_slice($this->x->accountTopics($connected)['topics'], 0, 5));
             } catch (Throwable) {
                 $ideas = [];
             }
@@ -174,40 +176,7 @@ class DashboardController extends Controller
 
     public function trends(Request $request): JsonResponse
     {
-        $account = $request->user()->connectedAccounts()
-            ->where('platform', 'x')
-            ->where('is_active', true)
-            ->first();
-
-        if (! $account) {
-            return response()->json([
-                'trends' => [],
-                'source' => null,
-                'note' => 'Connect X to load topics from the account.',
-            ]);
-        }
-
-        try {
-            $live = $this->x->accountTopics($account);
-        } catch (Throwable $e) {
-            report($e);
-
-            return response()->json([
-                'trends' => [],
-                'source' => null,
-                'note' => 'X did not return topics. '.$e->getMessage(),
-            ]);
-        }
-
-        return response()->json([
-            'trends' => $live['topics'],
-            'source' => $live['source'],
-            'note' => $live['topics'] === []
-                ? 'X did not return topics for this account.'
-                : ($live['source'] === 'trends'
-                    ? 'Topics X is showing for this account. Post counts are the ones X returned.'
-                    : 'Topics from this account’s recent posts. Impressions and likes are the ones X recorded.'),
-        ]);
+        return response()->json($this->trendEngine->topicsForPage($request->user()));
     }
 
     public function opportunities(Request $request): JsonResponse

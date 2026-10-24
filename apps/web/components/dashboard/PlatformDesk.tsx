@@ -209,8 +209,8 @@ function XBody({ desk }: { desk: Desk }) {
           title="Topics"
           description={
             moments
-              ? `${moments} from your X account, with the counts X returned.`
-              : "Topics from your X account, with the counts X returned."
+              ? `${moments} from your X account.`
+              : "A few topics from your X account."
           }
           action={
             <Link href="/trends" className="text-sm text-muted-foreground hover:text-foreground">

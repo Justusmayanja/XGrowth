@@ -1367,24 +1367,13 @@ input[type="radio"] {
   }
 }
 
-@keyframes mark-sway {
-  0%,
-  100% {
-    transform: rotate(-16deg);
-  }
-  50% {
-    transform: rotate(16deg);
-  }
-}
-
-.mark-sway {
-  animation: mark-sway 1.5s ease-in-out infinite;
-  transform-origin: 50% 55%;
+.seven-lights {
+  filter: drop-shadow(0 0 4px #8ec4ff);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mark-sway {
-    animation: none;
+  .seven-lights {
+    display: none;
   }
 }
 

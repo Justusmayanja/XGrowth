@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { SettingsToggle } from "@/components/settings/SettingsToggle";
@@ -28,9 +28,13 @@ const CONTROLLED = AUTOMATION_LEVELS.filter((level) => level.value < 3);
 
 export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
   const [settings, setSettings] = useState<AutomationSettings | null>(initial);
-  const [saving, setSaving] = useState(false);
+  const [saveState, setSaveState] = useState("");
+  const latest = useRef(initial);
+  const request = useRef(0);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    latest.current = initial;
     setSettings(initial);
   }, [initial]);
 
@@ -46,27 +50,39 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
   }
 
   function patch(partial: Partial<AutomationSettings>) {
-    setSettings((current) => (current ? { ...current, ...partial } : current));
+    const current = latest.current;
+    if (!current) return;
+    const next = { ...current, ...partial };
+    if (JSON.stringify(next) === JSON.stringify(current)) return;
+    const previous = current;
+    latest.current = next;
+    setSettings(next);
+    void persist(next, previous);
   }
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!settings) return;
-    setSaving(true);
+  async function persist(next: AutomationSettings, previous: AutomationSettings) {
+    const seq = ++request.current;
+    setSaveState("Saving…");
     try {
-      const res = await api<{ automation: AutomationSettings; message: string }>(
-        "/account/automation",
-        { method: "PATCH", body: JSON.stringify(settings) }
-      );
+      const res = await api<{ automation: AutomationSettings }>("/account/automation", {
+        method: "PATCH",
+        body: JSON.stringify(next),
+      });
+      if (seq !== request.current) return;
+      latest.current = res.automation;
       setSettings(res.automation);
-      toast.success(res.message);
+      setSaveState("Saved");
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaveState(""), 2000);
       api("/growth-agent/evaluate", { method: "POST" }, 60000).catch(() => {
         // Saved rules still apply on the next scheduled check.
       });
     } catch (err) {
+      if (seq !== request.current) return;
+      latest.current = previous;
+      setSettings(previous);
+      setSaveState("");
       toast.error(err instanceof Error ? err.message : "Could not save automation settings");
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -94,11 +110,12 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
           {!paused && !full && willPost && <Badge variant="secondary">Strong moments</Badge>}
         </div>
         <CardDescription>
-          Choose who presses publish on X. Full automation keeps working when you are offline.
+          Choose who presses publish on X. A switch applies immediately, including while you are offline.
+          {saveState ? <span className="ml-2 text-foreground">{saveState}</span> : null}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={onSubmit} className="space-y-5">
+        <div className="space-y-5">
           <p
             className={cn(
               "rounded-lg border px-4 py-3 text-sm",
@@ -262,17 +279,12 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={saving}>
-              {saving ? "Saving…" : "Save X posting"}
+          <Link href="/growth-agent">
+            <Button type="button" variant="outline">
+              View engine activity
             </Button>
-            <Link href="/growth-agent">
-              <Button type="button" variant="outline">
-                View engine activity
-              </Button>
-            </Link>
-          </div>
-        </form>
+          </Link>
+        </div>
       </CardContent>
     </Card>
   );

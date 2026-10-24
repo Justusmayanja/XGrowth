@@ -1,9 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SettingsToggle } from "@/components/settings/SettingsToggle";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import type { NotificationSettings } from "@/lib/settings";
@@ -14,9 +13,13 @@ type Props = {
 
 export function NotificationSettingsCard({ initial }: Props) {
   const [settings, setSettings] = useState<NotificationSettings | null>(initial);
-  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+  const latest = useRef(initial);
+  const request = useRef(0);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    latest.current = initial;
     setSettings(initial);
   }, [initial]);
 
@@ -25,24 +28,35 @@ export function NotificationSettingsCard({ initial }: Props) {
   }
 
   function update<K extends keyof NotificationSettings>(key: K, value: NotificationSettings[K]) {
-    setSettings((current) => (current ? { ...current, [key]: value } : current));
+    const current = latest.current;
+    if (!current || current[key] === value) return;
+    const next = { ...current, [key]: value };
+    const previous = current;
+    latest.current = next;
+    setSettings(next);
+    void persist(next, previous);
   }
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!settings) return;
-    setSaving(true);
+  async function persist(next: NotificationSettings, previous: NotificationSettings) {
+    const seq = ++request.current;
+    setStatus("Saving…");
     try {
-      const res = await api<{ notifications: NotificationSettings; message: string }>(
-        "/account/notifications",
-        { method: "PATCH", body: JSON.stringify(settings) }
-      );
+      const res = await api<{ notifications: NotificationSettings }>("/account/notifications", {
+        method: "PATCH",
+        body: JSON.stringify(next),
+      });
+      if (seq !== request.current) return;
+      latest.current = res.notifications;
       setSettings(res.notifications);
-      toast.success(res.message);
+      setStatus("Saved");
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setStatus(""), 2000);
     } catch (err) {
+      if (seq !== request.current) return;
+      latest.current = previous;
+      setSettings(previous);
+      setStatus("");
       toast.error(err instanceof Error ? err.message : "Could not save notifications");
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -51,11 +65,12 @@ export function NotificationSettingsCard({ initial }: Props) {
       <CardHeader>
         <CardTitle>Notifications</CardTitle>
         <CardDescription>
-          Choose what Mackie17 tells you about. Email delivery is coming soon — preferences are saved now.
+          Choose what Mackie17 tells you about. A switch applies immediately. Email delivery is coming soon.
+          {status ? <span className="ml-2 text-foreground">{status}</span> : null}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={onSubmit} className="space-y-3">
+        <div className="space-y-3">
           <SettingsToggle
             id="notify_draft_ready"
             label="Draft ready for review"
@@ -84,10 +99,7 @@ export function NotificationSettingsCard({ initial }: Props) {
             checked={settings.notify_weekly_recap}
             onChange={(checked) => update("notify_weekly_recap", checked)}
           />
-          <Button type="submit" disabled={saving}>
-            {saving ? "Saving…" : "Save notifications"}
-          </Button>
-        </form>
+        </div>
       </CardContent>
     </Card>
   );

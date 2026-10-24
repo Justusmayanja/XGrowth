@@ -60,14 +60,16 @@ class AccountProfileController extends Controller
             )
             : null;
 
-        $completeOnboarding = $request->boolean('complete_onboarding', true);
+        $completeOnboarding = $request->boolean('complete_onboarding');
+        unset($validated['complete_onboarding']);
+
+        if ($request->exists('complete_onboarding')) {
+            $validated['onboarding_completed'] = $completeOnboarding;
+        }
 
         $profile = AccountProfile::updateOrCreate(
             ['user_id' => $request->user()->id],
-            [
-                ...$validated,
-                'onboarding_completed' => $completeOnboarding,
-            ]
+            $validated
         );
 
         if (isset($validated['goal'])) {

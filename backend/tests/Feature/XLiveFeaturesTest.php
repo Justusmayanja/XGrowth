@@ -8,6 +8,9 @@ use App\Models\User;
 use App\Services\TrendEngine\TrendEngineService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use OpenAI\Laravel\Facades\OpenAI;
+use OpenAI\Resources\Chat;
+use OpenAI\Responses\Chat\CreateResponse;
 use Tests\TestCase;
 
 class XLiveFeaturesTest extends TestCase
@@ -181,9 +184,15 @@ class XLiveFeaturesTest extends TestCase
             ->assertJsonPath('stats.conversations', 1);
     }
 
-    public function test_the_topics_page_uses_counts_from_the_connected_account(): void
+    public function test_the_topics_page_drafts_a_few_current_topics(): void
     {
+        config(['openai.api_key' => 'test-key']);
         $user = User::factory()->create();
+        $user->accountProfile()->create([
+            'custom_niche' => 'Manchester United',
+            'description' => 'A supporter who answers the league from this club.',
+            'onboarding_completed' => true,
+        ]);
         ConnectedAccount::create([
             'user_id' => $user->id,
             'platform' => 'x',
@@ -198,7 +207,22 @@ class XLiveFeaturesTest extends TestCase
             'https://api.twitter.com/2/users/personalized_trends*' => Http::response([
                 'data' => [
                     ['trend_name' => 'Arsenal and City in form', 'tweet_count' => 18420],
+                    ['trend_name' => 'Nicolas Jackson', 'tweet_count' => 900],
+                    ['trend_name' => '日本シリーズ'],
+                    ['trend_name' => '#集えNIKKE4周年'],
                 ],
+            ]),
+        ]);
+
+        OpenAI::fake([
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['topics' => [
+                        ['name' => 'Arsenal and City in form', 'angle' => 'Answer the form table from this club.', 'draft' => 'City and Arsenal are flying. We already had this standard.'],
+                        ['name' => 'Nicolas Jackson', 'angle' => 'A forward the league is watching.', 'draft' => 'Jackson is the name tonight. The standard here was already set.'],
+                        ['name' => 'Not on the list', 'angle' => 'Invented.', 'draft' => 'This should be dropped.'],
+                    ]])],
+                ]],
             ]),
         ]);
 
@@ -206,19 +230,29 @@ class XLiveFeaturesTest extends TestCase
             ->getJson('/api/trends')
             ->assertOk()
             ->assertJsonPath('source', 'trends')
+            ->assertJsonCount(2, 'trends')
             ->assertJsonPath('trends.0.name', 'Arsenal and City in form')
-            ->assertJsonPath('trends.0.posts', 18420)
-            ->assertJsonPath('trends.0.figures', '18,420 posts');
+            ->assertJsonPath('trends.0.draft', 'City and Arsenal are flying. We already had this standard.')
+            ->assertJsonMissing(['name' => 'Not on the list'])
+            ->assertJsonMissing(['name' => '日本シリーズ']);
 
         $this->actingAs($user, 'sanctum')
             ->getJson('/api/trends')
-            ->assertJsonPath('trends.0.posts', 18420);
+            ->assertJsonPath('trends.0.draft', 'City and Arsenal are flying. We already had this standard.');
 
         Http::assertSentCount(1);
+        OpenAI::assertSent(Chat::class, function (string $method, array $parameters): bool {
+            $prompt = $parameters['messages'][1]['content'];
+
+            return str_contains($prompt, 'Arsenal and City in form')
+                && str_contains($prompt, 'Never quote them')
+                && str_contains($prompt, "Write from this account's side");
+        });
     }
 
     public function test_topics_fall_back_to_the_accounts_own_posts(): void
     {
+        config(['openai.api_key' => '']);
         $user = User::factory()->create();
         ConnectedAccount::create([
             'user_id' => $user->id,
@@ -253,9 +287,60 @@ class XLiveFeaturesTest extends TestCase
             ->assertOk()
             ->assertJsonPath('source', 'posts')
             ->assertJsonPath('trends.0.name', '#weeknights')
-            ->assertJsonPath('trends.0.impressions', 320)
-            ->assertJsonPath('trends.0.likes', 14)
-            ->assertJsonPath('trends.0.replies', 3);
+            ->assertJsonPath('trends.0.draft', '');
+
+        $this->assertStringNotContainsString('X did not send a count', $this->actingAs($user, 'sanctum')->getJson('/api/trends')->getContent());
+    }
+
+    public function test_replies_are_capped_at_five_and_the_loudest_come_first(): void
+    {
+        $user = User::factory()->create();
+        ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'mackie',
+            'access_token' => 'user-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+
+        $tweets = [];
+        for ($i = 1; $i <= 7; $i++) {
+            $tweets[] = [
+                'id' => (string) $i,
+                'text' => 'Mention '.$i,
+                'author_id' => '7',
+                'created_at' => now()->subMinutes($i)->toIso8601String(),
+                'public_metrics' => [
+                    'like_count' => $i === 6 ? 40 : $i,
+                    'retweet_count' => 0,
+                    'reply_count' => 0,
+                    'impression_count' => 10,
+                ],
+            ];
+        }
+
+        Http::fake([
+            'https://api.twitter.com/2/users/42/mentions*' => Http::response([
+                'data' => $tweets,
+                'includes' => [
+                    'users' => [[
+                        'id' => '7',
+                        'username' => 'cook',
+                        'public_metrics' => ['followers_count' => 120],
+                    ]],
+                ],
+            ]),
+            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/engagement/feed')
+            ->assertOk()
+            ->assertJsonCount(5, 'posts')
+            ->assertJsonPath('posts.0.id', '6')
+            ->assertJsonPath('stats.conversations', 5);
     }
 
     public function test_trends_come_from_x_and_mock_rows_are_removed(): void

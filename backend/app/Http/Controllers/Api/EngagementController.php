@@ -65,7 +65,7 @@ class EngagementController extends Controller
             'stats' => $stats,
             'note' => $feed['posts'] === []
                 ? 'No mentions or replies came back from this X account.'
-                : 'Mentions and replies on this X account. Counts are the ones X returned.',
+                : 'Up to five mentions and replies on this X account. Counts are the ones X returned.',
         ]);
     }
 

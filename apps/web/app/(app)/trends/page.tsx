@@ -1,23 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { Hash } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { DeskHeading } from "@/components/DeskHeading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingMark } from "@/components/LoadingMark";
 import { api } from "@/lib/api";
 import { usePlatform } from "@/lib/platform";
 
 type Trend = {
   name: string;
-  figures?: string;
-  posts?: number | null;
-  impressions?: number | null;
-  likes?: number | null;
-  replies?: number | null;
+  angle?: string;
+  draft?: string;
 };
 
 export default function TrendsPage() {
@@ -25,58 +22,102 @@ export default function TrendsPage() {
   const [trends, setTrends] = useState<Trend[]>([]);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Trend | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     api<{ trends: Trend[]; note?: string | null }>("/trends")
       .then((r) => {
         setTrends(r.trends);
         setNote(r.note ?? "");
+        setSelected(r.trends[0] ?? null);
       })
       .finally(() => setLoading(false));
   }, []);
 
+  const active = selected ?? trends[0] ?? null;
+
+  async function saveDraft() {
+    if (!active?.draft) {
+      return;
+    }
+    setSaving(true);
+    try {
+      await api("/content/drafts", {
+        method: "POST",
+        body: JSON.stringify({ content: active.draft, content_type: "tweet" }),
+      });
+      toast.success("Saved to drafts");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save the draft");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <DeskHeading icon={Hash} title="Topics">
-          <p className="text-muted-foreground">
-            {platform === "x"
-              ? "Topics from the connected X account, with the counts X returned."
-              : "Topics for this account."}
-          </p>
-        </DeskHeading>
-        <Link href="/growth-agent">
-          <Button variant="secondary">Open the queue</Button>
-        </Link>
-      </div>
+      <DeskHeading icon={Hash} title="Topics">
+        <p className="text-muted-foreground">
+          {platform === "x"
+            ? "Three to five conversations happening now, written as a post from this account."
+            : "Topics for this account."}
+        </p>
+      </DeskHeading>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            Topics
-            <Badge variant="secondary">From X</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <LoadingMark />
-          ) : trends.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{note || "Connect X to load topics from the account."}</p>
-          ) : (
-            <>
-              {note && <p className="mb-4 text-sm text-muted-foreground">{note}</p>}
-              {trends.map((t) => (
-                <div key={t.name} className="mb-4 rounded-lg border border-border p-4 last:mb-0">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">{t.name}</span>
-                    {t.figures && <Badge variant="outline">{t.figures}</Badge>}
+      {loading ? (
+        <LoadingMark />
+      ) : trends.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{note || "Connect X to load topics from the account."}</p>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="space-y-4">
+            {note && <p className="text-sm text-muted-foreground">{note}</p>}
+            {trends.map((topic) => {
+              const on = active?.name === topic.name;
+              return (
+                <button
+                  key={topic.name}
+                  type="button"
+                  onClick={() => setSelected(topic)}
+                  className={`w-full rounded-lg border p-4 text-left transition-colors ${
+                    on ? "border-foreground/30 bg-white/[0.04]" : "border-border hover:bg-white/[0.03]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{topic.name}</span>
+                    <Badge variant="secondary">Now</Badge>
                   </div>
-                </div>
-              ))}
-            </>
-          )}
-        </CardContent>
-      </Card>
+                  {topic.angle && <p className="mt-2 text-sm text-muted-foreground">{topic.angle}</p>}
+                </button>
+              );
+            })}
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>A post for this</CardTitle>
+              <CardDescription>
+                {active ? active.name : "Pick a topic"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {active?.draft ? (
+                <>
+                  <p className="mb-4 text-sm leading-relaxed">{active.draft}</p>
+                  <Button size="sm" variant="secondary" onClick={saveDraft} disabled={saving}>
+                    {saving ? "Saving…" : "Save to drafts"}
+                  </Button>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  A post for this topic is not ready yet.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

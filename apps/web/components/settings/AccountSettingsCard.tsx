@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,23 +16,25 @@ type Props = {
 
 export function AccountSettingsCard({ account, onUpdated }: Props) {
   const [name, setName] = useState(account.name);
-  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
   const [revoking, setRevoking] = useState(false);
 
-  async function saveAccount(e: FormEvent) {
-    e.preventDefault();
-    setSaving(true);
+  async function saveAccount() {
+    const next = name.trim();
+    if (next === "" || next === account.name) return;
+    setStatus("Saving…");
     try {
-      const res = await api<{ account: AccountInfo; message: string }>("/account", {
+      const res = await api<{ account: AccountInfo }>("/account", {
         method: "PATCH",
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name: next }),
       });
+      setName(res.account.name);
       onUpdated(res.account);
-      toast.success(res.message);
+      setStatus("Saved");
     } catch (err) {
+      setName(account.name);
+      setStatus("");
       toast.error(err instanceof Error ? err.message : "Could not update account");
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -52,22 +54,36 @@ export function AccountSettingsCard({ account, onUpdated }: Props) {
     <Card>
       <CardHeader>
         <CardTitle>Account</CardTitle>
-        <CardDescription>Your name and email. Sign-in codes are sent to this email.</CardDescription>
+        <CardDescription>
+          Your name and email. The name is saved when you leave the field.
+          {status ? <span className="ml-2 text-foreground">{status}</span> : null}
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={saveAccount} className="space-y-4">
+        <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">Display name</Label>
-            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setStatus("");
+              }}
+              onBlur={() => void saveAccount()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.currentTarget.blur();
+                }
+              }}
+              required
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input id="email" value={account.email} disabled />
           </div>
-          <Button type="submit" disabled={saving}>
-            {saving ? "Saving…" : "Save account"}
-          </Button>
-        </form>
+        </div>
         <div className="mt-6 border-t border-border pt-4">
           <p className="mb-2 text-sm font-medium">Sessions</p>
           <p className="mb-3 text-sm text-muted-foreground">
