@@ -297,6 +297,44 @@ class XLiveFeaturesTest extends TestCase
         $this->assertStringNotContainsString('#YouManiacSeriesEP9', $body);
     }
 
+    public function test_niche_search_keeps_english_posts_about_the_niche(): void
+    {
+        $user = User::factory()->create();
+        $user->accountProfile()->create([
+            'custom_niche' => 'budget cooking',
+            'description' => 'Cheap weeknight meals for one.',
+            'onboarding_completed' => true,
+        ]);
+        ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'mackie',
+            'access_token' => 'user-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api.twitter.com/2/tweets/search/recent*' => Http::response([
+                'data' => [
+                    ['id' => '1', 'text' => 'たかほー #sbhawks', 'public_metrics' => ['like_count' => 4]],
+                    [
+                        'id' => '2',
+                        'text' => 'Rice prices jumped again this week',
+                        'public_metrics' => ['like_count' => 9, 'impression_count' => 100],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $ranked = app(TrendEngineService::class)->rankedInNiche($user);
+
+        $this->assertNotNull($ranked);
+        $this->assertCount(1, $ranked);
+        $this->assertSame('Rice prices jumped again this week', $ranked[0]['trend']->name);
+    }
+
     public function test_topics_fall_back_to_the_accounts_own_posts(): void
     {
         config(['openai.api_key' => '']);

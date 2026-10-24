@@ -81,8 +81,11 @@ class GrowthAgentService
         }
 
         $prefilterLimit = max(1, $this->settings->getInt('growth_brain_prefilter_limit', 5));
+        $fromNiche = $this->trends->rankedInNiche($user);
         $fromAccount = $this->trends->rankedFromAccount($user);
-        if (is_array($fromAccount) && $fromAccount !== []) {
+        if (is_array($fromNiche) && $fromNiche !== []) {
+            $ranked = array_slice($fromNiche, 0, $prefilterLimit);
+        } elseif (is_array($fromAccount) && $fromAccount !== []) {
             $ranked = array_slice($fromAccount, 0, $prefilterLimit);
         } else {
             try {
@@ -547,6 +550,7 @@ class GrowthAgentService
                 'content_type' => 'tweet',
                 'audience' => $profile->audience,
                 'description' => $profile->description,
+                'stay_in_niche' => true,
                 'planner_hint' => $this->safeHint($contentAngle, $profile),
                 'variant_count' => 1,
                 'recent_posts' => $user->posts()->latest()->limit(5)->pluck('content')->all(),

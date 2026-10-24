@@ -91,7 +91,8 @@ class ContentController extends Controller
     private function suggestContext(User $user, ?AccountProfile $profile): array
     {
         $trends = [];
-        $fromAccount = $this->trends->rankedFromAccount($user);
+        $fromNiche = $this->trends->rankedInNiche($user);
+        $fromAccount = is_array($fromNiche) && $fromNiche !== [] ? $fromNiche : $this->trends->rankedFromAccount($user);
 
         if (is_array($fromAccount) && $fromAccount !== []) {
             foreach (array_slice($fromAccount, 0, 3) as $item) {

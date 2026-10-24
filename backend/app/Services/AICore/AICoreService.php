@@ -85,6 +85,10 @@ class AICoreService
         $userPrompt .= $this->voiceNotes($params, $niche, $tone, $goal);
         $userPrompt .= $this->bridgeInstructions($joinLive, $params['conversation'] ?? null, $useWebSearch);
 
+        if (! empty($params['stay_in_niche'])) {
+            $userPrompt .= "This post is for automation. The subject must be something trending in this niche. Who is speaking comes from what the account is about. Use that meaning. Do not quote the description.\n";
+        }
+
         if (! empty($params['planner_hint'])) {
             $userPrompt .= 'Planner hint, do not copy its words: '.$params['planner_hint']."\n";
         }

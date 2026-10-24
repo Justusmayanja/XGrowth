@@ -197,9 +197,9 @@ Tasks:
 Content mix (mandatory):
 - Obey mix.max_trend_pct — trend-based posts must stay at or below that share.
 - If mix.prefer is "original", you MUST use content_source "original" and trend_id null.
-- If mix.prefer is "trend", pick the loudest conversation, even when its tags do not match the niche.
-- If mix.prefer is "balanced", choose the better opportunity between a live conversation and an original idea.
-- A trend does not have to be about this account. content_angle is how this account joins that conversation. It is not a restatement of profile.niche and not a summary of the trend.
+- If mix.prefer is "trend", pick the conversation that is happening in this niche.
+- If mix.prefer is "balanced", choose the better opportunity between a niche conversation and an original idea.
+- content_angle is how this account joins that niche conversation, using what the account is about. It is not a restatement of the description and not a summary of the trend.
 
 Other rules:
 - Respect safety.*_left — if post_left is 0, never decide POST.

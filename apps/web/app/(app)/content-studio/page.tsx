@@ -55,6 +55,7 @@ export default function ContentStudioPage() {
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [postingId, setPostingId] = useState<number | null>(null);
   const [tone, setTone] = useState("professional");
   const [contentType, setContentType] = useState("tweet");
   const [useWebSearch, setUseWebSearch] = useState(false);
@@ -97,12 +98,17 @@ export default function ContentStudioPage() {
       .catch(() => {});
   }, []);
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (mode === "describe" && topic.trim().length < 3) {
+  async function write(search: boolean) {
+    const searchingNiche = search && topic.trim().length < 3;
+    const nextMode: ComposeMode = searchingNiche ? "suggest" : mode;
+    if (nextMode === "describe" && topic.trim().length < 3) {
       toast.error("Say what you want to post about.");
       return;
     }
+    if (searchingNiche) {
+      setMode("suggest");
+    }
+    setUseWebSearch(search);
     setLoading(true);
     try {
       const data = await api<{
@@ -112,11 +118,11 @@ export default function ContentStudioPage() {
       }>("/content/generate", {
         method: "POST",
         body: JSON.stringify({
-          mode,
-          topic: mode === "describe" ? topic.trim() : null,
+          mode: nextMode,
+          topic: nextMode === "describe" ? topic.trim() : null,
           tone,
           content_type: contentType,
-          use_web_search: useWebSearch,
+          use_web_search: search && !webSearchDisabled,
         }),
       });
       setVariants(data.variants);
@@ -156,6 +162,32 @@ export default function ContentStudioPage() {
     }
   }
 
+  async function postNow(variant: Variant, index: number) {
+    setPostingId(index);
+    try {
+      const saved = await api<{ post: { id: number } }>("/content/drafts", {
+        method: "POST",
+        body: JSON.stringify({
+          content: variant.content,
+          content_type: contentType,
+          virality_predicted: variant.virality_score,
+        }),
+      });
+      try {
+        await api(`/content/drafts/${saved.post.id}/publish`, { method: "POST" });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : "Could not post to X";
+        toast.error(`${reason} It is saved in drafts.`);
+        return;
+      }
+      toast.success("Posted to X");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not post to X");
+    } finally {
+      setPostingId(null);
+    }
+  }
+
   const webSearchDisabled =
     !usage?.web_search_enabled || (usage?.web_searches.remaining ?? 0) <= 0;
 
@@ -185,7 +217,13 @@ export default function ContentStudioPage() {
             <CardDescription>Joins what people are talking about, from this account&apos;s point of view</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={onSubmit} className="space-y-4">
+            <form
+              onSubmit={(e: FormEvent<HTMLFormElement>) => {
+                e.preventDefault();
+                void write(useWebSearch);
+              }}
+              className="space-y-4"
+            >
               <div
                 role="radiogroup"
                 aria-label="How to start"
@@ -263,33 +301,28 @@ export default function ContentStudioPage() {
                   </SelectContent>
                 </Select>
               </div>
-              {usage?.web_search_enabled && (
-                <label className="flex items-start gap-3 rounded-lg border border-border p-3 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={useWebSearch}
-                    disabled={webSearchDisabled}
-                    onChange={(e) => setUseWebSearch(e.target.checked)}
-                    className="mt-0.5 size-4 shrink-0"
-                  />
-                  <span>
-                    <span className="font-medium">Look up current facts</span>
-                    <span className="mt-1 block text-muted-foreground">
-                      Use this for transfers, launches, and other stories that change by the hour.
-                      It counts against today’s lookup limit.
-                    </span>
-                  </span>
-                </label>
-              )}
-              <Button type="submit" disabled={loading || (usage?.ai_generations.remaining ?? 1) <= 0}>
-                {loading
-                  ? "Writing…"
-                  : mode === "suggest"
-                    ? variants.length > 0
-                      ? "Suggest different posts"
-                      : "Suggest posts"
-                    : "Write drafts"}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" disabled={loading || (usage?.ai_generations.remaining ?? 1) <= 0}>
+                  {loading
+                    ? "Writing…"
+                    : mode === "suggest"
+                      ? variants.length > 0
+                        ? "Suggest different posts"
+                        : "Suggest posts"
+                      : "Write drafts"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={loading || (usage?.ai_generations.remaining ?? 1) <= 0}
+                  onClick={() => void write(true)}
+                >
+                  {loading ? "Searching…" : "Search"}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Search looks up what is trending in this niche, then writes from what the account is about.
+              </p>
             </form>
           </CardContent>
         </Card>
@@ -324,11 +357,21 @@ export default function ContentStudioPage() {
                       type="button"
                       variant="secondary"
                       size="sm"
-                      disabled={savingId === i}
+                      disabled={savingId === i || postingId === i}
                       onClick={() => saveDraft(v, i)}
                     >
                       {savingId === i ? "Saving…" : "Save draft"}
                     </Button>
+                    {platformOfFormat(contentType) === "x" && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={savingId === i || postingId === i}
+                        onClick={() => postNow(v, i)}
+                      >
+                        {postingId === i ? "Posting…" : "Post"}
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))

@@ -788,6 +788,76 @@ class XApiService
     }
 
     /**
+     * English posts people are writing in this niche right now.
+     *
+     * @return list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>
+     */
+    public function nicheConversations(ConnectedAccount $account, string $niche): array
+    {
+        $query = $this->nicheQuery($niche);
+        if ($query === null) {
+            return [];
+        }
+
+        $cacheKey = 'x-niche-topics:'.$account->id.':'.md5(mb_strtolower($query));
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $query .= ' lang:en';
+
+        try {
+            $response = Http::withToken($this->accessToken($account))->timeout(8)->get(
+                'https://api.twitter.com/2/tweets/search/recent',
+                [
+                    'query' => $query,
+                    'max_results' => 10,
+                    'tweet.fields' => 'public_metrics,lang',
+                ]
+            );
+        } catch (\Throwable) {
+            return [];
+        }
+
+        if (! $response->successful()) {
+            return [];
+        }
+
+        $topics = [];
+        $seen = [];
+        foreach ($response->json('data') ?? [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $text = trim((string) preg_replace('/https?:\/\/\S+|#\S+|@\S+/', '', (string) ($row['text'] ?? '')));
+            $text = trim((string) preg_replace('/\s+/', ' ', $text));
+            $key = mb_strtolower($text);
+            if ($key === '' || isset($seen[$key]) || ! $this->isEnglishPhrase($text)) {
+                continue;
+            }
+            $seen[$key] = true;
+            $metrics = is_array($row['public_metrics'] ?? null) ? $row['public_metrics'] : [];
+            $topics[] = $this->topicRow(
+                mb_substr($text, 0, 80),
+                null,
+                isset($metrics['impression_count']) ? (int) $metrics['impression_count'] : null,
+                isset($metrics['like_count']) ? (int) $metrics['like_count'] : null,
+                isset($metrics['reply_count']) ? (int) $metrics['reply_count'] : null,
+            );
+            if (count($topics) === 5) {
+                break;
+            }
+        }
+
+        if ($topics !== []) {
+            Cache::put($cacheKey, $topics, now()->addMinutes(15));
+        }
+
+        return $topics;
+    }
+
+    /**
      * @return list<string>
      */
     private function nicheWords(string $niche): array

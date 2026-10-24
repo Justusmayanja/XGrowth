@@ -35,6 +35,9 @@ class AutopublishTest extends TestCase
     {
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '880']], 201),
+            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
+            'https://api.twitter.com/2/trends/by/woeid/*' => Http::response(['data' => []], 404),
         ]);
 
         $user = $this->user(level: 3);
@@ -64,7 +67,7 @@ class AutopublishTest extends TestCase
 
         $this->assertSame('draft', $draft->fresh()->status);
         $this->assertNotSame('posted', $decision);
-        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/2/tweets'));
+        Http::assertNotSent(fn ($request) => $request->url() === 'https://api.twitter.com/2/tweets');
     }
 
     public function test_controlled_accounts_do_not_publish(): void
@@ -77,13 +80,16 @@ class AutopublishTest extends TestCase
         app(GrowthAgentService::class)->evaluateOpportunities($user->id);
 
         $this->assertSame('draft', $draft->fresh()->status);
-        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/2/tweets'));
+        Http::assertNotSent(fn ($request) => $request->url() === 'https://api.twitter.com/2/tweets');
     }
 
     public function test_level_two_posts_only_the_strong_drafts(): void
     {
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '77']], 201),
+            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
+            'https://api.twitter.com/2/trends/by/woeid/*' => Http::response(['data' => []], 404),
         ]);
 
         $quiet = $this->user(level: 2);
@@ -107,6 +113,9 @@ class AutopublishTest extends TestCase
         config(['openai.api_key' => 'test-key']);
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '501']], 201),
+            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
+            'https://api.twitter.com/2/trends/by/woeid/*' => Http::response(['data' => []], 404),
         ]);
         OpenAI::fake([
             CreateResponse::fake([
@@ -159,6 +168,9 @@ class AutopublishTest extends TestCase
         config(['openai.api_key' => 'test-key']);
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '502']], 201),
+            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
+            'https://api.twitter.com/2/trends/by/woeid/*' => Http::response(['data' => []], 404),
         ]);
         OpenAI::fake([
             CreateResponse::fake([

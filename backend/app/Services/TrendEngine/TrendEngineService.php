@@ -84,6 +84,77 @@ class TrendEngineService
     }
 
     /**
+     * What people are saying in this niche right now, for automatic posting.
+     * Returns null when X is not connected. Does not call an AI model.
+     *
+     * @return list<array{trend: Trend, opportunity_score: float, suggestion: string}>|null
+     */
+    public function rankedInNiche(User $user): ?array
+    {
+        $account = $user->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->first();
+
+        if (! $account) {
+            return null;
+        }
+
+        $niche = $user->accountProfile?->resolvedNiche() ?? '';
+
+        try {
+            $topics = $this->x->nicheConversations($account, $niche);
+        } catch (Throwable $e) {
+            Log::warning('Niche search was not available', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+
+        return $this->topicsAsRanked($topics);
+    }
+
+    /**
+     * @param  list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>  $topics
+     * @return list<array{trend: Trend, opportunity_score: float, suggestion: string}>
+     */
+    private function topicsAsRanked(array $topics): array
+    {
+        if ($topics === []) {
+            return [];
+        }
+
+        $magnitudes = array_map(function (array $topic): int {
+            return max((int) ($topic['impressions'] ?? 0), (int) ($topic['posts'] ?? 0), (int) ($topic['likes'] ?? 0));
+        }, $topics);
+        $max = max(1, ...$magnitudes);
+        $ranked = [];
+
+        foreach ($topics as $index => $topic) {
+            $magnitude = $magnitudes[$index] ?? 0;
+            $score = round(50 + (50 * ($magnitude / $max)), 1);
+            $ranked[] = [
+                'trend' => new Trend([
+                    'name' => $topic['name'],
+                    'score' => $score,
+                    'velocity' => 0,
+                    'growth_rate' => 0,
+                    'competition' => 'medium',
+                    'niche_tags' => [],
+                    'metadata' => ['source' => 'x', 'niche' => true],
+                    'detected_at' => now(),
+                ]),
+                'opportunity_score' => $score,
+                'suggestion' => 'Trending in this niche',
+            ];
+        }
+
+        return $ranked;
+    }
+
+    /**
      * Three to five current topics for the Topics page, each with a post from this account.
      * Live names come from X. The writing model runs once, then the result is cached.
      *
