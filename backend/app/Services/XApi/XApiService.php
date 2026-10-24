@@ -184,11 +184,16 @@ class XApiService
     }
 
     /**
-     * @return array{followers: int, impressions: int, engagement_rate: float, tweets: list<array<string, mixed>>}
+     * Followers, plus impressions from this account's recent posts and comments.
+     * When the niche can be searched, X's relevancy order decides which of those count.
+     *
+     * @return array{followers: int, impressions: int, engagement_rate: float, ranked_for_niche: bool, tweets: list<array<string, mixed>>}
      */
-    public function accountActivity(ConnectedAccount $account): array
+    public function accountActivity(ConnectedAccount $account, ?string $niche = null): array
     {
-        return Cache::remember('x-activity:'.$account->id, now()->addMinutes(10), function () use ($account) {
+        $nicheKey = substr(md5(mb_strtolower(trim((string) $niche))), 0, 12);
+
+        return Cache::remember('x-activity:v2:'.$account->id.':'.$nicheKey, now()->addMinutes(10), function () use ($account, $niche) {
             $token = $this->accessToken($account);
             $me = Http::withToken($token)->get('https://api.twitter.com/2/users/me', [
                 'user.fields' => 'public_metrics',
@@ -199,59 +204,89 @@ class XApiService
             }
 
             $user = $me->json('data') ?? [];
-            $tweets = Http::withToken($token)->get('https://api.twitter.com/2/users/'.($user['id'] ?? 'me').'/tweets', [
-                'max_results' => 100,
-                'exclude' => 'retweets',
-                'tweet.fields' => 'public_metrics,created_at',
-            ]);
-
-            if ($tweets->failed()) {
-                throw new RuntimeException($this->apiError($tweets));
+            $timeline = $this->ownPostsAndComments($token, (string) ($user['id'] ?? 'me'));
+            $byId = [];
+            foreach ($timeline as $row) {
+                $byId[$row['id']] = $row;
             }
 
-            $rows = $tweets->json('data') ?? [];
-            $normalized = [];
+            $rankedForNiche = false;
+            try {
+                $ranked = $this->nicheRankedOwn($token, $account, (string) $niche);
+            } catch (\Throwable) {
+                $ranked = [];
+            }
+
+            if ($ranked !== []) {
+                $chosen = $this->withOwnedMetrics($ranked, $byId);
+                $rankedForNiche = true;
+            } else {
+                [$chosen, $rankedForNiche] = $this->rankOwnForNiche($timeline, (string) $niche);
+            }
+
             $impressions = 0;
             $engagements = 0;
-
-            foreach ($rows as $row) {
-                if (! is_array($row)) {
-                    continue;
-                }
-                $metrics = $row['public_metrics'] ?? [];
-                $impressionCount = (int) ($metrics['impression_count'] ?? 0);
-                $likes = (int) ($metrics['like_count'] ?? 0);
-                $reposts = (int) ($metrics['retweet_count'] ?? 0);
-                $replies = (int) ($metrics['reply_count'] ?? 0);
-                $impressions += $impressionCount;
-                $engagements += $likes + $reposts + $replies;
-                $normalized[] = [
-                    'id' => (string) ($row['id'] ?? ''),
-                    'content' => (string) ($row['text'] ?? ''),
-                    'impressions' => $impressionCount,
-                    'likes' => $likes,
-                    'reposts' => $reposts,
-                    'replies' => $replies,
-                    'created_at' => (string) ($row['created_at'] ?? ''),
-                ];
+            foreach ($chosen as $row) {
+                $impressions += $row['impressions'];
+                $engagements += $row['likes'] + $row['reposts'] + $row['replies'];
             }
 
             return [
                 'followers' => (int) ($user['public_metrics']['followers_count'] ?? 0),
                 'impressions' => $impressions,
                 'engagement_rate' => $impressions > 0 ? round(($engagements / $impressions) * 100, 1) : 0,
-                'tweets' => $normalized,
+                'ranked_for_niche' => $rankedForNiche,
+                'tweets' => $chosen,
             ];
         });
     }
 
     /**
-     * Mentions, direct replies, and niche posts from X.
+     * Topics X is showing for this account, or topics from the account's own posts.
+     * Cached so opening the app twice does not call X again. No AI.
+     *
+     * @return array{source: string, topics: list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>}
+     */
+    public function accountTopics(ConnectedAccount $account): array
+    {
+        $cached = Cache::get($this->topicCacheKey($account));
+        if (is_array($cached) && isset($cached['topics']) && is_array($cached['topics'])) {
+            return $cached;
+        }
+
+        $token = $this->accessToken($account);
+        $topics = $this->trendsForAccount($token);
+        $source = 'trends';
+
+        if ($topics === []) {
+            $topics = $this->topicsFromOwnPosts($token, $account);
+            $source = 'posts';
+        }
+
+        $payload = [
+            'source' => $source,
+            'topics' => $topics,
+        ];
+
+        if ($topics !== []) {
+            Cache::put($this->topicCacheKey($account), $payload, now()->addMinutes(20));
+        }
+
+        return $payload;
+    }
+
+    /**
+     * Mentions and replies on this account. Cached so the page can be reopened without another pull.
      *
      * @return array{posts: list<array<string, mixed>>, errors: list<string>}
      */
-    public function replyFeed(ConnectedAccount $account, string $niche): array
+    public function replyFeed(ConnectedAccount $account): array
     {
+        $cached = Cache::get($this->replyCacheKey($account));
+        if (is_array($cached) && isset($cached['posts']) && is_array($cached['posts'])) {
+            return $cached;
+        }
+
         $ownId = (string) ($account->platform_account_id ?? '');
         $posts = [];
         $errors = [];
@@ -259,7 +294,6 @@ class XApiService
         foreach ([
             fn () => $this->mentions($account),
             fn () => $this->repliesToAccount($account),
-            fn () => $this->searchNiche($account, $niche),
         ] as $load) {
             try {
                 $posts = array_merge($posts, $load());
@@ -285,10 +319,143 @@ class XApiService
 
         usort($unique, fn (array $a, array $b) => ($a['minutes_ago'] ?? 0) <=> ($b['minutes_ago'] ?? 0));
 
-        return [
+        $feed = [
             'posts' => array_slice($unique, 0, 20),
             'errors' => $errors,
         ];
+
+        if ($errors === []) {
+            Cache::put($this->replyCacheKey($account), $feed, now()->addMinutes(10));
+        }
+
+        return $feed;
+    }
+
+    /**
+     * @return list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>
+     */
+    private function trendsForAccount(string $token): array
+    {
+        foreach ([
+            'https://api.twitter.com/2/users/personalized_trends',
+            'https://api.twitter.com/2/trends/by/woeid/1',
+        ] as $url) {
+            try {
+                $response = Http::withToken($token)->timeout(8)->get($url);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            if (! $response->successful()) {
+                continue;
+            }
+
+            $topics = [];
+            foreach (array_slice($this->topicsFromTrends($response->json() ?? []), 0, 12) as $topic) {
+                $posts = $topic['tweet_count'] > 0 ? $topic['tweet_count'] : null;
+                $topics[] = $this->topicRow($topic['name'], $posts, null, null, null);
+            }
+
+            if ($topics !== []) {
+                return $topics;
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * @return list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>
+     */
+    private function topicsFromOwnPosts(string $token, ConnectedAccount $account): array
+    {
+        try {
+            $userId = (string) ($account->platform_account_id ?: $this->authenticatedUserId($token));
+            $rows = $userId === '' ? [] : $this->ownPostsAndComments($token, $userId);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $grouped = [];
+        foreach ($rows as $row) {
+            preg_match_all('/#([\p{L}\p{N}_]{2,40})/u', $row['content'], $matches);
+            $tags = array_unique($matches[1] ?? []);
+            if ($tags === []) {
+                continue;
+            }
+            foreach ($tags as $tag) {
+                $key = mb_strtolower($tag);
+                if (! isset($grouped[$key])) {
+                    $grouped[$key] = ['name' => '#'.$tag, 'posts' => 0, 'impressions' => 0, 'likes' => 0, 'replies' => 0];
+                }
+                $grouped[$key]['posts']++;
+                $grouped[$key]['impressions'] += $row['impressions'];
+                $grouped[$key]['likes'] += $row['likes'];
+                $grouped[$key]['replies'] += $row['replies'];
+            }
+        }
+
+        if ($grouped !== []) {
+            uasort($grouped, fn (array $a, array $b) => $b['impressions'] <=> $a['impressions']);
+
+            return array_map(
+                fn (array $row) => $this->topicRow($row['name'], $row['posts'], $row['impressions'], $row['likes'], $row['replies']),
+                array_slice(array_values($grouped), 0, 12)
+            );
+        }
+
+        usort($rows, fn (array $a, array $b) => $b['impressions'] <=> $a['impressions']);
+        $topics = [];
+        foreach (array_slice($rows, 0, 8) as $row) {
+            $name = trim(preg_replace('/\s+/', ' ', $row['content']) ?? '');
+            if ($name === '') {
+                continue;
+            }
+            $topics[] = $this->topicRow(mb_substr($name, 0, 80), 1, $row['impressions'], $row['likes'], $row['replies']);
+        }
+
+        return $topics;
+    }
+
+    /**
+     * @return array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}
+     */
+    private function topicRow(string $name, ?int $posts, ?int $impressions, ?int $likes, ?int $replies): array
+    {
+        $parts = [];
+        if ($impressions !== null) {
+            $parts[] = number_format($impressions).' impressions';
+        }
+        if ($likes !== null) {
+            $parts[] = number_format($likes).' likes';
+        }
+        if ($replies !== null) {
+            $parts[] = number_format($replies).' replies';
+        }
+        if ($posts !== null && $impressions === null) {
+            $parts[] = number_format($posts).' posts';
+        } elseif ($posts !== null && $posts > 1) {
+            $parts[] = number_format($posts).' posts';
+        }
+
+        return [
+            'name' => $name,
+            'posts' => $posts,
+            'impressions' => $impressions,
+            'likes' => $likes,
+            'replies' => $replies,
+            'figures' => $parts === [] ? 'X did not send a count' : implode(' · ', $parts),
+        ];
+    }
+
+    private function topicCacheKey(ConnectedAccount $account): string
+    {
+        return 'x-topics:'.$account->id;
+    }
+
+    private function replyCacheKey(ConnectedAccount $account): string
+    {
+        return 'x-replies:'.$account->id;
     }
 
     /**
@@ -423,6 +590,203 @@ class XApiService
     }
 
     /**
+     * This account's posts and the comments it wrote. Retweets are left out; replies stay in.
+     *
+     * @return list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>
+     */
+    private function ownPostsAndComments(string $token, string $userId): array
+    {
+        $response = Http::withToken($token)->get('https://api.twitter.com/2/users/'.$userId.'/tweets', [
+            'max_results' => 100,
+            'exclude' => 'retweets',
+            'tweet.fields' => 'public_metrics,created_at,referenced_tweets',
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException($this->apiError($response));
+        }
+
+        $rows = [];
+        foreach ($response->json('data') ?? [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $normalized = $this->activityRow($row);
+            if ($normalized['id'] === '') {
+                continue;
+            }
+            $rows[] = $normalized;
+        }
+
+        return $rows;
+    }
+
+    /**
+     * X recent search, limited to this account, ordered the way X ranks the niche.
+     *
+     * @return list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>
+     */
+    private function nicheRankedOwn(string $token, ConnectedAccount $account, string $niche): array
+    {
+        $username = strtolower((string) preg_replace('/[^A-Za-z0-9_]/', '', (string) $account->username));
+        $nicheQuery = $this->nicheQuery($niche);
+        if ($username === '' || $nicheQuery === null) {
+            return [];
+        }
+
+        $response = Http::withToken($token)->timeout(6)->get('https://api.twitter.com/2/tweets/search/recent', [
+            'query' => 'from:'.$username.' '.$nicheQuery,
+            'max_results' => 100,
+            'sort_order' => 'relevancy',
+            'tweet.fields' => 'public_metrics,created_at,referenced_tweets,author_id',
+        ]);
+
+        if ($response->failed()) {
+            return [];
+        }
+
+        $ownId = (string) ($account->platform_account_id ?? '');
+        $rows = [];
+        foreach ($response->json('data') ?? [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $authorId = (string) ($row['author_id'] ?? '');
+            if ($ownId !== '' && $authorId !== '' && $authorId !== $ownId) {
+                continue;
+            }
+            $normalized = $this->activityRow($row);
+            if ($normalized['id'] === '') {
+                continue;
+            }
+            $rows[] = $normalized;
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>  $ranked
+     * @param  array<string, array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>  $owned
+     * @return list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>
+     */
+    private function withOwnedMetrics(array $ranked, array $owned): array
+    {
+        $rows = [];
+        foreach ($ranked as $row) {
+            $live = $owned[$row['id']] ?? null;
+            if ($live !== null) {
+                $row['impressions'] = max($row['impressions'], $live['impressions']);
+                $row['likes'] = max($row['likes'], $live['likes']);
+                $row['reposts'] = max($row['reposts'], $live['reposts']);
+                $row['replies'] = max($row['replies'], $live['replies']);
+                if ($row['kind'] === 'post' && $live['kind'] === 'comment') {
+                    $row['kind'] = 'comment';
+                }
+            }
+            $rows[] = $row;
+        }
+
+        return $rows;
+    }
+
+    /**
+     * When X relevancy is unavailable, keep posts and comments that match the niche
+     * and order them by the impressions X already recorded.
+     *
+     * @param  list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>  $rows
+     * @return array{0: list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>, 1: bool}
+     */
+    private function rankOwnForNiche(array $rows, string $niche): array
+    {
+        $words = $this->nicheWords($niche);
+        $byImpressions = function (array $a, array $b): int {
+            return $b['impressions'] <=> $a['impressions'];
+        };
+
+        if ($words === []) {
+            usort($rows, $byImpressions);
+
+            return [$rows, false];
+        }
+
+        $matched = [];
+        foreach ($rows as $row) {
+            $text = mb_strtolower($row['content']);
+            foreach ($words as $word) {
+                if (str_contains($text, $word)) {
+                    $matched[] = $row;
+                    break;
+                }
+            }
+        }
+
+        if ($matched === []) {
+            usort($rows, $byImpressions);
+
+            return [$rows, false];
+        }
+
+        usort($matched, $byImpressions);
+
+        return [$matched, true];
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}
+     */
+    private function activityRow(array $row): array
+    {
+        $metrics = is_array($row['public_metrics'] ?? null) ? $row['public_metrics'] : [];
+
+        return [
+            'id' => (string) ($row['id'] ?? ''),
+            'content' => (string) ($row['text'] ?? ''),
+            'kind' => $this->isComment($row) ? 'comment' : 'post',
+            'impressions' => (int) ($metrics['impression_count'] ?? 0),
+            'likes' => (int) ($metrics['like_count'] ?? 0),
+            'reposts' => (int) ($metrics['retweet_count'] ?? 0),
+            'replies' => (int) ($metrics['reply_count'] ?? 0),
+            'created_at' => (string) ($row['created_at'] ?? ''),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function isComment(array $row): bool
+    {
+        foreach ($row['referenced_tweets'] ?? [] as $ref) {
+            if (is_array($ref) && ($ref['type'] ?? '') === 'replied_to') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function nicheWords(string $niche): array
+    {
+        $phrase = trim(preg_replace('/\s+/', ' ', preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $niche) ?? '') ?? '');
+        if ($phrase === '' || in_array(strtolower($phrase), ['your niche', 'general', 'niche'], true)) {
+            return [];
+        }
+
+        $words = array_values(array_unique(array_filter(
+            preg_split('/\s+/', mb_strtolower($phrase)) ?: [],
+            fn ($word) => is_string($word)
+                && mb_strlen($word) >= 3
+                && ! in_array($word, ['the', 'and', 'for', 'with', 'your', 'from', 'that', 'this', 'you', 'are'], true)
+        )));
+
+        return array_slice($words, 0, 6);
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     private function searchRecent(ConnectedAccount $account, string $query, string $kind): array
@@ -461,6 +825,7 @@ class XApiService
             $likes = (int) ($metrics['like_count'] ?? 0);
             $reposts = (int) ($metrics['retweet_count'] ?? 0);
             $replies = (int) ($metrics['reply_count'] ?? 0);
+            $impressions = (int) ($metrics['impression_count'] ?? 0);
             $created = isset($row['created_at']) ? \Illuminate\Support\Carbon::parse($row['created_at']) : now();
 
             $posts[] = [
@@ -472,6 +837,7 @@ class XApiService
                 'likes' => $likes,
                 'reposts' => $reposts,
                 'replies' => $replies,
+                'impressions' => $impressions,
                 'minutes_ago' => max(0, (int) $created->diffInMinutes(now())),
                 'opportunity_score' => (int) min(100, round(20 + ($replies * 2) + ($likes / 20) + ($reposts / 10))),
                 'kind' => $kind,
@@ -483,18 +849,7 @@ class XApiService
 
     private function nicheQuery(string $niche): ?string
     {
-        $phrase = trim(preg_replace('/\s+/', ' ', preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $niche) ?? '') ?? '');
-        if ($phrase === '' || in_array(strtolower($phrase), ['your niche', 'general', 'niche'], true)) {
-            return null;
-        }
-
-        $words = array_values(array_unique(array_filter(
-            preg_split('/\s+/', mb_strtolower($phrase)) ?: [],
-            fn ($word) => is_string($word)
-                && mb_strlen($word) >= 3
-                && ! in_array($word, ['the', 'and', 'for', 'with', 'your', 'from', 'that', 'this', 'you', 'are'], true)
-        )));
-        $words = array_slice($words, 0, 6);
+        $words = $this->nicheWords($niche);
         if ($words === []) {
             return null;
         }

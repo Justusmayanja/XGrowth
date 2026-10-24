@@ -4,9 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\PlatformSetup;
-use App\Models\Trend;
-use App\Services\AICore\DeskMomentService;
-use App\Services\TrendEngine\OpportunityScorerService;
 use App\Services\XApi\XApiService;
 use Throwable;
 use Illuminate\Http\JsonResponse;
@@ -15,16 +12,17 @@ use Illuminate\Http\Request;
 class DashboardController extends Controller
 {
     public function __construct(
-        private readonly OpportunityScorerService $opportunityScorer,
         private readonly XApiService $x,
-        private readonly DeskMomentService $moments,
     ) {}
 
     public function stats(Request $request): JsonResponse
     {
         $user = $request->user();
-        $profile = $user->accountProfile;
-        $hasXConnected = $user->connectedAccounts()->where('is_active', true)->exists();
+        $xAccount = $user->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->first();
+        $hasXConnected = $xAccount !== null;
 
         $posts = $user->posts();
         $postedCount = (clone $posts)->where('status', 'posted')->count();
@@ -38,15 +36,18 @@ class DashboardController extends Controller
         $impressionsTotal = $live['impressions'] ?? (int) (clone $posts)->where('status', 'posted')->sum('impressions');
 
         $topOpportunity = null;
-        if ($profile?->onboarding_completed) {
-            $ranked = $this->opportunityScorer->rankedForProfile($profile, 1);
-            if (! empty($ranked)) {
-                $top = $ranked[0];
-                $topOpportunity = [
-                    'trend_name' => $top['trend']->name,
-                    'score' => $top['opportunity_score'],
-                    'suggestion' => $top['suggestion'],
-                ];
+        if ($xAccount) {
+            try {
+                $topics = $this->x->accountTopics($xAccount)['topics'];
+                if ($topics !== []) {
+                    $topOpportunity = [
+                        'trend_name' => $topics[0]['name'],
+                        'score' => null,
+                        'suggestion' => $topics[0]['figures'],
+                    ];
+                }
+            } catch (Throwable) {
+                $topOpportunity = null;
             }
         }
 
@@ -63,7 +64,7 @@ class DashboardController extends Controller
                 ],
                 'engagement_rate' => $live['engagement_rate'] ?? 0,
                 'profile_visits' => 0,
-                'growth_score' => $profile?->onboarding_completed ? 70 : 0,
+                'growth_score' => $live ? (int) round($live['engagement_rate']) : 0,
                 'posts_posted' => $postedCount,
                 'posts_draft' => $draftCount,
                 'connected_accounts' => $user->connectedAccounts()->where('is_active', true)->count(),
@@ -119,8 +120,8 @@ class DashboardController extends Controller
             ],
             default => $live ? [
                 ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Live from X'],
-                ['label' => 'Impressions', 'value' => $live['impressions'], 'sub' => 'Recent posts'],
-                ['label' => 'Engagement', 'value' => $live['engagement_rate'], 'sub' => 'Recent posts', 'suffix' => '%'],
+                ['label' => 'Impressions', 'value' => $live['impressions'], 'sub' => $this->impressionBasis($live)],
+                ['label' => 'Engagement', 'value' => $live['engagement_rate'], 'sub' => $this->impressionBasis($live), 'suffix' => '%'],
             ] : [
                 ['label' => 'Followers', 'value' => 0, 'sub' => $connected ? 'Could not load from X' : 'Connect X'],
                 ['label' => 'Impressions', 'value' => 0, 'sub' => $connected ? 'Could not load from X' : 'Connect X'],
@@ -129,13 +130,26 @@ class DashboardController extends Controller
         };
 
         $ideas = [];
-        if ($profile?->onboarding_completed) {
-            $recent = (clone $posts)->latest()->limit(6)->pluck('content')
-                ->map(fn ($content) => mb_substr(trim((string) $content), 0, 180))
-                ->filter()
-                ->values()
-                ->all();
-            $ideas = $this->moments->forProfile($user, $profile, $platform, $recent);
+        if ($platform === 'x' && $connected) {
+            try {
+                $ideas = array_map(fn (array $topic) => [
+                    'name' => $topic['name'],
+                    'suggestion' => $topic['figures'],
+                ], $this->x->accountTopics($connected)['topics']);
+            } catch (Throwable) {
+                $ideas = [];
+            }
+        }
+
+        $settings = is_array($setup?->settings) ? $setup->settings : [];
+        if ($platform === 'x' && $profile) {
+            $settings['automation_level'] = (int) ($profile->automation_level ?? ($settings['automation_level'] ?? 1));
+            $settings['mode'] = $profile->mode ?? ($settings['mode'] ?? 'reactive');
+            $settings['auto_post_enabled'] = (bool) $profile->auto_post_enabled;
+            $settings['auto_reply_enabled'] = (bool) $profile->auto_reply_enabled;
+            $settings['auto_engage_enabled'] = (bool) $profile->auto_engage_enabled;
+            $settings['engine_paused'] = (bool) $profile->engine_paused;
+            $settings['max_silence_minutes'] = (int) ($profile->max_silence_minutes ?? 60);
         }
 
         return response()->json([
@@ -144,7 +158,7 @@ class DashboardController extends Controller
             'setup' => [
                 'completed' => $setup?->completed_at !== null,
                 'goals' => $setup?->goalList() ?? [],
-                'settings' => $setup?->settings ?? (object) [],
+                'settings' => $settings === [] ? (object) [] : $settings,
             ],
             'connected' => $connected ? ['username' => $connected->username] : null,
             'preview' => $preview,
@@ -160,55 +174,91 @@ class DashboardController extends Controller
 
     public function trends(Request $request): JsonResponse
     {
-        $profile = $request->user()->accountProfile;
+        $account = $request->user()->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->first();
 
-        if ($profile?->onboarding_completed) {
-            $ranked = $this->opportunityScorer->rankedForProfile($profile, 10);
-
+        if (! $account) {
             return response()->json([
-                'trends' => collect($ranked)->map(fn ($item) => [
-                    'id' => $item['trend']->id,
-                    'name' => $item['trend']->name,
-                    'score' => $item['trend']->score,
-                    'opportunity_score' => $item['opportunity_score'],
-                    'growth_rate' => $item['trend']->growth_rate,
-                    'competition' => $item['trend']->competition,
-                    'suggestion' => $item['suggestion'],
-                    'niche_tags' => $item['trend']->niche_tags,
-                ]),
+                'trends' => [],
+                'source' => null,
+                'note' => 'Connect X to load topics from the account.',
             ]);
         }
 
-        $trends = Trend::query()->orderByDesc('score')->limit(10)->get();
+        try {
+            $live = $this->x->accountTopics($account);
+        } catch (Throwable $e) {
+            report($e);
 
-        return response()->json(['trends' => $trends]);
+            return response()->json([
+                'trends' => [],
+                'source' => null,
+                'note' => 'X did not return topics. '.$e->getMessage(),
+            ]);
+        }
+
+        return response()->json([
+            'trends' => $live['topics'],
+            'source' => $live['source'],
+            'note' => $live['topics'] === []
+                ? 'X did not return topics for this account.'
+                : ($live['source'] === 'trends'
+                    ? 'Topics X is showing for this account. Post counts are the ones X returned.'
+                    : 'Topics from this account’s recent posts. Impressions and likes are the ones X recorded.'),
+        ]);
     }
 
     public function opportunities(Request $request): JsonResponse
     {
-        $profile = $request->user()->accountProfile;
+        $account = $request->user()->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->first();
 
-        if (! $profile?->onboarding_completed) {
-            return response()->json(['opportunities' => []]);
+        if (! $account) {
+            return response()->json([
+                'opportunities' => [],
+                'note' => 'Connect X to load topics from the account.',
+            ]);
         }
 
-        $ranked = $this->opportunityScorer->rankedForProfile($profile, 5);
+        try {
+            $live = $this->x->accountTopics($account);
+        } catch (Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'opportunities' => [],
+                'note' => 'X did not return topics. '.$e->getMessage(),
+            ]);
+        }
 
         return response()->json([
-            'opportunities' => collect($ranked)->map(fn ($item) => [
-                'trend_id' => $item['trend']->id,
-                'name' => $item['trend']->name,
-                'opportunity_score' => $item['opportunity_score'],
-                'trend_score' => $item['trend']->score,
-                'growth_rate' => $item['trend']->growth_rate,
-                'competition' => $item['trend']->competition,
-                'suggestion' => $item['suggestion'],
-            ]),
+            'opportunities' => array_map(fn (array $topic) => [
+                'name' => $topic['name'],
+                'figures' => $topic['figures'],
+                'suggestion' => $topic['figures'],
+            ], array_slice($live['topics'], 0, 5)),
+            'note' => $live['source'] === 'trends'
+                ? 'Topics X is showing for this account.'
+                : 'Topics from this account’s recent posts.',
         ]);
     }
 
     /**
-     * @return array{followers: int, impressions: int, engagement_rate: float, tweets: list<array<string, mixed>>}|null
+     * @param  array{ranked_for_niche?: bool}  $live
+     */
+    private function impressionBasis(array $live): string
+    {
+        return ($live['ranked_for_niche'] ?? false)
+            ? 'Posts and comments, ranked for your niche'
+            : 'Recent posts and comments';
+    }
+
+    /**
+     * @return array{followers: int, impressions: int, engagement_rate: float, ranked_for_niche: bool, tweets: list<array<string, mixed>>}|null
      */
     private function liveActivity(mixed $user): ?array
     {
@@ -222,7 +272,7 @@ class DashboardController extends Controller
         }
 
         try {
-            return $this->x->accountActivity($account);
+            return $this->x->accountActivity($account, $user->accountProfile?->resolvedNiche());
         } catch (Throwable $e) {
             report($e);
 

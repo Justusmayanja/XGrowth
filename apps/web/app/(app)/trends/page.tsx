@@ -7,26 +7,31 @@ import { DeskHeading } from "@/components/DeskHeading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LoadingMark } from "@/components/LoadingMark";
 import { api } from "@/lib/api";
 import { usePlatform } from "@/lib/platform";
 
 type Trend = {
   name: string;
-  score?: number | string;
-  opportunity_score?: number | string;
-  growth_rate?: number | string;
-  competition?: string;
-  suggestion?: string;
+  figures?: string;
+  posts?: number | null;
+  impressions?: number | null;
+  likes?: number | null;
+  replies?: number | null;
 };
 
 export default function TrendsPage() {
   const platform = usePlatform();
   const [trends, setTrends] = useState<Trend[]>([]);
+  const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api<{ trends: Trend[] }>("/trends")
-      .then((r) => setTrends(r.trends))
+    api<{ trends: Trend[]; note?: string | null }>("/trends")
+      .then((r) => {
+        setTrends(r.trends);
+        setNote(r.note ?? "");
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -36,8 +41,8 @@ export default function TrendsPage() {
         <DeskHeading icon={Hash} title="Topics">
           <p className="text-muted-foreground">
             {platform === "x"
-              ? "Subjects in your niche, scored for whether they deserve a post on X."
-              : "Subjects in your niche, scored for this account."}
+              ? "Topics from the connected X account, with the counts X returned."
+              : "Topics for this account."}
           </p>
         </DeskHeading>
         <Link href="/growth-agent">
@@ -49,32 +54,26 @@ export default function TrendsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             Topics
-            <Badge variant="secondary">Scored for your niche</Badge>
+            <Badge variant="secondary">From X</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <p className="text-muted-foreground">Loading trends…</p>
+            <LoadingMark />
+          ) : trends.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{note || "Connect X to load topics from the account."}</p>
           ) : (
-            trends.map((t, i) => (
-              <div key={i} className="mb-4 rounded-lg border border-border p-4 last:mb-0">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">{t.name}</span>
-                  <div className="flex gap-2">
-                    {t.opportunity_score != null && (
-                      <Badge>{Math.round(Number(t.opportunity_score))} opp</Badge>
-                    )}
-                    <Badge variant="outline">Trend {Math.round(Number(t.score ?? 0))}</Badge>
+            <>
+              {note && <p className="mb-4 text-sm text-muted-foreground">{note}</p>}
+              {trends.map((t) => (
+                <div key={t.name} className="mb-4 rounded-lg border border-border p-4 last:mb-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{t.name}</span>
+                    {t.figures && <Badge variant="outline">{t.figures}</Badge>}
                   </div>
                 </div>
-                <div className="text-sm text-muted-foreground">
-                  Growth {Number(t.growth_rate ?? 0).toFixed(1)}% · {t.competition ?? "n/a"} competition
-                </div>
-                {t.suggestion && (
-                  <p className="mt-2 text-sm text-muted-foreground">{t.suggestion}</p>
-                )}
-              </div>
-            ))
+              ))}
+            </>
           )}
         </CardContent>
       </Card>

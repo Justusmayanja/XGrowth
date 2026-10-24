@@ -107,20 +107,16 @@ class AiContextBuilder
     }
 
     /**
-     * Compact evergreen angles — not tied to the trend catalog.
+     * Ways to take a side. The account's meaning lives on the profile, not in these lines.
      *
      * @return list<string>
      */
     public function originalIdeasDigest(AccountProfile $profile): array
     {
-        $niche = $profile->resolvedNiche();
-        $goal = str_replace('_', ' ', $profile->primaryGoal());
-        $tone = $profile->primaryTone();
-
         return [
-            mb_substr("Evergreen {$tone} insight for {$niche}", 0, 100),
-            mb_substr("Reply-bait question about {$goal} in {$niche}", 0, 100),
-            mb_substr("Opinion or lesson from your {$niche} journey (timeless)", 0, 100),
+            'Answer a conversation that is about someone else, from this side',
+            'One opinion hung on a name, price, score, or decision people already know',
+            'A short reply to praise or panic, without restating who the account is',
         ];
     }
 

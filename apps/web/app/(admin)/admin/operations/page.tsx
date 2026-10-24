@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LoadingMark } from "@/components/LoadingMark";
 import { api } from "@/lib/api";
 import { PlanPricingCard } from "@/components/admin/PlanPricingCard";
 
@@ -121,7 +122,7 @@ export default function AdminOperationsPage() {
         </Button>
       </div>
 
-      {loading && <p className="text-muted-foreground">Loading operations…</p>}
+      {loading && <LoadingMark />}
       {!loading && error && (
         <div className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
           <p className="text-sm text-destructive">{error}</p>

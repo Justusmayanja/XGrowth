@@ -2,12 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\PlatformSetting;
 use App\Models\User;
+use App\Services\Admin\PlatformSettingsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use OpenAI\Laravel\Facades\OpenAI;
-use OpenAI\Resources\Chat;
-use OpenAI\Responses\Chat\CreateResponse;
 use Tests\TestCase;
 
 class PlatformDashboardTest extends TestCase
@@ -59,23 +59,13 @@ class PlatformDashboardTest extends TestCase
             ->assertJsonPath('metrics.0.label', 'Subscribers');
     }
 
-    public function test_moments_come_from_the_model_and_are_not_the_same_catalog(): void
+    public function test_opening_the_desk_does_not_spend_an_ai_call(): void
     {
         Cache::flush();
         config(['openai.api_key' => 'test-key']);
-
-        OpenAI::fake([
-            CreateResponse::fake([
-                'choices' => [[
-                    'message' => ['content' => json_encode(['moments' => [
-                        ['name' => 'The 40p dinner I keep repeating', 'suggestion' => 'Rice, an egg, and the one thing you leave out.'],
-                        ['name' => 'I stopped buying the meal deal', 'suggestion' => 'A short story about the week the maths won.'],
-                        ['name' => 'What do you always run out of?', 'suggestion' => 'A question people will answer from their own kitchen.'],
-                        ['name' => 'Ready meals are not the cheap option', 'suggestion' => 'An opinion with the price of one bag of rice.'],
-                    ]])],
-                ]],
-            ]),
-        ]);
+        PlatformSetting::query()->where('key', 'web_search_enabled')->update(['value' => '0']);
+        app(PlatformSettingsService::class)->clearCache();
+        OpenAI::fake();
 
         $user = User::factory()->create();
         $api = $this->actingAs($user, 'sanctum');
@@ -95,16 +85,8 @@ class PlatformDashboardTest extends TestCase
 
         $api->getJson('/api/dashboard/platform/x')
             ->assertOk()
-            ->assertJsonPath('ideas.0.name', 'The 40p dinner I keep repeating')
-            ->assertJsonPath('ideas.0.suggestion', 'Rice, an egg, and the one thing you leave out.')
-            ->assertJsonCount(4, 'ideas');
+            ->assertJsonPath('ideas', []);
 
-        OpenAI::assertSent(Chat::class, function (string $method, array $parameters): bool {
-            $prompt = $parameters['messages'][1]['content'];
-
-            return str_contains($prompt, 'Budget home cooking')
-                && str_contains($prompt, 'Do not repeat these earlier moments')
-                && str_contains($prompt, 'Invent exactly 4 fresh moments');
-        });
+        OpenAI::assertNothingSent();
     }
 }

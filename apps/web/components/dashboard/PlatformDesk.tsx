@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight } from "lucide-react";
+import { LoadingMark } from "@/components/LoadingMark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +26,13 @@ type Desk = {
   setup: {
     completed: boolean;
     goals: string[];
-    settings: { automation_level?: number; mode?: string; publish?: string };
+    settings: {
+      automation_level?: number;
+      mode?: string;
+      publish?: string;
+      auto_post_enabled?: boolean;
+      engine_paused?: boolean;
+    };
   };
   connected: { username?: string | null } | null;
   preview: boolean;
@@ -75,13 +82,17 @@ function postingLine(desk: Desk): string {
   if (desk.platform === "youtube") {
     return desk.setup.settings.publish === "auto" ? "Posts on its own when the video is ready" : "Waits for your yes before posting";
   }
+  if (desk.setup.settings.engine_paused) return "Paused. Nothing is posted until you turn it back on";
+  const posting = desk.setup.settings.auto_post_enabled !== false;
   switch (desk.setup.settings.automation_level) {
     case 0:
       return "Suggests only. You post";
     case 2:
-      return "Posts the strong moments on its own";
+      return posting ? "Posts the strong moments on its own" : "Drafts the strong moments. You approve";
     case 3:
-      return "Posts on its own, inside your limits";
+      return posting
+        ? "Posts on its own, even while you are offline"
+        : "Full automation is selected, but posting is off";
     default:
       return "Drafts the moment. You approve";
   }
@@ -130,7 +141,15 @@ function Section({
 
 function IdeaList({ desk, verb, loose = false }: { desk: Desk; verb: string; loose?: boolean }) {
   if (desk.ideas.length === 0) {
-    return <p className="text-sm text-muted-foreground">Fresh moments for this account show here.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        {desk.platform === "x"
+          ? desk.connected
+            ? "X did not return topics for this account yet."
+            : "Connect X and topics from the account show here."
+          : "Topics for this account show here."}
+      </p>
+    );
   }
   return (
     <ul className={loose ? "space-y-1" : "divide-y divide-border"}>
@@ -187,11 +206,11 @@ function XBody({ desk }: { desk: Desk }) {
     <div className="grid gap-6 lg:grid-cols-2">
       <div className="desk-arrive h-full" style={{ animationDelay: "120ms" }}>
         <Section
-          title="Moments in your niche"
+          title="Topics"
           description={
             moments
-              ? `${moments} written for this account. A new set when you come back.`
-              : "Written for this account. A new set when you come back."
+              ? `${moments} from your X account, with the counts X returned.`
+              : "Topics from your X account, with the counts X returned."
           }
           action={
             <Link href="/trends" className="text-sm text-muted-foreground hover:text-foreground">
@@ -225,8 +244,8 @@ function XBody({ desk }: { desk: Desk }) {
             title="Replies"
             description={
               desk.connected
-                ? "Conversations in your niche worth joining."
-                : "Connect X and conversations in your niche show up here."
+                ? "Mentions and replies on this account, with the counts X returned."
+                : "Connect X and mentions on this account show up here."
             }
           >
             <Link href={desk.connected ? "/engagement" : "/settings"}>
@@ -242,6 +261,7 @@ function XBody({ desk }: { desk: Desk }) {
 function XDeskSkeleton() {
   return (
     <div className="space-y-6" aria-busy="true" aria-label="Loading X">
+      <LoadingMark />
       <div className="grid gap-4 sm:grid-cols-3">
         {[0, 1, 2].map((item) => (
           <div key={item} className="h-24 animate-pulse rounded-lg bg-white/[0.04]" />
@@ -269,7 +289,7 @@ function XDeskView({ desk, chosen, goals }: { desk: Desk; chosen: Platform[]; go
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-medium">X</h1>
-          <p className="mt-1 max-w-xl text-sm text-muted-foreground">{LEDE.x}</p>
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground">{postingLine(desk)}</p>
         </div>
         <AddPlatforms chosen={chosen} />
       </div>
@@ -476,7 +496,9 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div>
         <h1 className="text-xl font-medium">{name}</h1>
-        <p className="mt-1 max-w-xl text-sm text-muted-foreground">{LEDE[platform]}</p>
+        <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+          {platform === "x" && desk ? postingLine(desk) : LEDE[platform]}
+        </p>
       </div>
       {chosen.length > 0 && <AddPlatforms chosen={chosen} />}
     </div>
@@ -495,7 +517,7 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
     return (
       <div className="space-y-6">
         {header}
-        {platform === "x" ? <XDeskSkeleton /> : <p className="text-muted-foreground">Loading…</p>}
+        {platform === "x" ? <XDeskSkeleton /> : <LoadingMark className="min-h-[40vh]" />}
       </div>
     );
   }

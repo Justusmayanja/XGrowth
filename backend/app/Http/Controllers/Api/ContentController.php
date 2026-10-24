@@ -9,12 +9,14 @@ use App\Models\User;
 use App\Services\AICore\AiContextBuilder;
 use App\Services\AICore\AICoreService;
 use App\Services\TrendEngine\OpportunityScorerService;
+use App\Services\TrendEngine\TrendEngineService;
 use App\Services\GrowthAgent\SafetyEngineService;
 use App\Services\XApi\XApiService;
 use App\Support\SetupCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use RuntimeException;
+use Throwable;
 
 class ContentController extends Controller
 {
@@ -24,6 +26,7 @@ class ContentController extends Controller
         private readonly AICoreService $aiCore,
         private readonly AiContextBuilder $contextBuilder,
         private readonly OpportunityScorerService $opportunityScorer,
+        private readonly TrendEngineService $trends,
     ) {}
 
     public function generate(Request $request): JsonResponse
@@ -44,6 +47,18 @@ class ContentController extends Controller
         $contentType = $validated['content_type'] ?? 'tweet';
         $platform = SetupCatalog::platformForContentType($contentType);
         $goal = $profile?->goalSentenceFor($platform) ?? 'grow an audience on '.SetupCatalog::PLATFORM_NAMES[$platform];
+        $search = (bool) ($validated['use_web_search'] ?? false);
+
+        if ($suggest || $search) {
+            $fromAccount = $this->trends->rankedFromAccount($request->user());
+            if (! is_array($fromAccount) || $fromAccount === []) {
+                try {
+                    $this->trends->ensureCurrentTrends($request->user());
+                } catch (Throwable) {
+                    // A draft can still be written from the account's point of view.
+                }
+            }
+        }
 
         try {
             $result = $this->aiCore->generateContentVariants([
@@ -56,7 +71,8 @@ class ContentController extends Controller
                 'content_type' => $contentType,
                 'audience' => $profile?->audience,
                 'description' => $profile?->description,
-                'use_web_search' => (bool) ($validated['use_web_search'] ?? false),
+                'use_web_search' => $search,
+                'join_live' => $suggest,
                 'suggest' => $suggest ? $this->suggestContext($request->user(), $profile) : null,
             ]);
         } catch (RuntimeException $e) {
@@ -75,8 +91,13 @@ class ContentController extends Controller
     private function suggestContext(User $user, ?AccountProfile $profile): array
     {
         $trends = [];
+        $fromAccount = $this->trends->rankedFromAccount($user);
 
-        if ($profile?->onboarding_completed) {
+        if (is_array($fromAccount) && $fromAccount !== []) {
+            foreach (array_slice($fromAccount, 0, 3) as $item) {
+                $trends[] = mb_substr($item['trend']->name, 0, 80);
+            }
+        } elseif ($profile?->onboarding_completed) {
             foreach ($this->opportunityScorer->rankedForProfile($profile, 3) as $item) {
                 $trends[] = mb_substr($item['trend']->name, 0, 80);
             }

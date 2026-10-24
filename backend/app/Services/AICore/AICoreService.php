@@ -4,6 +4,7 @@ namespace App\Services\AICore;
 
 use App\Models\AccountProfile;
 use App\Models\AiRule;
+use App\Models\Trend;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use Illuminate\Support\Facades\Log;
@@ -66,48 +67,46 @@ class AICoreService
 
         $systemPrompt = $this->buildSystemPrompt(
             'content_generation',
-            'You draft posts for X, TikTok, and YouTube. Match the requested format. Write the way this account already sounds, with a specific claim and no filler.',
+            'You write social posts as a person, in the requested format. You understand who the account is, then you write something new. You never repeat the wording of the account notes.',
             includeContentMix: true,
         );
 
         $suggest = $params['suggest'] ?? null;
+        $joinLive = (bool) ($params['join_live'] ?? $suggest);
 
         $userPrompt = $suggest
             ? "Generate exactly {$variantCount} distinct {$contentType} drafts. No topic was given: choose the best thing for this account to post right now. Each draft must take a different angle.\n\n"
-            : "Generate exactly {$variantCount} distinct {$contentType} draft options about: {$topic}\n\n";
-        $userPrompt .= "User profile:\n";
-        $userPrompt .= "- Niche: {$niche}\n";
-        $userPrompt .= "- Tone: {$tone}\n";
-        $userPrompt .= "- Goal: {$goal}\n";
+            : "Generate exactly {$variantCount} distinct {$contentType} draft options.\n\n";
 
-        if (! empty($params['purpose'])) {
-            $userPrompt .= '- Using Mackie17 for: '.$params['purpose']."\n";
+        if (! $suggest && ! $joinLive && is_string($topic) && trim($topic) !== '') {
+            $userPrompt .= "The subject the person asked for: {$topic}\nWrite about that subject. Do not turn it into a restatement of the account notes.\n\n";
         }
 
-        if (! empty($params['audience'])) {
-            $userPrompt .= '- Target audience: '.$params['audience']."\n";
-        }
+        $userPrompt .= $this->voiceNotes($params, $niche, $tone, $goal);
+        $userPrompt .= $this->bridgeInstructions($joinLive, $params['conversation'] ?? null, $useWebSearch);
 
-        if (! empty($params['description'])) {
-            $userPrompt .= '- About them: '.$params['description']."\n";
+        if (! empty($params['planner_hint'])) {
+            $userPrompt .= 'Planner hint, do not copy its words: '.$params['planner_hint']."\n";
         }
 
         if ($suggest) {
             $userPrompt .= $this->suggestInstructions($suggest);
         }
 
-        $userPrompt .= "\nFormat: ".$this->formatInstructions($contentType)."\n";
-
-        if ($useWebSearch) {
-            $userPrompt .= $suggest
-                ? "\nUse web search to check what is happening in this niche today, and verify any facts you use.\n"
-                : "\nUse web search to verify current facts, names, dates, and news about this topic before drafting.\n";
-        } elseif (($params['content_source'] ?? '') === 'original') {
-            $userPrompt .= "\nThis is ORIGINAL evergreen content — do not reference breaking news or current trends.\n";
+        if (! empty($params['recent_posts']) && is_array($params['recent_posts'])) {
+            $userPrompt .= "\nDo not repeat these recent posts or their openings:\n";
+            foreach ($params['recent_posts'] as $recent) {
+                $line = trim(str_replace("\n", ' ', (string) $recent));
+                if ($line !== '') {
+                    $userPrompt .= '- '.mb_substr($line, 0, 180)."\n";
+                }
+            }
         }
 
+        $userPrompt .= "\nFormat: ".$this->formatInstructions($contentType)."\n";
+
         if (! empty($params['score_virality'])) {
-            $userPrompt .= "\nScore virality only for this niche. Use 60 or higher only if people in that niche would share or reply today. When web search is available, check what that audience is already talking about before you score.\n";
+            $userPrompt .= "\nScore virality for whether people already in this conversation would reply or share. Use 60 or higher only when the post feels like a timely take, not a bio.\n";
         }
 
         $userPrompt .= <<<'PROMPT'
@@ -127,17 +126,25 @@ Return JSON:
 Use virality_score as an integer from 0-100 and estimated_reach as "low", "medium", or "high".
 PROMPT;
 
-        if ($useWebSearch) {
-            $result = $this->responsesJson($systemPrompt, $userPrompt, withWebSearch: true);
-        } else {
-            $result = $this->chatJson($systemPrompt, $userPrompt);
-        }
-
-        $parsed = $result['parsed'];
-        $variants = $this->normalizeVariants($parsed['variants'] ?? []);
+        $result = $this->requestVariants($systemPrompt, $userPrompt, $useWebSearch);
+        $variants = $this->normalizeVariants($result['parsed']['variants'] ?? []);
 
         if ($variants === []) {
             throw new RuntimeException('OpenAI returned no content variants.');
+        }
+
+        if ($this->draftEchoesSetup($variants, $params)) {
+            $retryPrompt = $userPrompt."\n\nThe previous draft copied the private notes. Rewrite every draft from scratch. Do not use these phrases:\n";
+            foreach ($this->forbiddenSetupPhrases($params) as $phrase) {
+                $retryPrompt .= "- {$phrase}\n";
+            }
+            $retryPrompt .= 'Previous draft: '.mb_substr((string) ($variants[0]['content'] ?? ''), 0, 280)."\n";
+            $retried = $this->requestVariants($systemPrompt, $retryPrompt, $useWebSearch);
+            $rewritten = $this->normalizeVariants($retried['parsed']['variants'] ?? []);
+            if ($rewritten !== []) {
+                $result = $retried;
+                $variants = $rewritten;
+            }
         }
 
         $this->usage->record($user, [
@@ -172,23 +179,82 @@ PROMPT;
     /**
      * @param  array{trends?: list<string>, recent?: list<string>, prefer?: string, evergreen?: list<string>}  $suggest
      */
+    /**
+     * @param  array<string, mixed>  $params
+     */
+    private function voiceNotes(array $params, string $niche, string $tone, string $goal): string
+    {
+        $text = "Private notes. They tell you who is speaking. Never quote them, never reuse their phrases, and never mention a niche, a setup, or an account description:\n";
+        $text .= "- Point of view: {$niche}\n";
+        $text .= "- How they sound: {$tone}\n";
+        $text .= "- What they are trying to do: {$goal}\n";
+
+        if (! empty($params['purpose'])) {
+            $text .= '- Why they post: '.$params['purpose']."\n";
+        }
+
+        if (! empty($params['audience'])) {
+            $text .= '- Who they talk to: '.$params['audience']."\n";
+        }
+
+        if (! empty($params['description'])) {
+            $text .= '- What the account actually is: '.$params['description']."\n";
+        }
+
+        $text .= "Understand the meaning, then write as that person. A reader who has the notes open should not be able to highlight a phrase that also appears in the post.\n";
+
+        return $text;
+    }
+
+    private function bridgeInstructions(bool $joinLive, mixed $conversation, bool $useWebSearch): string
+    {
+        if (! $joinLive) {
+            return $useWebSearch
+                ? "\nUse web search to check the current facts, names, and numbers. Write a take, not a summary of the account.\n"
+                : "\n";
+        }
+
+        $text = "\nJoin a conversation that is already happening. The conversation is the hook. Write from this account's side. This account's point of view is the twist.\n";
+        $text .= "The conversation does not have to be about this account. Take it anyway, the way a person in their world would.\n";
+        $text .= "Pattern, do not copy these situations: everyone is talking about businesses losing money and costs going up, and the account lends money, so the post is the lender's side of that pain. Everyone is praising two rival teams for being in form, and the account is the third club, so the post answers that praise from the third club's side.\n";
+        $text .= "Do not explain the link. Do not start with \"as a\". Do not list tips. One specific detail from the conversation, then this account's opinion. Change the shape from post to post.\n";
+
+        $name = is_string($conversation) ? trim($conversation) : '';
+        if ($name !== '') {
+            $text .= "The conversation to join: {$name}. Answer what is specifically happening in it. Do not describe the account instead.\n";
+        } elseif ($useWebSearch) {
+            $text .= "No conversation was named. Search for what people are actually talking about today and join the loudest specific one. A name, a price, a score, or a decision. Not a category.\n";
+        } else {
+            $text .= "No live conversation was named. Still write a specific take from this point of view. Do not write the account notes back to the reader.\n";
+        }
+
+        if ($useWebSearch && $name !== '') {
+            $text .= "Use web search for what is happening in that conversation today before you write.\n";
+        }
+
+        return $text;
+    }
+
+    /**
+     * @param  array{trends?: list<string>, recent?: list<string>, prefer?: string, evergreen?: list<string>}  $suggest
+     */
     private function suggestInstructions(array $suggest): string
     {
         $text = "\nWhat to write about:\n";
 
         if (! empty($suggest['trends'])) {
-            $text .= '- Topics moving now: '.implode('; ', $suggest['trends'])."\n";
-            $text .= "  Use one only if it genuinely belongs in this niche. Never bend the niche to fit a trend.\n";
+            $text .= '- Conversations happening now: '.implode('; ', $suggest['trends'])."\n";
+            $text .= "  Join one from this account's side, even when it is about someone or something else.\n";
         }
 
         if (! empty($suggest['evergreen'])) {
-            $text .= '- Evergreen angles that always fit: '.implode('; ', $suggest['evergreen'])."\n";
+            $text .= '- Ways to take a side: '.implode('; ', $suggest['evergreen'])."\n";
         }
 
         $text .= match ($suggest['prefer'] ?? 'balanced') {
-            'original' => "- Their recent posts lean on trends. Make at least two drafts original, not tied to news.\n",
-            'trend' => "- Their recent posts are mostly evergreen. Lean timely where a fitting topic exists.\n",
-            default => "- Mix one timely draft with evergreen ones when a fitting topic exists.\n",
+            'original' => "- Recent posts already joined the news. Still join a conversation, and let this account's opinion be the larger part.\n",
+            'trend' => "- Join the loudest conversation. The account's point of view is the twist, not a caption on the news.\n",
+            default => "- Join one live conversation. The post should only make sense because of who this account is.\n",
         };
 
         if (! empty($suggest['recent'])) {
@@ -198,9 +264,141 @@ PROMPT;
             }
         }
 
-        $text .= "- Pick angles that serve the goal above and that this audience would reply to or share.\n";
+        $text .= "- Write something a person would actually post, not a line lifted from a profile.\n";
 
         return $text;
+    }
+
+    /**
+     * @return array{
+     *     parsed: array<string, mixed>,
+     *     input_tokens: int,
+     *     output_tokens: int,
+     *     total_tokens: int,
+     *     web_search_calls: int
+     * }
+     */
+    private function requestVariants(string $systemPrompt, string $userPrompt, bool $useWebSearch): array
+    {
+        if ($useWebSearch) {
+            return $this->responsesJson($systemPrompt, $userPrompt, withWebSearch: true);
+        }
+
+        return $this->chatJson($systemPrompt, $userPrompt);
+    }
+
+    /**
+     * What people are actually talking about today. Shared by every account, then each draft takes a side.
+     *
+     * @return list<array{name: string, detail: string}>
+     */
+    public function currentConversations(User $user): array
+    {
+        $this->ensureConfigured();
+        $this->usage->assertCanGenerate($user);
+        $this->usage->assertCanWebSearch($user);
+
+        $systemPrompt = 'You find real public conversations happening today. You do not invent topics and you do not return categories.';
+        $userPrompt = 'Today is '.now()->toFormattedDateString().".\n";
+        $userPrompt .= <<<'PROMPT'
+Use web search. What are people actually talking about right now, in the news and on social media?
+Return 5 specific conversations. Each name should be something a person would recognize today: a match, a price, a person, a decision, a clip. Not "market debate" or "motivation".
+
+Return JSON:
+{
+  "conversations": [
+    {"name": "short recognizable name", "detail": "what is happening, one sentence"}
+  ]
+}
+PROMPT;
+
+        $result = $this->responsesJson($systemPrompt, $userPrompt, withWebSearch: true);
+        $conversations = [];
+
+        foreach ($result['parsed']['conversations'] ?? [] as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $name = trim((string) ($item['name'] ?? ''));
+            $detail = trim((string) ($item['detail'] ?? ''));
+            if (mb_strlen($name) < 3) {
+                continue;
+            }
+            $conversations[] = [
+                'name' => mb_substr($name, 0, 80),
+                'detail' => mb_substr($detail, 0, 180),
+            ];
+        }
+
+        $this->usage->record($user, [
+            'feature' => 'live_conversations',
+            'model' => $this->model(),
+            'input_tokens' => $result['input_tokens'],
+            'output_tokens' => $result['output_tokens'],
+            'total_tokens' => $result['total_tokens'],
+            'web_search_calls' => $result['web_search_calls'],
+            'used_web_search' => true,
+        ]);
+
+        return array_slice($conversations, 0, 5);
+    }
+
+    /**
+     * @param  list<array{content: string}>  $variants
+     * @param  array<string, mixed>  $params
+     */
+    private function draftEchoesSetup(array $variants, array $params): bool
+    {
+        $phrases = $this->forbiddenSetupPhrases($params);
+        if ($phrases === []) {
+            return false;
+        }
+
+        foreach ($variants as $variant) {
+            $haystack = mb_strtolower((string) ($variant['content'] ?? ''));
+            foreach ($phrases as $phrase) {
+                if (str_contains($haystack, $phrase)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $params
+     * @return list<string>
+     */
+    private function forbiddenSetupPhrases(array $params): array
+    {
+        $phrases = [];
+
+        foreach (['niche', 'description', 'audience'] as $key) {
+            $phrases = array_merge($phrases, $this->distinctivePhrases((string) ($params[$key] ?? '')));
+        }
+
+        return array_values(array_unique($phrases));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function distinctivePhrases(string $text): array
+    {
+        $clean = mb_strtolower((string) preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $text));
+        $words = array_values(array_filter(preg_split('/\s+/', trim($clean)) ?: []));
+        if (count($words) < 3) {
+            return [];
+        }
+
+        $window = count($words) >= 6 ? 4 : 3;
+        $phrases = [];
+        for ($i = 0; $i <= count($words) - $window; $i++) {
+            $phrases[] = implode(' ', array_slice($words, $i, $window));
+        }
+
+        return $phrases;
     }
 
     /**
@@ -300,22 +498,40 @@ PROMPT;
 
         $systemPrompt = $this->buildSystemPrompt(
             'desk_moments',
-            'You invent specific post moments for one social account. Write like a sharp editor. A moment is something this person could publish today. Never return a category label, the niche name by itself, or a line that starts with "Strong moment", "Good time", or "Watch".',
+            'You invent specific post moments for one social account. Write like a sharp editor. A moment is something this person could publish today. Never return a category label, the niche name by itself, or a line that starts with "Strong moment", "Good time", or "Watch". Never reuse the wording of the account notes.',
         );
 
         $userPrompt = "Invent exactly 4 fresh moments for this {$platformName} account.\n\n";
-        $userPrompt .= "- Niche: {$niche}\n";
+        $userPrompt .= "Private notes. Understand the meaning. Do not copy their phrases into the name or the suggestion:\n";
+        $userPrompt .= "- Point of view: {$niche}\n";
         $userPrompt .= "- Voice: {$tone}\n";
         $userPrompt .= "- What they are trying to do: {$goal}\n";
         if ($description !== '') {
-            $userPrompt .= "- How they describe the account: {$description}\n";
+            $userPrompt .= "- What the account actually is: {$description}\n";
         }
         if ($audience !== '') {
-            $userPrompt .= "- Audience: {$audience}\n";
+            $userPrompt .= "- Who they talk to: {$audience}\n";
         }
         $userPrompt .= "\nLean this set toward {$lean}.\n";
         $userPrompt .= "Make the four unlike each other: one observation, one short story, one question people will answer, and one opinion.\n";
-        $userPrompt .= "Use details only this account would know. Do not write a content calendar.\n\n";
+        $userPrompt .= "At least one moment should answer something the public is already saying, from this account's side. A lender answers a week of businesses losing money. A club account answers praise for two rivals. Do not explain that link, and do not write the notes back.\n";
+        $userPrompt .= "Use a specific detail. Do not write a content calendar.\n\n";
+        $live = Trend::query()
+            ->where('detected_at', '>=', now()->subHours(36))
+            ->where(function ($query) {
+                $query->where('metadata->source', 'x')
+                    ->orWhere('metadata->source', 'live');
+            })
+            ->orderByDesc('score')
+            ->limit(4)
+            ->pluck('name');
+        if ($live->isNotEmpty()) {
+            $userPrompt .= "People are talking about these right now. Make each moment this account's side of one of them:\n";
+            foreach ($live as $name) {
+                $userPrompt .= '- '.$name."\n";
+            }
+            $userPrompt .= "\n";
+        }
         $userPrompt .= "Do not repeat these earlier moments:\n";
         if ($avoid === []) {
             $userPrompt .= "- None yet. This is the first set.\n";

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LoadingMark } from "@/components/LoadingMark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +22,7 @@ export function SafetySummaryCard({ safety, loading }: Props) {
       </CardHeader>
       <CardContent>
         {loading || !safety ? (
-          <p className="text-muted-foreground">Loading…</p>
+          <LoadingMark />
         ) : (
           <>
             <div className="mb-4 flex items-center gap-3">

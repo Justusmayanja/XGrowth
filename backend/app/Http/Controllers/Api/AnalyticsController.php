@@ -30,7 +30,7 @@ class AnalyticsController extends Controller
         }
 
         try {
-            $activity = $this->x->accountActivity($account);
+            $activity = $this->x->accountActivity($account, $request->user()->accountProfile?->resolvedNiche());
         } catch (Throwable $e) {
             report($e);
 
@@ -105,7 +105,9 @@ class AnalyticsController extends Controller
             'series' => $series,
             'top_posts' => $topPosts,
             'insights' => $insights,
-            'note' => 'Follower count is current. Impressions are from recent posts. X does not provide a 30-day follower history here.',
+            'note' => ($activity['ranked_for_niche'] ?? false)
+                ? 'Follower count is current. Impressions are from your recent posts and comments, ranked by X for your niche. X does not provide a 30-day follower history here.'
+                : 'Follower count is current. Impressions are from your recent posts and comments. X does not provide a 30-day follower history here.',
         ]);
     }
 

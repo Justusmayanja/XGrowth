@@ -1367,6 +1367,27 @@ input[type="radio"] {
   }
 }
 
+@keyframes mark-sway {
+  0%,
+  100% {
+    transform: rotate(-16deg);
+  }
+  50% {
+    transform: rotate(16deg);
+  }
+}
+
+.mark-sway {
+  animation: mark-sway 1.5s ease-in-out infinite;
+  transform-origin: 50% 55%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mark-sway {
+    animation: none;
+  }
+}
+
 @keyframes hero-rise {
   from {
     opacity: 0;

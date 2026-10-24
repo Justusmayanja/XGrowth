@@ -61,20 +61,34 @@ class OpportunityScorerService
     {
         $niches = $profile->niches();
 
-        $trends = Trend::query()
-            ->when($niches !== [], function ($query) use ($niches) {
-                $query->where(function ($nested) use ($niches) {
-                    foreach ($niches as $niche) {
-                        $nested->orWhereJsonContains('niche_tags', $niche);
-                    }
-                });
+        $live = Trend::query()
+            ->where('detected_at', '>=', now()->subHours(36))
+            ->where(function ($query) {
+                $query->where('metadata->source', 'x')
+                    ->orWhere('metadata->source', 'live');
             })
             ->orderByDesc('score')
-            ->limit(20)
+            ->limit(12)
             ->get();
 
-        if ($trends->isEmpty()) {
-            $trends = Trend::query()->orderByDesc('score')->limit(20)->get();
+        if ($live->isNotEmpty()) {
+            $trends = $live;
+        } else {
+            $trends = Trend::query()
+                ->when($niches !== [], function ($query) use ($niches) {
+                    $query->where(function ($nested) use ($niches) {
+                        foreach ($niches as $niche) {
+                            $nested->orWhereJsonContains('niche_tags', $niche);
+                        }
+                    });
+                })
+                ->orderByDesc('score')
+                ->limit(20)
+                ->get();
+
+            if ($trends->isEmpty()) {
+                $trends = Trend::query()->orderByDesc('score')->limit(20)->get();
+            }
         }
 
         return $trends
@@ -96,10 +110,10 @@ class OpportunityScorerService
     private function suggestionForScore(float $score, string $trendName): string
     {
         if ($score >= 85) {
-            return "Strong moment to post about \"{$trendName}\"";
+            return "People are talking about \"{$trendName}\". Answer from this account's side.";
         }
         if ($score >= 70) {
-            return "Good time to draft content or engage on \"{$trendName}\"";
+            return "\"{$trendName}\" is moving. Draft this account's take, not a recap.";
         }
         if ($score >= 55) {
             return "Watch \"{$trendName}\" — opportunity building";

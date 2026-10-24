@@ -18,37 +18,45 @@ class EngagementController extends Controller
 
     public function feed(Request $request): JsonResponse
     {
-        $profile = $request->user()->accountProfile;
-        $niche = $profile?->resolvedNiche() ?? '';
         $account = $request->user()->connectedAccounts()
             ->where('platform', 'x')
             ->where('is_active', true)
             ->first();
 
         $stats = [
-            'replies_sent_today' => 0,
-            'profile_visits_from_replies' => 0,
-            'followers_gained_from_engagement' => 0,
+            'conversations' => 0,
+            'likes' => 0,
+            'reposts' => 0,
+            'replies' => 0,
+            'impressions' => 0,
         ];
 
         if (! $account) {
             return response()->json([
                 'posts' => [],
                 'stats' => $stats,
-                'note' => 'Connect X to see conversations in your niche.',
+                'note' => 'Connect X to load mentions and replies from the account.',
             ]);
         }
 
-        $feed = $this->x->replyFeed($account, $niche);
+        $feed = $this->x->replyFeed($account);
         foreach ($feed['errors'] as $error) {
             report(new RuntimeException($error));
+        }
+
+        foreach ($feed['posts'] as $post) {
+            $stats['conversations']++;
+            $stats['likes'] += (int) ($post['likes'] ?? 0);
+            $stats['reposts'] += (int) ($post['reposts'] ?? 0);
+            $stats['replies'] += (int) ($post['replies'] ?? 0);
+            $stats['impressions'] += (int) ($post['impressions'] ?? 0);
         }
 
         if ($feed['posts'] === [] && $feed['errors'] !== []) {
             return response()->json([
                 'posts' => [],
                 'stats' => $stats,
-                'note' => 'X did not return conversations. '.$feed['errors'][0],
+                'note' => 'X did not return mentions or replies. '.$feed['errors'][0],
             ]);
         }
 
@@ -56,8 +64,8 @@ class EngagementController extends Controller
             'posts' => $feed['posts'],
             'stats' => $stats,
             'note' => $feed['posts'] === []
-                ? 'No replies, mentions, or matching posts came back from X.'
-                : null,
+                ? 'No mentions or replies came back from this X account.'
+                : 'Mentions and replies on this X account. Counts are the ones X returned.',
         ]);
     }
 

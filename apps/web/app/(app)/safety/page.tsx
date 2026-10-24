@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Shield } from "lucide-react";
 import { DeskHeading } from "@/components/DeskHeading";
+import { LoadingMark } from "@/components/LoadingMark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,7 +70,7 @@ export default function SafetyPage() {
               </div>
             </>
           ) : (
-            <p className="text-muted-foreground">Loading safety data…</p>
+            <LoadingMark />
           )}
         </CardContent>
       </Card>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FileText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DeskHeading } from "@/components/DeskHeading";
+import { LoadingMark } from "@/components/LoadingMark";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -40,6 +41,12 @@ export default function DraftsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [xPosting, setXPosting] = useState("");
+
+  const lede =
+    platform === "x" && xPosting
+      ? xPosting
+      : copy.lede;
 
   async function loadDrafts() {
     setLoading(true);
@@ -55,7 +62,28 @@ export default function DraftsPage() {
 
   useEffect(() => {
     loadDrafts();
-  }, []);
+    if (platform !== "x") return;
+    api<{
+      settings: {
+        automation_level: number;
+        auto_post_enabled: boolean;
+        engine_paused: boolean;
+      };
+    }>("/growth-agent/settings")
+      .then((res) => {
+        const rules = res.settings;
+        if (rules.engine_paused) {
+          setXPosting("Paused. Drafts stay here until you turn pause off.");
+        } else if (rules.automation_level >= 3 && rules.auto_post_enabled) {
+          setXPosting("Full automation posts a draft when its score is high enough, even if you are offline.");
+        } else if (rules.automation_level === 2 && rules.auto_post_enabled) {
+          setXPosting("A strong draft can be posted for you. You can still post one now.");
+        } else {
+          setXPosting("Posts waiting for your yes.");
+        }
+      })
+      .catch(() => setXPosting(""));
+  }, [platform]);
 
   function startEdit(draft: Draft) {
     setEditingId(draft.id);
@@ -104,14 +132,14 @@ export default function DraftsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <DeskHeading icon={FileText} title={copy.title}>
-          <p className="text-muted-foreground">{copy.lede}</p>
+          <p className="text-muted-foreground">{lede}</p>
         </DeskHeading>
         <Link href={`/content-studio?platform=${platform}`}>
           <Button>{copy.cta}</Button>
         </Link>
       </div>
 
-      {loading && <p className="text-muted-foreground">Loading drafts…</p>}
+      {loading && <LoadingMark />}
 
       {!loading && drafts.length === 0 && (
         <Card>

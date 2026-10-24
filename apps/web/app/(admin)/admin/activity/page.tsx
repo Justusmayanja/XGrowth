@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { LoadingMark } from "@/components/LoadingMark";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -179,7 +180,7 @@ export default function AdminActivityPage() {
         </Button>
       </div>
 
-      {loading && <p className="text-muted-foreground">Loading activity…</p>}
+      {loading && <LoadingMark />}
       {!loading && error && (
         <div className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
           <p className="text-sm text-destructive">{error}</p>

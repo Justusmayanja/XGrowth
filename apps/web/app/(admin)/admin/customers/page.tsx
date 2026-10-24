@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LoadingMark } from "@/components/LoadingMark";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -170,7 +171,7 @@ export default function AdminCustomersPage() {
         </Button>
       </div>
 
-      {loading && <p className="text-muted-foreground">Loading customers…</p>}
+      {loading && <LoadingMark />}
       {!loading && error && (
         <div className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
           <p className="text-sm text-destructive">{error}</p>

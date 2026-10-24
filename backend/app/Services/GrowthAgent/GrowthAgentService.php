@@ -9,10 +9,12 @@ use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use App\Services\AICore\AICoreService;
 use App\Services\TrendEngine\OpportunityScorerService;
+use App\Services\TrendEngine\TrendEngineService;
 use App\Services\XApi\XApiService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
+use Throwable;
 
 class GrowthAgentService
 {
@@ -23,6 +25,7 @@ class GrowthAgentService
         private readonly AICoreService $aiCore,
         private readonly PlatformSettingsService $settings,
         private readonly XApiService $xApi,
+        private readonly TrendEngineService $trends,
     ) {}
 
     private bool $draftedThisRun = false;
@@ -78,7 +81,21 @@ class GrowthAgentService
         }
 
         $prefilterLimit = max(1, $this->settings->getInt('growth_brain_prefilter_limit', 5));
-        $ranked = $this->opportunityScorer->rankedForProfile($profile, $prefilterLimit);
+        $fromAccount = $this->trends->rankedFromAccount($user);
+        if (is_array($fromAccount) && $fromAccount !== []) {
+            $ranked = array_slice($fromAccount, 0, $prefilterLimit);
+        } else {
+            try {
+                $this->trends->ensureCurrentTrends($user);
+            } catch (Throwable $e) {
+                Log::warning('Could not refresh live conversations', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            $ranked = $this->opportunityScorer->rankedForProfile($profile, $prefilterLimit);
+        }
 
         if ($ranked === []) {
             if ($this->shouldFillSilence($user, $profile)) {
@@ -215,10 +232,10 @@ class GrowthAgentService
                 $user,
                 $profile,
                 $trend,
-                $trend->name,
+                $this->bridgeAngle($trend),
                 'trend',
                 $score,
-                "High opportunity ({$score}/100) on \"{$trend->name}\" for your niche",
+                "People are on \"{$trend->name}\" ({$score}/100). Draft this account's side of it",
                 $context,
             );
         }
@@ -268,7 +285,7 @@ class GrowthAgentService
         }
 
         $ideas = app(\App\Services\AICore\AiContextBuilder::class)->originalIdeasDigest($profile);
-        $context['content_angle'] = $ideas[0] ?? 'Evergreen insight for your niche';
+        $context['content_angle'] = $ideas[0] ?? 'Join what people are talking about, from this account\'s side';
 
         return $this->actOnPostOpportunity(
             $user,
@@ -516,27 +533,24 @@ class GrowthAgentService
         $fullAuto = (int) ($profile->automation_level ?? 1) >= 3;
 
         try {
-            if ($isOriginal) {
-                $topic = $contentAngle
-                    ?: app(\App\Services\AICore\AiContextBuilder::class)
-                        ->originalIdeasDigest($profile)[0];
-            } else {
-                $topic = $contentAngle
-                    ? "{$trend->name} — {$contentAngle}"
-                    : $trend->name;
-            }
+            $metadata = is_array($trend?->metadata) ? $trend->metadata : [];
+            $liveName = in_array($metadata['source'] ?? '', ['x', 'live'], true) ? $trend->name : null;
 
             $params = [
                 'user' => $user,
-                'topic' => mb_substr($topic, 0, 500),
+                'topic' => $liveName ?? 'a conversation people are having today',
+                'conversation' => $liveName,
+                'join_live' => true,
                 'tone' => $profile->primaryTone(),
                 'niche' => $profile->resolvedNiche(),
                 'goal' => str_replace('_', ' ', $profile->primaryGoal()),
                 'content_type' => 'tweet',
                 'audience' => $profile->audience,
                 'description' => $profile->description,
+                'planner_hint' => $this->safeHint($contentAngle, $profile),
                 'variant_count' => 1,
-                'use_web_search' => $fullAuto || (! $isOriginal && $this->shouldUseWebSearchForTrend($trend)),
+                'recent_posts' => $user->posts()->latest()->limit(5)->pluck('content')->all(),
+                'use_web_search' => $liveName === null && ($fullAuto || (! $isOriginal && $this->shouldUseWebSearchForTrend($trend))),
                 'score_virality' => true,
                 'content_source' => $isOriginal ? 'original' : 'trend',
             ];
@@ -579,6 +593,34 @@ class GrowthAgentService
 
             return null;
         }
+    }
+
+    private function bridgeAngle(\App\Models\Trend $trend): string
+    {
+        $metadata = is_array($trend->metadata) ? $trend->metadata : [];
+        $live = in_array($metadata['source'] ?? '', ['x', 'live'], true);
+
+        return $live
+            ? 'Answer "'.$trend->name.'" from this account\'s side'
+            : 'Join what people are talking about today, from this account\'s side';
+    }
+
+    private function safeHint(?string $hint, AccountProfile $profile): ?string
+    {
+        $hint = trim((string) $hint);
+        if ($hint === '') {
+            return null;
+        }
+
+        $lower = mb_strtolower($hint);
+        foreach ([$profile->resolvedNiche(), (string) $profile->description, (string) $profile->audience] as $note) {
+            $note = trim($note);
+            if (mb_strlen($note) >= 8 && str_contains($lower, mb_strtolower($note))) {
+                return null;
+            }
+        }
+
+        return mb_substr($hint, 0, 140);
     }
 
     private function shouldUseWebSearchForTrend(?\App\Models\Trend $trend): bool

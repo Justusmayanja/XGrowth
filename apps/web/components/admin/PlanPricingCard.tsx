@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { LoadingMark } from "@/components/LoadingMark";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -175,7 +176,7 @@ export function PlanPricingCard() {
         )}
 
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading prices…</p>
+          <LoadingMark />
         ) : (
           <>
             <div className="grid gap-3 rounded-lg border border-border p-4 sm:grid-cols-[1fr_10rem]">

@@ -154,12 +154,17 @@ class AccountSetupController extends Controller
             $updates['goal'] = $goals;
             $updates['automation_level'] = $settings['automation_level'];
             $updates['mode'] = $settings['mode'];
+            $updates['auto_post_enabled'] = (int) $settings['automation_level'] >= 2;
         }
 
         $firstCompletion = ! $profile->onboarding_completed;
         $updates['onboarding_completed'] = true;
 
         $profile->update($updates);
+
+        if ($platform === 'x') {
+            app(\App\Services\GrowthAgent\GrowthBrainService::class)->forgetScheduledCooldown($user->id);
+        }
 
         if ($firstCompletion) {
             app(GrowthAgentService::class)->evaluateOpportunities($user->id);

@@ -3,8 +3,13 @@
 namespace Tests\Feature;
 
 use App\Models\AccountProfile;
+use App\Models\PlatformSetting;
 use App\Models\Post;
+use App\Models\Trend;
 use App\Models\User;
+use App\Services\Admin\PlatformSettingsService;
+use App\Services\TrendEngine\OpportunityScorerService;
+use App\Services\TrendEngine\TrendEngineService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use OpenAI\Laravel\Facades\OpenAI;
 use OpenAI\Resources\Chat;
@@ -44,6 +49,7 @@ class ComposeSuggestTest extends TestCase
     public function test_suggest_mode_drafts_from_the_account_without_a_topic(): void
     {
         config(['openai.api_key' => 'test-key']);
+        $this->disableWebSearch();
 
         OpenAI::fake([
             CreateResponse::fake([
@@ -72,7 +78,80 @@ class ComposeSuggestTest extends TestCase
             return str_contains($prompt, 'No topic was given')
                 && str_contains($prompt, 'Budget home cooking')
                 && str_contains($prompt, 'work toward X creator payouts')
-                && str_contains($prompt, 'Pasta for one, under a pound.');
+                && str_contains($prompt, 'Pasta for one, under a pound.')
+                && str_contains($prompt, 'Never quote them')
+                && str_contains($prompt, "Write from this account's side")
+                && ! str_contains($prompt, 'Never bend the niche');
         });
+    }
+
+    public function test_a_draft_that_copies_the_setup_is_rewritten(): void
+    {
+        config(['openai.api_key' => 'test-key']);
+        $this->disableWebSearch();
+
+        OpenAI::fake([
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['variants' => [[
+                        'content' => 'Cheap weeknight meals for one, with honest shortcuts. Rice again.',
+                        'angle' => 'Copied the bio',
+                        'virality_score' => 40,
+                        'estimated_reach' => 'low',
+                    ]]])],
+                ]],
+            ]),
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['variants' => [[
+                        'content' => 'City and Arsenal are flying, and we already had this standard in May.',
+                        'angle' => 'Answer the form table',
+                        'virality_score' => 77,
+                        'estimated_reach' => 'high',
+                    ]]])],
+                ]],
+            ]),
+        ]);
+
+        $this->actingAs($this->userWithProfile(), 'sanctum')
+            ->postJson('/api/content/generate', [
+                'mode' => 'describe',
+                'topic' => 'Arsenal and City are both in form',
+                'content_type' => 'tweet',
+            ])
+            ->assertOk()
+            ->assertJsonPath('variants.0.content', 'City and Arsenal are flying, and we already had this standard in May.');
+    }
+
+    public function test_live_conversations_are_joined_even_when_they_are_not_the_niche(): void
+    {
+        $user = $this->userWithProfile();
+        Trend::create([
+            'name' => 'Transfer deadline drama',
+            'slug' => 'transfer-deadline-drama',
+            'score' => 99,
+            'velocity' => 10,
+            'growth_rate' => 30,
+            'competition' => 'high',
+            'niche_tags' => ['football'],
+            'detected_at' => now(),
+            'metadata' => ['source' => 'mock'],
+        ]);
+
+        app(TrendEngineService::class)->rememberLiveConversations([
+            ['name' => 'Arsenal and City both in form', 'detail' => 'Both won again this week.'],
+        ]);
+
+        $ranked = app(OpportunityScorerService::class)->rankedForProfile($user->accountProfile, 5);
+
+        $this->assertSame('Arsenal and City both in form', $ranked[0]['trend']->name);
+        $this->assertStringContainsString("this account's side", $ranked[0]['suggestion']);
+        $this->assertSame(0, Trend::query()->where('metadata->source', 'mock')->count());
+    }
+
+    private function disableWebSearch(): void
+    {
+        PlatformSetting::query()->where('key', 'web_search_enabled')->update(['value' => '0']);
+        app(PlatformSettingsService::class)->clearCache();
     }
 }

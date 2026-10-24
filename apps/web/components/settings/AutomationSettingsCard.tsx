@@ -60,6 +60,9 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
       );
       setSettings(res.automation);
       toast.success(res.message);
+      api("/growth-agent/evaluate", { method: "POST" }, 60000).catch(() => {
+        // Saved rules still apply on the next scheduled check.
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save automation settings");
     } finally {

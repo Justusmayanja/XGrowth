@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { LoadingMark } from "@/components/LoadingMark";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -151,7 +152,7 @@ export default function AdminCustomerDetailPage() {
   }
 
   if (loading) {
-    return <p className="text-muted-foreground">Loading customer…</p>;
+    return <LoadingMark className="min-h-[40vh]" />;
   }
 
   if (!customer) {

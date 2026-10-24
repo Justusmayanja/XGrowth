@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { LoadingMark } from "@/components/LoadingMark";
 import { toast } from "sonner";
 import { MultiSelectCards, SelectionHint } from "@/components/onboarding/MultiSelectCards";
 import { Button } from "@/components/ui/button";
@@ -111,7 +112,7 @@ export function ProfileForm() {
   }
 
   if (loading) {
-    return <p className="text-muted-foreground">Loading profile…</p>;
+    return <LoadingMark />;
   }
 
   return (

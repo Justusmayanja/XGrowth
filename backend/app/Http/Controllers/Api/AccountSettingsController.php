@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\GrowthAgent\GrowthBrainService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -79,9 +80,14 @@ class AccountSettingsController extends Controller
             return response()->json(['message' => 'Complete onboarding first.'], 422);
         }
 
+        if (array_key_exists('automation_level', $validated) && ! array_key_exists('auto_post_enabled', $validated)) {
+            $validated['auto_post_enabled'] = (int) $validated['automation_level'] >= 2;
+        }
+
         $profile->update($validated);
         $profile->refresh();
         $profile->rememberXSettings();
+        app(GrowthBrainService::class)->forgetScheduledCooldown($profile->user_id);
 
         $fullAuto = (int) $profile->automation_level === 3
             && $profile->auto_post_enabled
@@ -90,8 +96,8 @@ class AccountSettingsController extends Controller
         return response()->json([
             'automation' => $this->automationPayload($profile),
             'message' => $fullAuto
-                ? 'Full automation is on. Mackie17 will draft and post on X even when you are offline.'
-                : 'Automation settings saved.',
+                ? 'Full automation is on. Mackie17 is using these rules now, including while you are offline.'
+                : 'Saved. Mackie17 is using these X posting rules now.',
         ]);
     }
 

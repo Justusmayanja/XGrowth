@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Settings } from "lucide-react";
 import { DeskHeading } from "@/components/DeskHeading";
+import { LoadingMark } from "@/components/LoadingMark";
 import { AccountSettingsCard } from "@/components/settings/AccountSettingsCard";
 import { AutomationSettingsCard } from "@/components/settings/AutomationSettingsCard";
 import { BillingSettingsCard } from "@/components/settings/BillingSettingsCard";
@@ -62,7 +63,7 @@ export default function SettingsPage() {
   }, []);
 
   if (loading || !account) {
-    return <p className="text-muted-foreground">Loading settings…</p>;
+    return <LoadingMark className="min-h-[40vh]" />;
   }
 
   return (

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Check } from "lucide-react";
 import { MultiSelectCards, SelectionHint } from "@/components/onboarding/MultiSelectCards";
+import { LoadingMark } from "@/components/LoadingMark";
 import { SetupFrame } from "@/components/setup/SetupFrame";
 import { SocialLogo } from "@/components/SocialLogo";
 import { api, getToken } from "@/lib/api";
@@ -478,7 +479,7 @@ export function OnboardingWizard() {
   if (loading || !step) {
     return (
       <div className="setup flex min-h-screen items-center justify-center">
-        <p className="text-[#a1a1aa]">Loading…</p>
+        <LoadingMark />
       </div>
     );
   }

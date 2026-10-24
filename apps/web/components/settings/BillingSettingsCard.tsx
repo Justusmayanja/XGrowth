@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LoadingMark } from "@/components/LoadingMark";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -67,7 +68,7 @@ export function BillingSettingsCard() {
       </CardHeader>
       <CardContent>
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading billing…</p>
+          <LoadingMark />
         ) : !subscription || subscription.status === "canceled" || subscription.status === "failed" ? (
           <div className="flex flex-wrap items-center justify-between gap-4">
             <p className="text-sm text-muted-foreground">No active platform subscription yet.</p>

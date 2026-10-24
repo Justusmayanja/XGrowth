@@ -12,9 +12,12 @@ use App\Models\Trend;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use App\Services\GrowthAgent\GrowthAgentService;
+use App\Services\GrowthAgent\GrowthBrainService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use OpenAI\Laravel\Facades\OpenAI;
+use OpenAI\Resources\Chat;
 use OpenAI\Responses\Chat\CreateResponse;
 use Tests\TestCase;
 
@@ -61,7 +64,7 @@ class AutopublishTest extends TestCase
 
         $this->assertSame('draft', $draft->fresh()->status);
         $this->assertNotSame('posted', $decision);
-        Http::assertNothingSent();
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/2/tweets'));
     }
 
     public function test_controlled_accounts_do_not_publish(): void
@@ -74,7 +77,7 @@ class AutopublishTest extends TestCase
         app(GrowthAgentService::class)->evaluateOpportunities($user->id);
 
         $this->assertSame('draft', $draft->fresh()->status);
-        Http::assertNothingSent();
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/2/tweets'));
     }
 
     public function test_level_two_posts_only_the_strong_drafts(): void
@@ -129,6 +132,7 @@ class AutopublishTest extends TestCase
             'competition' => 'low',
             'niche_tags' => ['cooking'],
             'detected_at' => now(),
+            'metadata' => ['source' => 'live'],
         ]);
 
         $decision = app(GrowthAgentService::class)->evaluateOpportunities($user->id);
@@ -139,6 +143,14 @@ class AutopublishTest extends TestCase
         $this->assertSame('posted', $post->status);
         $this->assertSame('501', $post->platform_post_id);
         Http::assertSent(fn ($request) => str_contains($request->url(), '/2/tweets'));
+        OpenAI::assertSent(Chat::class, function (string $method, array $parameters): bool {
+            $prompt = $parameters['messages'][1]['content'];
+
+            return str_contains($prompt, 'The conversation to join: Weeknight rice dinners')
+                && str_contains($prompt, 'Never quote them')
+                && str_contains($prompt, 'the account lends money')
+                && ! str_contains($prompt, 'Weeknight rice dinners —');
+        });
     }
 
     public function test_a_quiet_niche_still_posts_an_original_for_full_automation(): void
@@ -204,6 +216,40 @@ class AutopublishTest extends TestCase
         $setup = PlatformSetup::where('user_id', $user->id)->where('platform', 'x')->first();
         $this->assertSame(3, $setup->settings['automation_level']);
         $this->assertSame('proactive', $setup->settings['mode']);
+        $this->assertTrue($setup->settings['auto_post_enabled']);
+    }
+
+    public function test_the_x_desk_and_the_next_check_follow_the_saved_rules(): void
+    {
+        $user = $this->user(level: 1, autoPost: false);
+        PlatformSetup::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'goals' => 'grow_followers',
+            'settings' => ['automation_level' => 1, 'mode' => 'reactive'],
+            'completed_at' => now(),
+        ]);
+        Cache::put('growth_brain:last_eval:'.$user->id, now()->timestamp, now()->addDay());
+        $this->assertTrue(app(GrowthBrainService::class)->shouldSkipScheduledEvaluation($user->id));
+
+        $this->actingAs($user, 'sanctum')
+            ->patchJson('/api/account/automation', [
+                'automation_level' => 3,
+                'auto_post_enabled' => true,
+                'mode' => 'proactive',
+                'engine_paused' => false,
+            ])
+            ->assertOk();
+
+        $this->assertFalse(app(GrowthBrainService::class)->shouldSkipScheduledEvaluation($user->id));
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x')
+            ->assertOk()
+            ->assertJsonPath('setup.settings.automation_level', 3)
+            ->assertJsonPath('setup.settings.mode', 'proactive')
+            ->assertJsonPath('setup.settings.auto_post_enabled', true)
+            ->assertJsonPath('setup.settings.engine_paused', false);
     }
 
     private function useRulesEngine(): void

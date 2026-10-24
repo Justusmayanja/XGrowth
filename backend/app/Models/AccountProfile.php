@@ -151,6 +151,11 @@ class AccountProfile extends Model
         $settings = is_array($setup->settings) ? $setup->settings : [];
         $settings['automation_level'] = (int) $this->automation_level;
         $settings['mode'] = $this->mode ?? 'reactive';
+        $settings['auto_post_enabled'] = (bool) $this->auto_post_enabled;
+        $settings['auto_reply_enabled'] = (bool) $this->auto_reply_enabled;
+        $settings['auto_engage_enabled'] = (bool) $this->auto_engage_enabled;
+        $settings['engine_paused'] = (bool) $this->engine_paused;
+        $settings['max_silence_minutes'] = (int) ($this->max_silence_minutes ?? 60);
         $setup->settings = $settings;
         $setup->save();
     }

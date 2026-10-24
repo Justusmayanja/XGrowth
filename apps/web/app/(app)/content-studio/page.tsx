@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { CONTENT_FORMATS, contentFormatLabel } from "@/lib/content-formats";
 import { formatsFor, platformOfFormat, usePlatform } from "@/lib/platform";
-import { type AccountProfile, NICHES, parseMultiValue } from "@/lib/profile";
+import { type AccountProfile, parseMultiValue } from "@/lib/profile";
 
 const TONE_LABELS: Record<string, string> = {
   professional: "Professional",
@@ -62,7 +62,6 @@ export default function ContentStudioPage() {
 
   const [topic, setTopic] = useState("");
   const [mode, setMode] = useState<ComposeMode>("suggest");
-  const [niche, setNiche] = useState("");
   const platform = usePlatform();
   const formats = formatsFor(platform);
 
@@ -86,10 +85,6 @@ export default function ContentStudioPage() {
       .then((res) => {
         const profile = res.profile;
         if (!profile) return;
-        const presets = parseMultiValue(profile.niche).map(
-          (value) => NICHES.find((item) => item.value === value)?.label ?? value
-        );
-        setNiche(profile.custom_niche || presets.join(", "));
         const tones = parseMultiValue(profile.tone);
         if (tones[0]) setTone(tones[0]);
       })
@@ -187,7 +182,7 @@ export default function ContentStudioPage() {
         <Card>
           <CardHeader>
             <CardTitle>Brief</CardTitle>
-            <CardDescription>Uses the niche, goals, and voice from your setup</CardDescription>
+            <CardDescription>Joins what people are talking about, from this account&apos;s point of view</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={onSubmit} className="space-y-4">
@@ -218,8 +213,8 @@ export default function ContentStudioPage() {
                 <div className="rounded-lg border border-border p-3 text-sm">
                   <p className="font-medium">No topic needed</p>
                   <p className="mt-1 text-muted-foreground">
-                    Mackie17 picks three angles from {niche ? <strong className="text-foreground">{niche}</strong> : "your niche"},
-                    what is moving there now, and your goals. It skips what you posted recently.
+                    Mackie17 looks at what people are talking about right now, then writes this account&apos;s side of it.
+                    It does not repeat the words from your setup, and it skips what you posted recently.
                   </p>
                 </div>
               ) : (

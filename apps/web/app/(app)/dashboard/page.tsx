@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { LoadingMark } from "@/components/LoadingMark";
 import { api, getToken } from "@/lib/api";
 import { PLATFORM_ORDER, type SetupState } from "@/lib/profile";
 
@@ -30,5 +31,6 @@ export default function DashboardPage() {
     load();
   }, [router]);
 
-  return <p className="text-muted-foreground">{error || "Loading…"}</p>;
+  if (error) return <p className="text-muted-foreground">{error}</p>;
+  return <LoadingMark className="min-h-[40vh]" />;
 }

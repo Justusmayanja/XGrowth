@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LandingPage } from "@/components/landing/LandingPage";
+import { LoadingMark } from "@/components/LoadingMark";
 import { getToken } from "@/lib/api";
 import { getPostAuthPath } from "@/lib/auth";
 
@@ -28,7 +29,7 @@ export default function HomePage() {
   if (!ready) {
     return (
       <div className="landing-canvas flex min-h-screen items-center justify-center">
-        <p className="text-muted">Loading…</p>
+        <LoadingMark />
       </div>
     );
   }

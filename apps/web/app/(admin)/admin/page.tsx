@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LoadingMark } from "@/components/LoadingMark";
 import { api } from "@/lib/api";
 
 type Customer = {
@@ -107,7 +108,7 @@ export default function AdminOverviewPage() {
   }, [load]);
 
   if (loading && !data) {
-    return <p className="text-muted-foreground">Loading platform overview…</p>;
+    return <LoadingMark className="min-h-[40vh]" />;
   }
 
   if (!data) {

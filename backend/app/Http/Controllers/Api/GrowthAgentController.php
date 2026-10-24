@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AiDecision;
 use App\Services\GrowthAgent\GrowthAgentService;
+use App\Services\GrowthAgent\GrowthBrainService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -46,9 +47,14 @@ class GrowthAgentController extends Controller
             return response()->json(['message' => 'Complete onboarding first.'], 422);
         }
 
+        if (array_key_exists('automation_level', $validated) && ! array_key_exists('auto_post_enabled', $validated)) {
+            $validated['auto_post_enabled'] = (int) $validated['automation_level'] >= 2;
+        }
+
         $profile->update($validated);
         $profile->refresh();
         $profile->rememberXSettings();
+        app(GrowthBrainService::class)->forgetScheduledCooldown($profile->user_id);
 
         return response()->json(['settings' => $profile->only([
             'mode', 'automation_level', 'max_silence_minutes', 'onboarding_completed',

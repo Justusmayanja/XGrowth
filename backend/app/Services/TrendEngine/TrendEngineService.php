@@ -3,7 +3,9 @@
 namespace App\Services\TrendEngine;
 
 use App\Models\Trend;
+use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
+use App\Services\AICore\AICoreService;
 use App\Services\XApi\XApiService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -15,7 +17,173 @@ class TrendEngineService
     public function __construct(
         private readonly PlatformSettingsService $settings,
         private readonly XApiService $x,
+        private readonly AICoreService $ai,
     ) {}
+
+    /**
+     * Topics from this user's X account, shaped for the draft engine.
+     * Returns null when X is not connected. Returns an empty list when X had nothing.
+     * Does not call an AI model.
+     *
+     * @return list<array{trend: Trend, opportunity_score: float, suggestion: string}>|null
+     */
+    public function rankedFromAccount(User $user): ?array
+    {
+        $account = $user->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->first();
+
+        if (! $account) {
+            return null;
+        }
+
+        try {
+            $live = $this->x->accountTopics($account);
+        } catch (Throwable $e) {
+            Log::warning('X topics were not available for drafting', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        if ($live['topics'] === []) {
+            return [];
+        }
+
+        $magnitudes = array_map(function (array $topic): int {
+            return max((int) ($topic['impressions'] ?? 0), (int) ($topic['posts'] ?? 0), (int) ($topic['likes'] ?? 0));
+        }, $live['topics']);
+        $max = max(1, ...$magnitudes);
+
+        $ranked = [];
+        foreach ($live['topics'] as $index => $topic) {
+            $magnitude = $magnitudes[$index] ?? 0;
+            $score = round(50 + (50 * ($magnitude / $max)), 1);
+            $trend = new Trend([
+                'name' => $topic['name'],
+                'score' => $score,
+                'velocity' => 0,
+                'growth_rate' => 0,
+                'competition' => 'medium',
+                'niche_tags' => [],
+                'metadata' => ['source' => 'x'],
+                'detected_at' => now(),
+            ]);
+
+            $ranked[] = [
+                'trend' => $trend,
+                'opportunity_score' => $score,
+                'suggestion' => $topic['figures'],
+            ];
+        }
+
+        return $ranked;
+    }
+
+    /**
+     * Used when a draft needs a conversation and this X account did not return topics.
+     * A connected account is never sent through the AI search.
+     */
+    public function ensureCurrentTrends(User $user): void
+    {
+        $fromAccount = $this->rankedFromAccount($user);
+        if (is_array($fromAccount) && $fromAccount !== []) {
+            return;
+        }
+
+        if ($this->hasFreshLiveTrends()) {
+            return;
+        }
+
+        if ($this->x->configured()) {
+            $this->fetchGlobalTrends(force: true);
+            if ($this->hasFreshLiveTrends()) {
+                return;
+            }
+        }
+
+        if (! $this->settings->getBool('web_search_enabled', true) || ! $this->ai->isConfigured()) {
+            return;
+        }
+
+        $cached = Cache::get('trends:live_topics');
+        if (is_array($cached) && $cached !== []) {
+            $this->rememberLiveConversations($cached);
+
+            return;
+        }
+
+        try {
+            $topics = $this->ai->currentConversations($user);
+        } catch (Throwable $e) {
+            Log::warning('Live conversation search failed', ['error' => $e->getMessage()]);
+
+            return;
+        }
+
+        if ($topics === []) {
+            return;
+        }
+
+        Cache::put('trends:live_topics', $topics, now()->addMinutes(45));
+        $this->rememberLiveConversations($topics);
+    }
+
+    /**
+     * @param  list<array{name?: string, detail?: string}>  $topics
+     */
+    public function rememberLiveConversations(array $topics): void
+    {
+        $stored = [];
+
+        foreach (array_slice($topics, 0, 5) as $index => $topic) {
+            $name = trim((string) ($topic['name'] ?? ''));
+            $slug = Str::slug($name);
+            if ($name === '' || $slug === '') {
+                continue;
+            }
+
+            $score = max(55, 94 - ($index * 6));
+            $stored[] = Trend::updateOrCreate(
+                ['slug' => $slug],
+                [
+                    'name' => $name,
+                    'score' => $score,
+                    'velocity' => 0,
+                    'growth_rate' => 20,
+                    'competition' => $score >= 80 ? 'high' : 'medium',
+                    'niche_tags' => [],
+                    'detected_at' => now(),
+                    'metadata' => [
+                        'source' => 'live',
+                        'detail' => mb_substr(trim((string) ($topic['detail'] ?? '')), 0, 180),
+                    ],
+                ]
+            );
+        }
+
+        if ($stored === []) {
+            return;
+        }
+
+        $kept = array_map(fn (Trend $trend) => $trend->id, $stored);
+        Trend::query()->where('metadata->source', 'mock')->delete();
+        Trend::query()->where('metadata->source', 'live')->whereNotIn('id', $kept)->delete();
+    }
+
+    private function hasFreshLiveTrends(): bool
+    {
+        return Trend::query()
+            ->where('detected_at', '>=', now()->subMinutes(45))
+            ->where(function ($query) {
+                $query->where('metadata->source', 'x')
+                    ->orWhere('metadata->source', 'live');
+            })
+            ->exists();
+    }
 
     /**
      * Refresh the shared trend catalog from X. Called on the admin-configured schedule.

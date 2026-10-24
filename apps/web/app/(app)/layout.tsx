@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
+import { LoadingMark } from "@/components/LoadingMark";
 import { api, getToken } from "@/lib/api";
 
 export default function DashboardLayout({
@@ -33,7 +34,7 @@ export default function DashboardLayout({
   if (!ready) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Loading…</p>
+        <LoadingMark />
       </div>
     );
   }

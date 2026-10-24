@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { LoadingMark } from "@/components/LoadingMark";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -91,7 +92,7 @@ export function PlatformSettingsCard() {
       </CardHeader>
       <CardContent className="space-y-8">
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading settings…</p>
+          <LoadingMark />
         ) : (
           <>
             {groups.map((group) => (
