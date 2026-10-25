@@ -46,6 +46,7 @@ class AnalyticsController extends Controller
             $byDay[$day]['impressions'] = ($byDay[$day]['impressions'] ?? 0) + $tweet['impressions'];
             $byDay[$day]['engagements'] = ($byDay[$day]['engagements'] ?? 0)
                 + $tweet['likes'] + $tweet['reposts'] + $tweet['replies'];
+            $byDay[$day]['profile_clicks'] = ($byDay[$day]['profile_clicks'] ?? 0) + (int) ($tweet['profile_clicks'] ?? 0);
         }
 
         $series = [];
@@ -57,6 +58,7 @@ class AnalyticsController extends Controller
                 'date' => $date,
                 'followers' => $activity['followers'],
                 'impressions' => $impressions,
+                'profile_clicks' => $byDay[$date]['profile_clicks'] ?? 0,
                 'engagement_rate' => $impressions > 0 ? round(($engagements / $impressions) * 100, 1) : 0,
             ];
         }
@@ -91,23 +93,27 @@ class AnalyticsController extends Controller
             'type' => 'timing',
         ]];
 
+        $viewsKnown = (bool) ($activity['views_known'] ?? false);
         $week = array_slice($series, -7);
 
         return response()->json([
             'preview_metrics' => false,
+            'views_known' => $viewsKnown,
             'summary' => [
                 'followers' => $activity['followers'],
-                'followers_change_7d' => 0,
-                'impressions_7d' => array_sum(array_column($week, 'impressions')),
-                'avg_engagement_rate' => round(array_sum(array_column($week, 'engagement_rate')) / 7, 1),
-                'profile_visits_7d' => 0,
+                'followers_change_7d' => null,
+                'impressions_7d' => $viewsKnown ? array_sum(array_column($week, 'impressions')) : null,
+                'avg_engagement_rate' => $viewsKnown ? round(array_sum(array_column($week, 'engagement_rate')) / 7, 1) : null,
+                'profile_visits_7d' => $viewsKnown ? array_sum(array_column($week, 'profile_clicks')) : null,
             ],
             'series' => $series,
             'top_posts' => $topPosts,
             'insights' => $insights,
-            'note' => ($activity['ranked_for_niche'] ?? false)
-                ? 'Follower count is current. Impressions are from your recent posts and comments, ranked by X for your niche. X does not provide a 30-day follower history here.'
-                : 'Follower count is current. Impressions are from your recent posts and comments. X does not provide a 30-day follower history here.',
+            'note' => $viewsKnown
+                ? (($activity['ranked_for_niche'] ?? false)
+                    ? 'Follower count is current. Impressions are from your recent posts and comments, ranked by X for your niche. X does not provide a 30-day follower history here.'
+                    : 'Follower count is current. Impressions are from your recent posts and comments. X does not provide a 30-day follower history here.')
+                : 'Follower count is current. Views did not come back from X, so impressions and engagement are left blank. X does not provide a 30-day follower history here.',
         ]);
     }
 
@@ -118,12 +124,13 @@ class AnalyticsController extends Controller
     {
         return [
             'preview_metrics' => $preview,
+            'views_known' => false,
             'summary' => [
-                'followers' => 0,
-                'followers_change_7d' => 0,
-                'impressions_7d' => 0,
-                'avg_engagement_rate' => 0,
-                'profile_visits_7d' => 0,
+                'followers' => null,
+                'followers_change_7d' => null,
+                'impressions_7d' => null,
+                'avg_engagement_rate' => null,
+                'profile_visits_7d' => null,
             ],
             'series' => [],
             'top_posts' => [],

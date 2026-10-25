@@ -31,12 +31,13 @@ type Insight = { title: string; detail: string; type: string };
 
 type AnalyticsData = {
   preview_metrics: boolean;
+  views_known?: boolean;
   summary: {
-    followers: number;
-    followers_change_7d: number;
-    impressions_7d: number;
-    avg_engagement_rate: number;
-    profile_visits_7d: number;
+    followers: number | null;
+    followers_change_7d: number | null;
+    impressions_7d: number | null;
+    avg_engagement_rate: number | null;
+    profile_visits_7d: number | null;
   };
   series: DayPoint[];
   top_posts: TopPost[];
@@ -65,6 +66,10 @@ function MiniChart({ series, field }: { series: DayPoint[]; field: keyof DayPoin
       })}
     </div>
   );
+}
+
+function figure(value: number | null, suffix = "") {
+  return value == null ? "—" : `${value.toLocaleString()}${suffix}`;
 }
 
 export default function AnalyticsPage() {
@@ -101,23 +106,23 @@ export default function AnalyticsPage() {
         {[
           {
             label: "Followers",
-            value: summary.followers.toLocaleString(),
-            sub: `${summary.followers_change_7d >= 0 ? "+" : ""}${summary.followers_change_7d} last 7 days`,
+            value: figure(summary.followers),
+            sub: "Today's total. X does not send the last 7 days.",
           },
           {
             label: "Impressions (7d)",
-            value: summary.impressions_7d.toLocaleString(),
-            sub: "Total reach this week",
+            value: figure(summary.impressions_7d),
+            sub: data.views_known ? "Total reach this week" : "Views did not come back from X",
           },
           {
             label: "Engagement rate",
-            value: `${summary.avg_engagement_rate}%`,
-            sub: "7-day average",
+            value: summary.avg_engagement_rate == null ? "—" : `${summary.avg_engagement_rate}%`,
+            sub: data.views_known ? "7-day average" : "Views did not come back from X",
           },
           {
             label: "Profile visits (7d)",
-            value: summary.profile_visits_7d.toLocaleString(),
-            sub: "From posts and replies",
+            value: figure(summary.profile_visits_7d),
+            sub: data.views_known ? "From posts and replies" : "Views did not come back from X",
           },
         ].map((s) => (
           <Card key={s.label}>
@@ -136,7 +141,7 @@ export default function AnalyticsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Follower growth</CardTitle>
-            <CardDescription>Last 14 days</CardDescription>
+            <CardDescription>Today's total, repeated. X does not send a daily history.</CardDescription>
           </CardHeader>
           <CardContent>
             <MiniChart series={data.series} field="followers" />
@@ -149,7 +154,11 @@ export default function AnalyticsPage() {
             <CardDescription>Last 14 days</CardDescription>
           </CardHeader>
           <CardContent>
-            <MiniChart series={data.series} field="impressions" />
+            {data.views_known === false ? (
+              <p className="text-sm text-muted-foreground">Views did not come back from X.</p>
+            ) : (
+              <MiniChart series={data.series} field="impressions" />
+            )}
           </CardContent>
         </Card>
       </div>
@@ -174,8 +183,9 @@ export default function AnalyticsPage() {
                 </div>
                 <p className="mb-2 text-sm leading-relaxed">{post.content}</p>
                 <p className="text-xs text-muted-foreground">
-                  {post.impressions.toLocaleString()} impressions · {post.likes} likes · {post.reposts}{" "}
-                  reposts · {post.replies} replies
+                  {data.views_known === false
+                    ? `${post.likes} likes · ${post.reposts} reposts · ${post.replies} replies`
+                    : `${post.impressions.toLocaleString()} impressions · ${post.likes} likes · ${post.reposts} reposts · ${post.replies} replies`}
                 </p>
               </div>
             ))}

@@ -219,58 +219,73 @@ class XApiService
      * Followers, plus impressions from this account's recent posts and comments.
      * When the niche can be searched, X's relevancy order decides which of those count.
      *
-     * @return array{followers: int, impressions: int, engagement_rate: float, ranked_for_niche: bool, tweets: list<array<string, mixed>>}
+     * @return array{followers: int, impressions: int, engagement_rate: float, profile_clicks: int, views_known: bool, ranked_for_niche: bool, tweets: list<array<string, mixed>>}
      */
     public function accountActivity(ConnectedAccount $account, ?string $niche = null): array
     {
         $nicheKey = substr(md5(mb_strtolower(trim((string) $niche))), 0, 12);
+        $cacheKey = 'x-activity:v4:'.$account->id.':'.$nicheKey;
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && isset($cached['followers'], $cached['tweets'], $cached['views_known'])) {
+            return $cached;
+        }
 
-        return Cache::remember('x-activity:v2:'.$account->id.':'.$nicheKey, now()->addMinutes(10), function () use ($account, $niche) {
-            $token = $this->accessToken($account);
-            $me = Http::withToken($token)->get('https://api.twitter.com/2/users/me', [
-                'user.fields' => 'public_metrics',
-            ]);
+        $token = $this->accessToken($account);
+        $me = Http::withToken($token)->get('https://api.twitter.com/2/users/me', [
+            'user.fields' => 'public_metrics',
+        ]);
 
-            if ($me->failed()) {
-                throw new RuntimeException($this->apiError($me));
-            }
+        if ($me->failed()) {
+            throw new RuntimeException($this->apiError($me));
+        }
 
-            $user = $me->json('data') ?? [];
-            $timeline = $this->ownPostsAndComments($token, (string) ($user['id'] ?? 'me'));
-            $byId = [];
-            foreach ($timeline as $row) {
-                $byId[$row['id']] = $row;
-            }
+        $user = $me->json('data') ?? [];
+        $loaded = $this->ownPostsAndComments($token, (string) ($user['id'] ?? 'me'));
+        $timeline = $loaded['rows'];
+        $byId = [];
+        foreach ($timeline as $row) {
+            $byId[$row['id']] = $row;
+        }
 
-            $rankedForNiche = false;
-            try {
-                $ranked = $this->nicheRankedOwn($token, $account, (string) $niche);
-            } catch (\Throwable) {
-                $ranked = [];
-            }
+        $rankedForNiche = false;
+        try {
+            $ranked = $this->nicheRankedOwn($token, $account, (string) $niche);
+        } catch (\Throwable) {
+            $ranked = [];
+        }
 
-            if ($ranked !== []) {
-                $chosen = $this->withOwnedMetrics($ranked, $byId);
-                $rankedForNiche = true;
-            } else {
-                [$chosen, $rankedForNiche] = $this->rankOwnForNiche($timeline, (string) $niche);
-            }
+        if ($ranked !== []) {
+            $chosen = $this->withOwnedMetrics($ranked, $byId);
+            $rankedForNiche = true;
+        } else {
+            [$chosen, $rankedForNiche] = $this->rankOwnForNiche($timeline, (string) $niche);
+        }
 
-            $impressions = 0;
-            $engagements = 0;
-            foreach ($chosen as $row) {
-                $impressions += $row['impressions'];
-                $engagements += $row['likes'] + $row['reposts'] + $row['replies'];
-            }
+        $impressions = 0;
+        $engagements = 0;
+        $profileClicks = 0;
+        foreach ($chosen as $row) {
+            $impressions += $row['impressions'];
+            $engagements += $row['likes'] + $row['reposts'] + $row['replies'];
+            $profileClicks += $row['profile_clicks'];
+        }
 
-            return [
-                'followers' => (int) ($user['public_metrics']['followers_count'] ?? 0),
-                'impressions' => $impressions,
-                'engagement_rate' => $impressions > 0 ? round(($engagements / $impressions) * 100, 1) : 0,
-                'ranked_for_niche' => $rankedForNiche,
-                'tweets' => $chosen,
-            ];
-        });
+        $viewsKnown = $loaded['complete'] && $loaded['views_known'] && $this->rowsKnowViews($chosen);
+        $payload = [
+            'followers' => (int) ($user['public_metrics']['followers_count'] ?? 0),
+            'impressions' => $impressions,
+            'engagement_rate' => $viewsKnown && $impressions > 0 ? round(($engagements / $impressions) * 100, 1) : 0,
+            'profile_clicks' => $profileClicks,
+            'views_known' => $viewsKnown,
+            'ranked_for_niche' => $rankedForNiche,
+            'tweets' => $chosen,
+        ];
+
+        if ($viewsKnown) {
+            Cache::put($cacheKey, $payload, now()->addMinutes(10));
+        }
+
+        return $payload;
     }
 
     /**
@@ -444,7 +459,8 @@ class XApiService
     {
         try {
             $userId = (string) ($account->platform_account_id ?: $this->authenticatedUserId($token));
-            $rows = $userId === '' ? [] : $this->ownPostsAndComments($token, $userId);
+            $loaded = $userId === '' ? ['rows' => [], 'complete' => true, 'views_known' => true] : $this->ownPostsAndComments($token, $userId);
+            $rows = $loaded['rows'];
         } catch (\Throwable) {
             return [];
         }
@@ -645,18 +661,46 @@ class XApiService
     /**
      * This account's posts and the comments it wrote. Retweets are left out; replies stay in.
      *
-     * @return list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>
+     * View counts live on organic_metrics, which X only returns for this account's
+     * own posts from the last 30 days. public_metrics has likes, not views.
+     *
+     * @return array{rows: list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, profile_clicks: int, views_known: bool, created_at: string}>, complete: bool, views_known: bool}
      */
     private function ownPostsAndComments(string $token, string $userId): array
     {
-        $response = Http::withToken($token)->get('https://api.twitter.com/2/users/'.$userId.'/tweets', [
+        $owned = $this->tweetPage($token, $userId, true);
+        if ($owned !== null && $owned !== []) {
+            return ['rows' => $owned, 'complete' => true, 'views_known' => $this->rowsKnowViews($owned)];
+        }
+
+        $public = $this->tweetPage($token, $userId, false);
+
+        return [
+            'rows' => $public ?? [],
+            'complete' => $public !== null,
+            'views_known' => $public !== null && $this->rowsKnowViews($public ?? []),
+        ];
+    }
+
+    /**
+     * @return list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, profile_clicks: int, created_at: string}>|null
+     */
+    private function tweetPage(string $token, string $userId, bool $ownedMetrics): ?array
+    {
+        $query = [
             'max_results' => 100,
             'exclude' => 'retweets',
-            'tweet.fields' => 'public_metrics,created_at,referenced_tweets',
-        ]);
+            'tweet.fields' => $ownedMetrics
+                ? 'public_metrics,organic_metrics,non_public_metrics,created_at,referenced_tweets'
+                : 'public_metrics,created_at,referenced_tweets',
+        ];
+        if ($ownedMetrics) {
+            $query['start_time'] = now()->subDays(29)->utc()->format('Y-m-d\TH:i:s\Z');
+        }
 
+        $response = Http::withToken($token)->get('https://api.twitter.com/2/users/'.$userId.'/tweets', $query);
         if ($response->failed()) {
-            throw new RuntimeException($this->apiError($response));
+            return null;
         }
 
         $rows = [];
@@ -733,6 +777,10 @@ class XApiService
                 $row['likes'] = max($row['likes'], $live['likes']);
                 $row['reposts'] = max($row['reposts'], $live['reposts']);
                 $row['replies'] = max($row['replies'], $live['replies']);
+                $row['profile_clicks'] = max((int) ($row['profile_clicks'] ?? 0), (int) ($live['profile_clicks'] ?? 0));
+                if ($live['views_known'] ?? false) {
+                    $row['views_known'] = true;
+                }
                 if ($row['kind'] === 'post' && $live['kind'] === 'comment') {
                     $row['kind'] = 'comment';
                 }
@@ -787,22 +835,42 @@ class XApiService
 
     /**
      * @param  array<string, mixed>  $row
-     * @return array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}
+     * @return array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, profile_clicks: int, created_at: string}
      */
     private function activityRow(array $row): array
     {
-        $metrics = is_array($row['public_metrics'] ?? null) ? $row['public_metrics'] : [];
+        $public = is_array($row['public_metrics'] ?? null) ? $row['public_metrics'] : [];
+        $organic = is_array($row['organic_metrics'] ?? null) ? $row['organic_metrics'] : [];
+        $private = is_array($row['non_public_metrics'] ?? null) ? $row['non_public_metrics'] : [];
 
         return [
             'id' => (string) ($row['id'] ?? ''),
             'content' => (string) ($row['text'] ?? ''),
             'kind' => $this->isComment($row) ? 'comment' : 'post',
-            'impressions' => (int) ($metrics['impression_count'] ?? 0),
-            'likes' => (int) ($metrics['like_count'] ?? 0),
-            'reposts' => (int) ($metrics['retweet_count'] ?? 0),
-            'replies' => (int) ($metrics['reply_count'] ?? 0),
+            'impressions' => (int) ($organic['impression_count'] ?? $private['impression_count'] ?? $public['impression_count'] ?? 0),
+            'likes' => (int) ($public['like_count'] ?? $organic['like_count'] ?? 0),
+            'reposts' => (int) ($public['retweet_count'] ?? $organic['retweet_count'] ?? 0),
+            'replies' => (int) ($public['reply_count'] ?? $organic['reply_count'] ?? 0),
+            'profile_clicks' => (int) ($organic['user_profile_clicks'] ?? $private['user_profile_clicks'] ?? 0),
+            'views_known' => array_key_exists('impression_count', $organic)
+                || array_key_exists('impression_count', $private)
+                || array_key_exists('impression_count', $public),
             'created_at' => (string) ($row['created_at'] ?? ''),
         ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     */
+    private function rowsKnowViews(array $rows): bool
+    {
+        foreach ($rows as $row) {
+            if (! ($row['views_known'] ?? false)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

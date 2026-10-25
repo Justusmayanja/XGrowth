@@ -551,6 +551,89 @@ class XLiveFeaturesTest extends TestCase
             ->assertJsonPath('metrics.2.value', 3);
     }
 
+    public function test_view_counts_come_from_organic_metrics_when_public_metrics_omit_them(): void
+    {
+        [$user] = $this->connectedCook();
+
+        Http::fake([
+            'https://api.twitter.com/2/users/me*' => Http::response([
+                'data' => [
+                    'id' => '42',
+                    'public_metrics' => ['followers_count' => 18],
+                ],
+            ]),
+            'https://api.twitter.com/2/users/42/tweets*' => Http::response([
+                'data' => [
+                    $this->ownTweet('2', 'a cheap dinner for budget cooking', 0, likes: 4, organicImpressions: 900, profileClicks: 7),
+                ],
+            ]),
+            'https://api.twitter.com/2/tweets/search/recent*' => Http::response([
+                'data' => [
+                    $this->ownTweet('2', 'a cheap dinner for budget cooking', 0, likes: 4),
+                ],
+            ]),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x')
+            ->assertOk()
+            ->assertJsonPath('metrics.0.value', 18)
+            ->assertJsonPath('metrics.1.value', 900);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/analytics/growth')
+            ->assertOk()
+            ->assertJsonPath('summary.followers', 18)
+            ->assertJsonPath('summary.impressions_7d', 900)
+            ->assertJsonPath('summary.profile_visits_7d', 7);
+
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), '/users/42/tweets')) {
+                return false;
+            }
+
+            $fields = (string) ($request->data()['tweet.fields'] ?? '');
+
+            return str_contains($fields, 'organic_metrics')
+                && str_contains($fields, 'non_public_metrics');
+        });
+    }
+
+    public function test_missing_view_counts_stay_blank_instead_of_zero(): void
+    {
+        [$user] = $this->connectedCook();
+        $tweet = [
+            'id' => '2',
+            'text' => 'a cheap dinner for budget cooking',
+            'author_id' => '42',
+            'created_at' => now()->subHours(2)->toIso8601String(),
+            'public_metrics' => [
+                'like_count' => 4,
+                'retweet_count' => 1,
+                'reply_count' => 0,
+            ],
+        ];
+
+        Http::fake([
+            'https://api.twitter.com/2/users/me*' => Http::response([
+                'data' => [
+                    'id' => '42',
+                    'public_metrics' => ['followers_count' => 18],
+                ],
+            ]),
+            'https://api.twitter.com/2/users/42/tweets*' => Http::response(['data' => [$tweet]]),
+            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => [$tweet]]),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x')
+            ->assertOk()
+            ->assertJsonPath('metrics.0.value', 18)
+            ->assertJsonPath('metrics.1.value', null)
+            ->assertJsonPath('metrics.1.sub', 'Views did not come back from X')
+            ->assertJsonPath('metrics.2.value', null);
+    }
+
     /**
      * @return array{0: User}
      */
@@ -577,7 +660,7 @@ class XLiveFeaturesTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function ownTweet(string $id, string $text, int $impressions, bool $comment = false, int $likes = 2): array
+    private function ownTweet(string $id, string $text, int $impressions, bool $comment = false, int $likes = 2, int $organicImpressions = 0, int $profileClicks = 0): array
     {
         $row = [
             'id' => $id,
@@ -591,6 +674,14 @@ class XLiveFeaturesTest extends TestCase
                 'reply_count' => 0,
             ],
         ];
+
+        if ($organicImpressions > 0 || $profileClicks > 0) {
+            $row['organic_metrics'] = [
+                'impression_count' => $organicImpressions,
+                'user_profile_clicks' => $profileClicks,
+            ];
+            unset($row['public_metrics']['impression_count']);
+        }
 
         if ($comment) {
             $row['referenced_tweets'] = [['type' => 'replied_to', 'id' => '900']];

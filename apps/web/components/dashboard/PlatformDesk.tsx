@@ -21,7 +21,7 @@ import {
   YOUTUBE_MODES,
 } from "@/lib/profile";
 
-type Metric = { label: string; value: number; sub: string; suffix?: string };
+type Metric = { label: string; value: number | null; sub: string; suffix?: string };
 
 type YouTubePackage = {
   hook?: string;
@@ -395,8 +395,7 @@ function XDeskView({ desk, chosen, goals }: { desk: Desk; chosen: Platform[]; go
                   )}
                 </div>
                 <p className="mt-2 text-2xl font-medium tabular-nums">
-                  {metric.value.toLocaleString()}
-                  {metric.suffix ?? ""}
+                  {metric.value == null ? "—" : `${metric.value.toLocaleString()}${metric.suffix ?? ""}`}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">{metric.sub}</p>
               </CardContent>
@@ -823,8 +822,7 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
                 )}
               </div>
               <p className="mt-2 font-mono text-2xl tabular-nums">
-                {metric.value.toLocaleString()}
-                {metric.suffix ?? ""}
+                {metric.value == null ? "—" : `${metric.value.toLocaleString()}${metric.suffix ?? ""}`}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">{metric.sub}</p>
             </CardContent>

@@ -124,12 +124,12 @@ class DashboardController extends Controller
             ],
             default => $live ? [
                 ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Live from X'],
-                ['label' => 'Impressions', 'value' => $live['impressions'], 'sub' => $this->impressionBasis($live)],
-                ['label' => 'Engagement', 'value' => $live['engagement_rate'], 'sub' => $this->impressionBasis($live), 'suffix' => '%'],
+                ['label' => 'Impressions', 'value' => ($live['views_known'] ?? false) ? $live['impressions'] : null, 'sub' => ($live['views_known'] ?? false) ? $this->impressionBasis($live) : 'Views did not come back from X'],
+                ['label' => 'Engagement', 'value' => ($live['views_known'] ?? false) ? $live['engagement_rate'] : null, 'sub' => ($live['views_known'] ?? false) ? $this->impressionBasis($live) : 'Views did not come back from X', 'suffix' => '%'],
             ] : [
-                ['label' => 'Followers', 'value' => 0, 'sub' => $connected ? 'Could not load from X' : 'Connect X'],
-                ['label' => 'Impressions', 'value' => 0, 'sub' => $connected ? 'Could not load from X' : 'Connect X'],
-                ['label' => 'Engagement', 'value' => 0, 'sub' => $connected ? 'Could not load from X' : 'Connect X', 'suffix' => '%'],
+                ['label' => 'Followers', 'value' => null, 'sub' => $connected ? 'Could not load from X' : 'Connect X'],
+                ['label' => 'Impressions', 'value' => null, 'sub' => $connected ? 'Could not load from X' : 'Connect X'],
+                ['label' => 'Engagement', 'value' => null, 'sub' => $connected ? 'Could not load from X' : 'Connect X', 'suffix' => '%'],
             ],
         };
 
