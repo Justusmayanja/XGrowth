@@ -27,13 +27,13 @@ export default function TrendsPage() {
     setLoading(true);
     const load =
       platform === "x"
-        ? api<{ ideas: { name: string; suggestion?: string }[] }>(`/dashboard/platform/${platform}`).then((desk) => {
+        ? api<{ ideas: { name: string; suggestion?: string }[]; ideas_note?: string | null }>(`/dashboard/platform/${platform}`).then((desk) => {
             const next = (desk.ideas ?? []).map((idea) => ({
               name: idea.name,
               post: idea.suggestion?.trim() || idea.name,
             }));
             setPosts(next);
-            setNote("");
+            setNote(desk.ideas_note ?? "");
             setSelected(next[0] ?? null);
           })
         : api<{ trends: { name: string; draft?: string }[]; note?: string | null }>("/trends").then((r) => {
@@ -74,7 +74,7 @@ export default function TrendsPage() {
       <DeskHeading icon={Hash} title="Topics">
         <p className="text-muted-foreground">
           {platform === "x"
-            ? "The same posts as Today."
+            ? "Posts from this account's home timeline, or from posts the account wrote itself."
             : "Topics for this account."}
         </p>
       </DeskHeading>

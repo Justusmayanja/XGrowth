@@ -38,45 +38,7 @@ class TrendEngineService
             return null;
         }
 
-        try {
-            $live = $this->x->accountTopics($account);
-        } catch (Throwable $e) {
-            Log::warning('X topics were not available for drafting', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage(),
-            ]);
-
-            return null;
-        }
-
-        if ($live['topics'] === []) {
-            return [];
-        }
-
-        $ranked = [];
-        foreach ($live['topics'] as $topic) {
-            $score = $this->heatScore($topic);
-            $trend = new Trend([
-                'name' => $topic['name'],
-                'score' => $score,
-                'velocity' => 0,
-                'growth_rate' => 0,
-                'competition' => 'medium',
-                'niche_tags' => [],
-                'metadata' => ['source' => 'x'],
-                'detected_at' => now(),
-            ]);
-
-            $ranked[] = [
-                'trend' => $trend,
-                'opportunity_score' => $score,
-                'suggestion' => $topic['figures'],
-            ];
-        }
-
-        usort($ranked, fn (array $a, array $b) => $b['opportunity_score'] <=> $a['opportunity_score']);
-
-        return $ranked;
+        return $this->rankedInNiche($user);
     }
 
     /**
@@ -266,12 +228,28 @@ class TrendEngineService
             }
         }
 
+        if ($trends !== []) {
+            return [
+                'trends' => $trends,
+                'source' => 'home',
+                'note' => 'From the home timeline, kept when it fits this account.',
+            ];
+        }
+
+        $own = [];
+        foreach (array_slice($this->x->ownPostTopics($account), 0, 5) as $topic) {
+            $name = trim((string) ($topic['name'] ?? ''));
+            if ($name !== '') {
+                $own[] = ['name' => $name, 'angle' => '', 'draft' => ''];
+            }
+        }
+
         return [
-            'trends' => $trends,
-            'source' => 'home',
-            'note' => $trends === []
+            'trends' => $own,
+            'source' => $own === [] ? 'home' : 'posts',
+            'note' => $own === []
                 ? 'Nothing on the home timeline fits this account right now.'
-                : 'From the home timeline, kept when it fits this account.',
+                : 'From posts this account wrote itself. Nothing on the home timeline fit.',
         ];
     }
 
@@ -281,8 +259,8 @@ class TrendEngineService
      */
     public function ensureCurrentTrends(User $user): void
     {
-        $fromAccount = $this->rankedFromAccount($user);
-        if (is_array($fromAccount) && $fromAccount !== []) {
+        $fromAccount = $this->rankedInNiche($user);
+        if (is_array($fromAccount)) {
             return;
         }
 

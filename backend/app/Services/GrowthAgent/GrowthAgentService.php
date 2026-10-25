@@ -1022,7 +1022,7 @@ class GrowthAgentService
                 'loyalty' => is_string($metadata['loyalty'] ?? null) ? $metadata['loyalty'] : null,
                 'planner_hint' => $this->safeHint($contentAngle, $profile),
                 'variant_count' => 1,
-                'recent_posts' => $user->posts()->latest()->limit(5)->pluck('content')->all(),
+                'recent_posts' => $this->voiceExamples($user),
                 'use_web_search' => ! $isOriginal
                     && $this->settings->getBool('web_search_enabled', true)
                     && ($liveName !== null || $this->shouldUseWebSearchForTrend($trend)),
@@ -1076,6 +1076,33 @@ class GrowthAgentService
 
             return null;
         }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function voiceExamples(User $user): array
+    {
+        $account = $user->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->first();
+        $spoken = $account ? $this->xApi->voiceSamples($account) : [];
+        $saved = $user->posts()->latest()->limit(5)->pluck('content')->map(fn ($content) => (string) $content)->all();
+
+        $lines = [];
+        foreach (array_merge($spoken, $saved) as $line) {
+            $line = trim(str_replace("\n", ' ', (string) $line));
+            if ($line === '' || in_array($line, $lines, true)) {
+                continue;
+            }
+            $lines[] = mb_substr($line, 0, 180);
+            if (count($lines) === 6) {
+                break;
+            }
+        }
+
+        return $lines;
     }
 
     private function bridgeAngle(\App\Models\Trend $trend): string

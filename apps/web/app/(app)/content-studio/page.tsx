@@ -98,15 +98,27 @@ export default function ContentStudioPage() {
       .catch(() => {});
   }, []);
 
+  const webSearchDisabled =
+    !usage?.web_search_enabled || (usage?.web_searches.remaining ?? 0) <= 0;
+
   async function write(search: boolean) {
-    const searchingNiche = search && topic.trim().length < 3;
-    const nextMode: ComposeMode = searchingNiche ? "suggest" : mode;
-    if (nextMode === "describe" && topic.trim().length < 3) {
-      toast.error("Say what you want to post about.");
+    if (usage && usage.ai_generations.remaining <= 0) {
+      toast.error("No drafts left today. Try again tomorrow.");
       return;
     }
-    if (searchingNiche) {
-      setMode("suggest");
+    if (search && webSearchDisabled) {
+      toast.error(
+        usage && !usage.web_search_enabled
+          ? "Search is turned off."
+          : "No web lookups left today.",
+      );
+      return;
+    }
+    const typed = topic.trim();
+    const nextMode: ComposeMode = mode === "describe" || typed.length >= 3 ? "describe" : "suggest";
+    if (nextMode === "describe" && typed.length < 3) {
+      toast.error("Say what you want to post about.");
+      return;
     }
     setUseWebSearch(search);
     setLoading(true);
@@ -119,7 +131,7 @@ export default function ContentStudioPage() {
         method: "POST",
         body: JSON.stringify({
           mode: nextMode,
-          topic: nextMode === "describe" ? topic.trim() : null,
+          topic: nextMode === "describe" ? typed : null,
           tone,
           content_type: contentType,
           use_web_search: search && !webSearchDisabled,
@@ -188,9 +200,6 @@ export default function ContentStudioPage() {
     }
   }
 
-  const webSearchDisabled =
-    !usage?.web_search_enabled || (usage?.web_searches.remaining ?? 0) <= 0;
-
   return (
     <div className="space-y-6">
       <DeskHeading icon={PenLine} title={COMPOSE_COPY[platform].title}>
@@ -247,30 +256,28 @@ export default function ContentStudioPage() {
                 ))}
               </div>
 
-              {mode === "suggest" ? (
-                <div className="rounded-lg border border-border p-3 text-sm">
-                  <p className="font-medium">No topic needed</p>
-                  <p className="mt-1 text-muted-foreground">
-                    Mackie17 looks at what people are talking about right now, then writes this account&apos;s side of it.
-                    It does not repeat the words from your setup, and it skips what you posted recently.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <Label htmlFor="topic">What do you want to post about?</Label>
-                  <Textarea
-                    id="topic"
-                    rows={4}
-                    maxLength={1000}
-                    value={topic}
-                    onChange={(e) => setTopic(e.target.value)}
-                    placeholder="e.g. Why I stopped buying ready meals. Mention the price difference and end with a question."
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    A topic, an opinion, or a rough idea. Add anything it must include.
-                  </p>
-                </div>
-              )}
+              <div className="space-y-2">
+                <Label htmlFor="topic">
+                  {mode === "suggest" ? "Anything it should include?" : "What do you want to post about?"}
+                </Label>
+                <Textarea
+                  id="topic"
+                  rows={4}
+                  maxLength={1000}
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  placeholder={
+                    mode === "suggest"
+                      ? "Leave this blank and Suggest posts writes from this account. Or add a point it must include."
+                      : "e.g. Why I stopped buying ready meals. Mention the price difference and end with a question."
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  {mode === "suggest"
+                    ? "Suggest posts follows the account's description, the people it is for, and posts already written on X."
+                    : "A topic, an opinion, or a rough idea. Add anything it must include."}
+                </p>
+              </div>
               <div className="space-y-2">
                 <Label>Tone</Label>
                 <Select value={tone} onValueChange={(v) => setTone(v ?? "professional")}>
@@ -302,7 +309,11 @@ export default function ContentStudioPage() {
                 </Select>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button type="submit" disabled={loading || (usage?.ai_generations.remaining ?? 1) <= 0}>
+                <Button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void write(false)}
+                >
                   {loading
                     ? "Writing…"
                     : mode === "suggest"
@@ -314,14 +325,17 @@ export default function ContentStudioPage() {
                 <Button
                   type="button"
                   variant="secondary"
-                  disabled={loading || (usage?.ai_generations.remaining ?? 1) <= 0}
+                  disabled={loading}
                   onClick={() => void write(true)}
                 >
                   {loading ? "Searching…" : "Search"}
                 </Button>
               </div>
+              {usage && usage.ai_generations.remaining <= 0 && (
+                <p className="text-xs text-muted-foreground">No drafts left today.</p>
+              )}
               <p className="text-xs text-muted-foreground">
-                Search looks up what is trending in this niche, then writes from what the account is about.
+                Search looks up what is happening in this account, then writes from the description and the people it is for.
               </p>
             </form>
           </CardContent>

@@ -92,24 +92,24 @@ class ContentController extends Controller
     {
         $trends = [];
         $fromNiche = $this->trends->rankedInNiche($user);
-        $fromAccount = is_array($fromNiche) && $fromNiche !== [] ? $fromNiche : $this->trends->rankedFromAccount($user);
 
-        if (is_array($fromAccount) && $fromAccount !== []) {
-            foreach (array_slice($fromAccount, 0, 3) as $item) {
-                $trends[] = mb_substr($item['trend']->name, 0, 80);
-            }
-        } elseif ($profile?->onboarding_completed) {
-            foreach ($this->opportunityScorer->rankedForProfile($profile, 3) as $item) {
+        if (is_array($fromNiche) && $fromNiche !== []) {
+            foreach (array_slice($fromNiche, 0, 3) as $item) {
                 $trends[] = mb_substr($item['trend']->name, 0, 80);
             }
         }
 
-        $recent = $user->posts()
-            ->latest()
-            ->limit(6)
-            ->pluck('content')
-            ->map(fn (string $content) => mb_substr($content, 0, 140))
-            ->all();
+        $account = $user->connectedAccounts()->where('platform', 'x')->where('is_active', true)->first();
+        $spoken = $account ? app(\App\Services\XApi\XApiService::class)->voiceSamples($account) : [];
+        $recent = array_values(array_unique(array_merge(
+            $spoken,
+            $user->posts()
+                ->latest()
+                ->limit(6)
+                ->pluck('content')
+                ->map(fn (string $content) => mb_substr($content, 0, 140))
+                ->all(),
+        )));
 
         return [
             'trends' => $trends,

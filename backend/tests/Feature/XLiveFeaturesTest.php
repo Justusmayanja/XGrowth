@@ -7,6 +7,7 @@ use App\Models\Trend;
 use App\Models\User;
 use App\Services\TrendEngine\TrendEngineService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use OpenAI\Laravel\Facades\OpenAI;
 use OpenAI\Resources\Chat;
@@ -656,7 +657,8 @@ class XLiveFeaturesTest extends TestCase
             ->assertOk()
             ->assertJsonPath('metrics.1.value', 5200)
             ->assertJsonPath('metrics.1.sub', 'Recent posts and comments')
-            ->assertJsonPath('metrics.2.value', 0.2);
+            ->assertJsonPath('metrics.2.label', 'Likes')
+            ->assertJsonPath('metrics.2.value', 6);
 
         Http::assertSent(function ($request) {
             if (! str_contains($request->url(), '/users/42/tweets')) {
@@ -697,7 +699,8 @@ class XLiveFeaturesTest extends TestCase
             ->assertOk()
             ->assertJsonPath('metrics.1.value', 5200)
             ->assertJsonPath('metrics.1.sub', 'Recent posts and comments')
-            ->assertJsonPath('metrics.2.value', 0.2);
+            ->assertJsonPath('metrics.2.label', 'Likes')
+            ->assertJsonPath('metrics.2.value', 7);
     }
 
     public function test_view_counts_come_from_organic_metrics_when_public_metrics_omit_them(): void
@@ -757,6 +760,7 @@ class XLiveFeaturesTest extends TestCase
             'author_id' => '42',
             'created_at' => now()->subHours(2)->toIso8601String(),
             'public_metrics' => [
+                'impression_count' => 0,
                 'like_count' => 4,
                 'retweet_count' => 1,
                 'reply_count' => 0,
@@ -781,8 +785,110 @@ class XLiveFeaturesTest extends TestCase
             ->assertJsonPath('metrics.1.label', 'Reactions')
             ->assertJsonPath('metrics.1.value', 5)
             ->assertJsonPath('metrics.1.sub', 'Likes, replies, and reposts. X did not send view counts.')
-            ->assertJsonPath('metrics.2.label', 'Replies')
-            ->assertJsonPath('metrics.2.value', 0);
+            ->assertJsonPath('metrics.2.label', 'Likes')
+            ->assertJsonPath('metrics.2.value', 4);
+    }
+
+    public function test_topics_use_the_accounts_own_posts_when_the_timeline_does_not_fit(): void
+    {
+        $user = User::factory()->create();
+        $user->accountProfile()->create([
+            'custom_niche' => 'United',
+            'description' => 'A Manchester United supporter.',
+            'audience' => 'United fans',
+            'onboarding_completed' => true,
+        ]);
+        ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'mackie',
+            'access_token' => 'user-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api.twitter.com/2/users/me*' => Http::response([
+                'data' => ['id' => '42', 'public_metrics' => ['followers_count' => 18]],
+            ]),
+            'https://api.twitter.com/2/users/42/tweets*' => Http::response([
+                'data' => [[
+                    'id' => '3',
+                    'text' => 'United lost and the next manager is the argument',
+                    'author_id' => '42',
+                    'created_at' => now()->subHour()->toIso8601String(),
+                    'public_metrics' => ['like_count' => 6, 'retweet_count' => 1, 'reply_count' => 2],
+                ]],
+            ]),
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
+                'data' => [[
+                    'id' => '9',
+                    'text' => 'Trump and Iran are at war tonight',
+                    'author_id' => '7',
+                    'lang' => 'en',
+                    'created_at' => now()->subMinutes(5)->toIso8601String(),
+                ]],
+            ]),
+            'https://api.twitter.com/2/trends/by/woeid/*' => Http::response([
+                'data' => [['trend_name' => 'Trump and Iran', 'tweet_count' => 90000]],
+            ]),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/trends')
+            ->assertOk()
+            ->assertJsonPath('source', 'posts')
+            ->assertJsonPath('trends.0.name', 'United lost and the next manager is the argument')
+            ->assertJsonCount(1, 'trends');
+
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/trends/by/woeid/'));
+    }
+
+    public function test_a_zero_view_pull_keeps_yesterdays_impressions(): void
+    {
+        [$user] = $this->connectedCook();
+        $accountId = $user->connectedAccounts()->value('id');
+        Cache::put('x-totals:v1:'.$accountId, [
+            now()->subDay()->toDateString() => [
+                'impressions' => 1000,
+                'likes' => 10,
+                'replies' => 1,
+                'reposts' => 0,
+                'followers' => 18,
+            ],
+        ], now()->addDay());
+
+        Http::fake([
+            'https://api.twitter.com/2/users/me*' => Http::response([
+                'data' => ['id' => '42', 'public_metrics' => ['followers_count' => 18]],
+            ]),
+            'https://api.twitter.com/2/users/42/tweets*' => Http::response([
+                'data' => [[
+                    'id' => '2',
+                    'text' => 'a cheap dinner for budget cooking',
+                    'author_id' => '42',
+                    'created_at' => now()->subHour()->toIso8601String(),
+                    'public_metrics' => [
+                        'impression_count' => 0,
+                        'like_count' => 14,
+                        'retweet_count' => 1,
+                        'reply_count' => 0,
+                    ],
+                ]],
+            ]),
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response(['data' => []]),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x')
+            ->assertOk()
+            ->assertJsonPath('metrics.1.label', 'Impressions')
+            ->assertJsonPath('metrics.1.value', 1000)
+            ->assertJsonPath('metrics.1.sub', 'Kept from yesterday. X did not send a new view count. No change since yesterday')
+            ->assertJsonPath('metrics.2.label', 'Likes')
+            ->assertJsonPath('metrics.2.value', 14)
+            ->assertJsonPath('metrics.2.sub', 'From these posts. +4 since yesterday');
     }
 
     /**

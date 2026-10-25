@@ -4,7 +4,6 @@ namespace App\Services\AICore;
 
 use App\Models\AccountProfile;
 use App\Models\AiRule;
-use App\Models\Trend;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use Illuminate\Support\Facades\Log;
@@ -109,7 +108,7 @@ class AICoreService
         }
 
         if (! empty($params['recent_posts']) && is_array($params['recent_posts'])) {
-            $userPrompt .= "\nDo not repeat these recent posts or their openings:\n";
+            $userPrompt .= "\nPosts this person already wrote, including ones they typed on X themselves. Match the length, the rhythm, and the kind of thing they talk about. Do not copy a sentence or an opening:\n";
             foreach ($params['recent_posts'] as $recent) {
                 $line = trim(str_replace("\n", ' ', (string) $recent));
                 if ($line !== '') {
@@ -678,23 +677,8 @@ PROMPT;
         $userPrompt .= "\nLean this set toward {$lean}.\n";
         $userPrompt .= "Make the four unlike each other: one observation, one short story, one question people will answer, and one opinion.\n";
         $userPrompt .= "At least one moment should answer something the public is already saying, from this account's side. A lender answers a week of businesses losing money. A club account answers praise for two rivals. Do not explain that link, and do not write the notes back.\n";
-        $userPrompt .= "Use a specific detail. Do not write a content calendar.\n\n";
-        $live = Trend::query()
-            ->where('detected_at', '>=', now()->subHours(36))
-            ->where(function ($query) {
-                $query->where('metadata->source', 'x')
-                    ->orWhere('metadata->source', 'live');
-            })
-            ->orderByDesc('score')
-            ->limit(4)
-            ->pluck('name');
-        if ($live->isNotEmpty()) {
-            $userPrompt .= "People are talking about these right now. Make each moment this account's side of one of them:\n";
-            foreach ($live as $name) {
-                $userPrompt .= '- '.$name."\n";
-            }
-            $userPrompt .= "\n";
-        }
+        $userPrompt .= "Use a specific detail. Do not write a content calendar.\n";
+        $userPrompt .= "Stay with the description and the people this account is for. Do not use a war, a politician, or a worldwide trend.\n\n";
         $userPrompt .= "Do not repeat these earlier moments:\n";
         if ($avoid === []) {
             $userPrompt .= "- None yet. This is the first set.\n";

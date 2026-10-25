@@ -273,6 +273,8 @@ class XApiService
             'tweets' => $chosen,
         ];
 
+        $payload = $this->rememberTotals($account, $payload);
+
         if ($loaded['complete']) {
             Cache::put($cacheKey, $payload, now()->addMinutes(10));
         }
@@ -792,19 +794,20 @@ class XApiService
         $public = is_array($row['public_metrics'] ?? null) ? $row['public_metrics'] : [];
         $organic = is_array($row['organic_metrics'] ?? null) ? $row['organic_metrics'] : [];
         $private = is_array($row['non_public_metrics'] ?? null) ? $row['non_public_metrics'] : [];
+        $organicViews = array_key_exists('impression_count', $organic) ? (int) $organic['impression_count'] : null;
+        $privateViews = array_key_exists('impression_count', $private) ? (int) $private['impression_count'] : null;
+        $publicViews = array_key_exists('impression_count', $public) ? (int) $public['impression_count'] : null;
 
         return [
             'id' => (string) ($row['id'] ?? ''),
             'content' => (string) ($row['text'] ?? ''),
             'kind' => $this->isComment($row) ? 'comment' : 'post',
-            'impressions' => (int) ($organic['impression_count'] ?? $private['impression_count'] ?? $public['impression_count'] ?? 0),
+            'impressions' => $organicViews ?? $privateViews ?? (($publicViews ?? 0) > 0 ? $publicViews : 0),
             'likes' => (int) ($public['like_count'] ?? $organic['like_count'] ?? 0),
             'reposts' => (int) ($public['retweet_count'] ?? $organic['retweet_count'] ?? 0),
             'replies' => (int) ($public['reply_count'] ?? $organic['reply_count'] ?? 0),
             'profile_clicks' => (int) ($organic['user_profile_clicks'] ?? $private['user_profile_clicks'] ?? 0),
-            'views_known' => array_key_exists('impression_count', $organic)
-                || array_key_exists('impression_count', $private)
-                || array_key_exists('impression_count', $public),
+            'views_known' => $organicViews !== null || $privateViews !== null || ($publicViews ?? 0) > 0,
             'created_at' => (string) ($row['created_at'] ?? ''),
         ];
     }
@@ -815,12 +818,12 @@ class XApiService
     private function rowsKnowViews(array $rows): bool
     {
         foreach ($rows as $row) {
-            if (! ($row['views_known'] ?? false)) {
-                return false;
+            if ($row['views_known'] ?? false) {
+                return true;
             }
         }
 
-        return true;
+        return false;
     }
 
     /**
@@ -835,6 +838,125 @@ class XApiService
         }
 
         return false;
+    }
+
+    /**
+     * Posts this person wrote on X, so a draft can follow their voice.
+     *
+     * @return list<string>
+     */
+    public function voiceSamples(ConnectedAccount $account): array
+    {
+        try {
+            $activity = $this->accountActivity($account);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $lines = [];
+        foreach ($activity['tweets'] as $tweet) {
+            if (($tweet['kind'] ?? '') === 'comment') {
+                continue;
+            }
+            $text = trim((string) preg_replace('/\s+/', ' ', (string) ($tweet['content'] ?? '')));
+            if ($text === '') {
+                continue;
+            }
+            $lines[] = mb_substr($text, 0, 180);
+            if (count($lines) === 5) {
+                break;
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Topics taken from posts this account wrote, when the home timeline has nothing that fits.
+     *
+     * @return list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>
+     */
+    public function ownPostTopics(ConnectedAccount $account): array
+    {
+        try {
+            $activity = $this->accountActivity($account);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $topics = [];
+        $seen = [];
+        foreach ($activity['tweets'] as $tweet) {
+            if (($tweet['kind'] ?? '') === 'comment') {
+                continue;
+            }
+            $text = trim((string) preg_replace('/https?:\/\/\S+|#\S+|@\S+/', '', (string) ($tweet['content'] ?? '')));
+            $text = trim((string) preg_replace('/\s+/', ' ', $text));
+            $key = mb_strtolower($text);
+            if ($key === '' || isset($seen[$key]) || ! $this->isEnglishPhrase($text) || $this->mentionsBlockedNews($text)) {
+                continue;
+            }
+            $seen[$key] = true;
+            $topics[] = $this->topicRow(
+                mb_substr($text, 0, 80),
+                1,
+                ($tweet['views_known'] ?? false) ? (int) $tweet['impressions'] : null,
+                (int) ($tweet['likes'] ?? 0),
+                (int) ($tweet['replies'] ?? 0),
+            );
+            if (count($topics) === 5) {
+                break;
+            }
+        }
+
+        return $topics;
+    }
+
+    /**
+     * @param  array{followers: int, impressions: int, engagements: int, likes: int, replies: int, reposts: int, engagement_rate: float, profile_clicks: int, views_known: bool, ranked_for_niche: bool, tweets: list<array<string, mixed>>}  $payload
+     * @return array<string, mixed>
+     */
+    private function rememberTotals(ConnectedAccount $account, array $payload): array
+    {
+        $key = 'x-totals:v1:'.$account->id;
+        $history = Cache::get($key);
+        $history = is_array($history) ? $history : [];
+        $today = now()->toDateString();
+        $yesterday = now()->subDay()->toDateString();
+        $previous = is_array($history[$yesterday] ?? null) ? $history[$yesterday] : null;
+
+        if ($payload['views_known']) {
+            $impressions = (int) $payload['impressions'];
+        } elseif (is_array($history[$today] ?? null) && isset($history[$today]['impressions'])) {
+            $impressions = (int) $history[$today]['impressions'];
+            $payload['impressions'] = $impressions;
+            $payload['views_known'] = $impressions > 0;
+            $payload['impressions_held'] = true;
+        } elseif ($previous && isset($previous['impressions']) && (int) $previous['impressions'] > 0) {
+            $impressions = (int) $previous['impressions'];
+            $payload['impressions'] = $impressions;
+            $payload['views_known'] = true;
+            $payload['impressions_held'] = true;
+        } else {
+            $impressions = null;
+        }
+
+        $history[$today] = [
+            'impressions' => $impressions,
+            'likes' => (int) $payload['likes'],
+            'replies' => (int) $payload['replies'],
+            'reposts' => (int) $payload['reposts'],
+            'followers' => (int) $payload['followers'],
+        ];
+        $history = array_slice($history, -14, null, true);
+        Cache::put($key, $history, now()->addDays(45));
+
+        $payload['likes_change'] = $previous ? (int) $payload['likes'] - (int) ($previous['likes'] ?? 0) : null;
+        $payload['impressions_change'] = $payload['views_known'] && $previous && isset($previous['impressions'])
+            ? (int) $payload['impressions'] - (int) $previous['impressions']
+            : null;
+
+        return $payload;
     }
 
     /**

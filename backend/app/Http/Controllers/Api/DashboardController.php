@@ -125,11 +125,11 @@ class DashboardController extends Controller
             default => $live ? [
                 ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Live from X'],
                 ($live['views_known'] ?? false)
-                    ? ['label' => 'Impressions', 'value' => $live['impressions'], 'sub' => $this->impressionBasis($live)]
-                    : ['label' => 'Reactions', 'value' => (int) ($live['engagements'] ?? 0), 'sub' => 'Likes, replies, and reposts. X did not send view counts.'],
+                    ? ['label' => 'Impressions', 'value' => $live['impressions'], 'sub' => $this->impressionBasis($live).$this->sinceYesterday($live['impressions_change'] ?? null)]
+                    : ['label' => 'Reactions', 'value' => (int) ($live['engagements'] ?? 0), 'sub' => 'Likes, replies, and reposts. X did not send view counts.'.$this->sinceYesterday($live['likes_change'] ?? null)],
                 ($live['views_known'] ?? false)
-                    ? ['label' => 'Engagement', 'value' => $live['engagement_rate'], 'sub' => $this->impressionBasis($live), 'suffix' => '%']
-                    : ['label' => 'Replies', 'value' => (int) ($live['replies'] ?? 0), 'sub' => ((int) ($live['likes'] ?? 0)).' likes · '.((int) ($live['reposts'] ?? 0)).' reposts'],
+                    ? ['label' => 'Likes', 'value' => (int) ($live['likes'] ?? 0), 'sub' => 'From these posts.'.$this->sinceYesterday($live['likes_change'] ?? null)]
+                    : ['label' => 'Likes', 'value' => (int) ($live['likes'] ?? 0), 'sub' => ((int) ($live['replies'] ?? 0)).' replies · '.((int) ($live['reposts'] ?? 0)).' reposts'.$this->sinceYesterday($live['likes_change'] ?? null)],
             ] : [
                 ['label' => 'Followers', 'value' => null, 'sub' => $connected ? 'Could not load from X' : 'Connect X'],
                 ['label' => 'Impressions', 'value' => null, 'sub' => $connected ? 'Could not load from X' : 'Connect X'],
@@ -138,9 +138,12 @@ class DashboardController extends Controller
         };
 
         $ideas = [];
+        $ideasNote = null;
         if ($platform === 'x' && $connected) {
             try {
-                foreach (array_slice($this->trendEngine->topicsForPage($user)['trends'], 0, 5) as $topic) {
+                $topicPage = $this->trendEngine->topicsForPage($user);
+                $ideasNote = $topicPage['note'] ?? null;
+                foreach (array_slice($topicPage['trends'], 0, 5) as $topic) {
                     $name = trim((string) ($topic['name'] ?? ''));
                     $draft = trim((string) ($topic['draft'] ?? ''));
                     if ($name === '' || ! $this->x->isEnglishPhrase($name)) {
@@ -193,6 +196,7 @@ class DashboardController extends Controller
             ],
             'drafts' => $drafts,
             'ideas' => $ideas,
+            'ideas_note' => $ideasNote,
             'pipeline' => $youtubeDesk['pipeline'],
             'series' => $youtubeDesk['series'],
         ]);
@@ -243,9 +247,30 @@ class DashboardController extends Controller
      */
     private function impressionBasis(array $live): string
     {
+        if ($live['impressions_held'] ?? false) {
+            return 'Kept from yesterday. X did not send a new view count.';
+        }
+
         return ($live['ranked_for_niche'] ?? false)
             ? 'Posts and comments, ranked for your niche'
             : 'Recent posts and comments';
+    }
+
+    private function sinceYesterday(mixed $change): string
+    {
+        if (! is_numeric($change)) {
+            return '';
+        }
+
+        $change = (int) $change;
+        if ($change > 0) {
+            return ' +'.number_format($change).' since yesterday';
+        }
+        if ($change < 0) {
+            return ' '.number_format($change).' since yesterday';
+        }
+
+        return ' No change since yesterday';
     }
 
     /**
