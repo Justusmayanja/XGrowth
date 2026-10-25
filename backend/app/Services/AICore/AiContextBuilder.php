@@ -55,6 +55,9 @@ class AiContextBuilder
                 'reach' => isset($meta['author_followers']) ? (int) $meta['author_followers'] : null,
                 'near' => (bool) ($meta['adjacent'] ?? false),
                 'live' => (bool) ($meta['live'] ?? false),
+                'life' => isset($meta['loyalty']) && is_string($meta['loyalty']) && $meta['loyalty'] !== ''
+                    ? mb_substr($meta['loyalty'], 0, 40)
+                    : null,
                 'x_snip' => isset($meta['text'])
                     ? mb_substr((string) $meta['text'], 0, 160)
                     : (isset($meta['x_summary']) ? mb_substr((string) $meta['x_summary'], 0, 120) : null),

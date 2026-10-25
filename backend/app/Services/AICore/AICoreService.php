@@ -84,13 +84,20 @@ class AICoreService
         }
 
         $userPrompt .= $this->voiceNotes($params, $niche, $tone, $goal);
-        $userPrompt .= $this->bridgeInstructions($joinLive, $params['conversation'] ?? null, $useWebSearch);
+        $loyalty = is_string($params['loyalty'] ?? null) ? trim($params['loyalty']) : '';
+        $userPrompt .= $this->bridgeInstructions($joinLive, $params['conversation'] ?? null, $useWebSearch, $loyalty);
         if (is_array($params['reaction'] ?? null)) {
             $userPrompt .= $this->reactionInstructions($params['reaction']);
         }
 
         if (! empty($params['stay_in_niche'])) {
-            $userPrompt .= "This post is for automation. Write one view a person in this niche would actually type. Stay on this niche. Do not write about a war, a politician, or a story outside it.\n";
+            $aim = trim((string) ($params['goal'] ?? ''));
+            $readers = trim((string) ($params['audience'] ?? ''));
+            $forWhom = ($aim !== '' ? " The aim is {$aim}." : '')
+                .($readers !== '' ? " The people meant to read it: {$readers}." : '');
+            $userPrompt .= $loyalty !== ''
+                ? "This post is for automation. The work of this account is {$niche}. This moment is {$loyalty}, which the description already claims and which is on this account's home timeline. Write one view as a person who follows {$loyalty}. Do not turn it into an advert unless the aim is to promote the business and the moment itself is the business. Do not write about a war, a politician, or anything the description and the audience did not ask for.{$forWhom}\n"
+                : "This post is for automation. Write one view a person in this niche would actually type. Stay on the niche, the description, and the people the account is for. Do not write about a war, a politician, or a story outside that.{$forWhom}\n";
         }
 
         if (! empty($params['planner_hint'])) {
@@ -214,7 +221,7 @@ PROMPT;
         return $text;
     }
 
-    private function bridgeInstructions(bool $joinLive, mixed $conversation, bool $useWebSearch): string
+    private function bridgeInstructions(bool $joinLive, mixed $conversation, bool $useWebSearch, string $loyalty = ''): string
     {
         if (! $joinLive) {
             return $useWebSearch
@@ -223,8 +230,12 @@ PROMPT;
         }
 
         $text = "\nJoin a conversation that is already happening. The conversation is the hook. Write from this account's side. This account's point of view is the twist.\n";
-        $text .= "The conversation is already inside this niche. Stay on it. Do not switch to a war, a politician, or any story this niche would not post.\n";
-        $text .= "Another match is allowed only when this conversation is already about that match and it is the same sport. A price or a rule is allowed only when this niche is money and the conversation is already about that price or rule.\n";
+        if ($loyalty !== '') {
+            $text .= "This conversation is {$loyalty}, a loyalty this account follows because it keeps appearing on their own timeline. Write as that person. Do not turn the post into an advert for the rest of the account. Do not switch to a war or a politician.\n";
+        } else {
+            $text .= "The conversation is already inside this niche. Stay on it. Do not switch to a war, a politician, or any story this niche would not post.\n";
+            $text .= "Another match is allowed only when this conversation is already about that match and it is the same sport. A price or a rule is allowed only when this niche is money and the conversation is already about that price or rule.\n";
+        }
         $text .= "Pattern, do not copy these situations: everyone is talking about businesses losing money and costs going up, and the account lends money, so the post is the lender's side of that pain. Everyone is praising two rival teams for being in form, and the account is the third club, so the post answers that praise from the third club's side.\n";
         $text .= "Write a view, the way a person types after seeing it. Not a bulletin, not a plan, not a list of tips. One opinion. Length should change: sometimes one sentence, sometimes two.\n";
         $text .= "Do not explain the link. Do not start with \"as a\". Do not copy another account's sentence.\n";

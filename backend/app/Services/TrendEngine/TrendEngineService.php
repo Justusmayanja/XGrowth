@@ -96,10 +96,12 @@ class TrendEngineService
             return null;
         }
 
-        $niche = $user->accountProfile?->resolvedNiche() ?? '';
+        $profile = $user->accountProfile;
+        $niche = $profile?->resolvedNiche() ?? '';
+        $purpose = trim((string) ($profile?->description ?? '').' '.(string) ($profile?->audience ?? ''));
 
         try {
-            $topics = $this->x->homeFeed($account, $niche);
+            $topics = $this->x->homeFeed($account, $niche, $purpose);
         } catch (Throwable $e) {
             Log::warning('The home timeline was not available', [
                 'user_id' => $user->id,
@@ -148,6 +150,7 @@ class TrendEngineService
                         'author_followers' => $followers,
                         'tweet_id' => $topic['tweet_id'] ?? null,
                         'text' => $topic['text'] ?? $topic['name'],
+                        'loyalty' => $topic['loyalty'] ?? null,
                         'live' => $minutes !== null && $minutes <= 90,
                     ],
                     'detected_at' => now(),
@@ -242,96 +245,34 @@ class TrendEngineService
             ];
         }
 
-        $niche = trim((string) ($user->accountProfile?->resolvedNiche() ?? ''));
-        if ($niche !== '' && ! in_array(strtolower($niche), ['general', 'your niche', 'niche'], true)) {
-            $ranked = $this->rankedInNiche($user) ?? [];
-            $trends = [];
-            foreach (array_slice($ranked, 0, 5) as $row) {
-                $name = trim((string) $row['trend']->name);
-                if ($name !== '') {
-                    $trends[] = ['name' => $name, 'angle' => '', 'draft' => ''];
-                }
-            }
-
-            return [
-                'trends' => $trends,
-                'source' => 'home',
-                'note' => $trends === []
-                    ? 'Nothing in this niche is on the home timeline right now.'
-                    : 'From the posts already on this X account.',
-            ];
-        }
-
-        try {
-            $live = $this->x->accountTopics($account);
-        } catch (Throwable $e) {
-            Log::warning('X topics were not available for the topics page', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage(),
-            ]);
-
+        $profile = $user->accountProfile;
+        $niche = trim((string) ($profile?->resolvedNiche() ?? ''));
+        $purpose = trim((string) ($profile?->description ?? '').' '.(string) ($profile?->audience ?? ''));
+        $generic = $niche === '' || in_array(strtolower($niche), ['general', 'your niche', 'niche'], true);
+        if ($generic && $purpose === '') {
             return [
                 'trends' => [],
                 'source' => null,
-                'note' => 'X did not return topics. '.$e->getMessage(),
+                'note' => 'Describe the account so topics stay on what it is for.',
             ];
         }
 
-        $names = [];
-        foreach (array_slice($live['topics'], 0, 12) as $topic) {
-            $name = trim((string) ($topic['name'] ?? ''));
+        $ranked = $this->rankedInNiche($user) ?? [];
+        $trends = [];
+        foreach (array_slice($ranked, 0, 5) as $row) {
+            $name = trim((string) $row['trend']->name);
             if ($name !== '') {
-                $names[] = $name;
+                $trends[] = ['name' => $name, 'angle' => '', 'draft' => ''];
             }
         }
 
-        if ($names === []) {
-            return [
-                'trends' => [],
-                'source' => $live['source'],
-                'note' => 'X did not return topics for this account.',
-            ];
-        }
-
-        $cacheKey = 'x-topic-drafts:'.$user->id.':'.md5(implode("\n", $names));
-        $cached = Cache::get($cacheKey);
-        if (is_array($cached) && isset($cached['trends']) && is_array($cached['trends'])) {
-            return $cached;
-        }
-
-        $drafted = [];
-        if ($this->ai->isConfigured()) {
-            try {
-                $drafted = array_values(array_filter(
-                    $this->ai->draftTrendingTopics($user, $names, $user->accountProfile),
-                    fn (array $item) => $this->x->isEnglishPhrase($item['name']) && $this->x->isEnglishPhrase($item['draft'])
-                ));
-            } catch (Throwable $e) {
-                Log::warning('Topic drafts were not written', [
-                    'user_id' => $user->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        $wrote = $drafted !== [];
-        if (! $wrote) {
-            foreach (array_slice($names, 0, 5) as $name) {
-                $drafted[] = ['name' => $name, 'angle' => '', 'draft' => ''];
-            }
-        }
-
-        $payload = [
-            'trends' => $drafted,
-            'source' => $live['source'],
-            'note' => $wrote
-                ? 'A few conversations happening now, with a post written from this account.'
-                : 'These are on X right now. A post could not be written this time.',
+        return [
+            'trends' => $trends,
+            'source' => 'home',
+            'note' => $trends === []
+                ? 'Nothing on the home timeline fits this account right now.'
+                : 'From the home timeline, kept when it fits this account.',
         ];
-
-        Cache::put($cacheKey, $payload, now()->addMinutes($wrote ? 30 : 10));
-
-        return $payload;
     }
 
     /**

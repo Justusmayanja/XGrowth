@@ -261,6 +261,12 @@ class XLiveFeaturesTest extends TestCase
     {
         config(['openai.api_key' => '']);
         $user = User::factory()->create();
+        $user->accountProfile()->create([
+            'custom_niche' => 'Kampala',
+            'description' => 'Kampala stories for people who live there.',
+            'audience' => 'People in Kampala',
+            'onboarding_completed' => true,
+        ]);
         ConnectedAccount::create([
             'user_id' => $user->id,
             'platform' => 'x',
@@ -274,18 +280,21 @@ class XLiveFeaturesTest extends TestCase
         Http::fake([
             'https://api.twitter.com/2/users/personalized_trends*' => Http::response([
                 'data' => [
-                    ['trend_name' => 'たかほー'],
-                    ['trend_name' => '#LulaEmCopacabana'],
-                    ['trend_name' => '#sbhawks'],
-                    ['trend_name' => '日本シリーズ'],
-                    ['trend_name' => '#YouManiacSeriesEP9'],
+                    ['trend_name' => 'Rent prices this week', 'tweet_count' => 12000],
+                    ['trend_name' => 'Trump and Iran', 'tweet_count' => 90000],
                 ],
             ]),
             'https://api.twitter.com/2/trends/by/woeid/23424977*' => Http::response([
                 'data' => [
                     ['trend_name' => 'Rent prices this week', 'tweet_count' => 12000],
                     ['trend_name' => 'Arsenal and City in form', 'tweet_count' => 8400],
-                    ['trend_name' => '#sbhawks', 'tweet_count' => 900],
+                ],
+            ]),
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
+                'data' => [
+                    ['id' => '1', 'text' => 'たかほー #sbhawks', 'lang' => 'ja', 'author_id' => '2', 'created_at' => now()->subMinutes(3)->toIso8601String()],
+                    ['id' => '2', 'text' => 'Trump and Iran are at war tonight', 'lang' => 'en', 'author_id' => '3', 'created_at' => now()->subMinutes(4)->toIso8601String()],
+                    ['id' => '3', 'text' => 'Kampala traffic is stuck again this morning', 'lang' => 'en', 'author_id' => '4', 'created_at' => now()->subMinutes(5)->toIso8601String()],
                 ],
             ]),
         ]);
@@ -293,15 +302,16 @@ class XLiveFeaturesTest extends TestCase
         $response = $this->actingAs($user, 'sanctum')
             ->getJson('/api/trends')
             ->assertOk()
-            ->assertJsonPath('trends.0.name', 'Rent prices this week')
-            ->assertJsonPath('trends.1.name', 'Arsenal and City in form')
-            ->assertJsonCount(2, 'trends');
+            ->assertJsonPath('source', 'home')
+            ->assertJsonPath('trends.0.name', 'Kampala traffic is stuck again this morning')
+            ->assertJsonCount(1, 'trends');
 
         $body = $response->getContent();
         $this->assertStringNotContainsString('たかほー', $body);
-        $this->assertStringNotContainsString('日本シリーズ', $body);
-        $this->assertStringNotContainsString('#sbhawks', $body);
-        $this->assertStringNotContainsString('#YouManiacSeriesEP9', $body);
+        $this->assertStringNotContainsString('Trump', $body);
+        $this->assertStringNotContainsString('Arsenal', $body);
+        $this->assertStringNotContainsString('Rent prices', $body);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/trends/by/woeid/'));
     }
 
     public function test_niche_search_keeps_english_posts_about_the_niche(): void
@@ -403,10 +413,92 @@ class XLiveFeaturesTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/tweets/search/recent'));
     }
 
+    public function test_a_shop_account_can_also_speak_for_a_loyalty_that_keeps_appearing(): void
+    {
+        $user = User::factory()->create();
+        $user->accountProfile()->create([
+            'custom_niche' => 'bags',
+            'description' => 'Sells bags in Kampala and supports Manchester United.',
+            'audience' => 'United supporters and bag buyers',
+            'onboarding_completed' => true,
+        ]);
+        ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'mackie',
+            'access_token' => 'user-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
+                'data' => [
+                    [
+                        'id' => '1',
+                        'text' => 'New leather bags just landed in the shop',
+                        'author_id' => '1',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(4)->toIso8601String(),
+                    ],
+                    [
+                        'id' => '2',
+                        'text' => 'Manchester United lost and the next boss is the argument',
+                        'author_id' => '2',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(6)->toIso8601String(),
+                    ],
+                    [
+                        'id' => '3',
+                        'text' => 'Manchester United were poor and the away end knew it',
+                        'author_id' => '3',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(9)->toIso8601String(),
+                    ],
+                    [
+                        'id' => '4',
+                        'text' => 'Trump and Iran are at war tonight',
+                        'author_id' => '4',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(3)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 9000],
+                    ],
+                    [
+                        'id' => '5',
+                        'text' => 'The price of rice jumped again',
+                        'author_id' => '5',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(11)->toIso8601String(),
+                    ],
+                ],
+            ]),
+        ]);
+
+        $ranked = app(TrendEngineService::class)->rankedInNiche($user);
+        $names = array_map(fn (array $row) => $row['trend']->name, $ranked ?? []);
+
+        $this->assertSame([
+            'New leather bags just landed in the shop',
+            'Manchester United lost and the next boss is the argument',
+            'Manchester United were poor and the away end knew it',
+        ], $names);
+        $this->assertNull($ranked[0]['trend']->metadata['loyalty'] ?? null);
+        $this->assertSame('Manchester United', $ranked[1]['trend']->metadata['loyalty']);
+        $this->assertSame('Manchester United', $ranked[2]['trend']->metadata['loyalty']);
+        Http::assertSentCount(1);
+    }
+
     public function test_topics_fall_back_to_the_accounts_own_posts(): void
     {
         config(['openai.api_key' => '']);
         $user = User::factory()->create();
+        $user->accountProfile()->create([
+            'custom_niche' => 'rice',
+            'description' => 'Weeknight rice for people cooking at home.',
+            'audience' => 'Home cooks',
+            'onboarding_completed' => true,
+        ]);
         ConnectedAccount::create([
             'user_id' => $user->id,
             'platform' => 'x',
@@ -422,10 +514,12 @@ class XLiveFeaturesTest extends TestCase
             'https://api.twitter.com/2/trends/by/woeid/23424977*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/trends/by/woeid/23424975*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/trends/by/woeid/1*' => Http::response(['data' => []], 404),
-            'https://api.twitter.com/2/users/42/tweets*' => Http::response([
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
                 'data' => [[
                     'id' => '9',
-                    'text' => 'Rice again #weeknights',
+                    'text' => 'Rice again this weeknight',
+                    'author_id' => '8',
+                    'lang' => 'en',
                     'created_at' => now()->subHour()->toIso8601String(),
                     'public_metrics' => [
                         'impression_count' => 320,
@@ -440,8 +534,8 @@ class XLiveFeaturesTest extends TestCase
         $this->actingAs($user, 'sanctum')
             ->getJson('/api/trends')
             ->assertOk()
-            ->assertJsonPath('source', 'posts')
-            ->assertJsonPath('trends.0.name', 'Rice again')
+            ->assertJsonPath('source', 'home')
+            ->assertJsonPath('trends.0.name', 'Rice again this weeknight')
             ->assertJsonPath('trends.0.draft', '');
 
         $this->assertStringNotContainsString('X did not send a count', $this->actingAs($user, 'sanctum')->getJson('/api/trends')->getContent());
@@ -560,9 +654,9 @@ class XLiveFeaturesTest extends TestCase
         $this->actingAs($user, 'sanctum')
             ->getJson('/api/dashboard/platform/x')
             ->assertOk()
-            ->assertJsonPath('metrics.1.value', 200)
+            ->assertJsonPath('metrics.1.value', 5200)
             ->assertJsonPath('metrics.1.sub', 'Recent posts and comments')
-            ->assertJsonPath('metrics.2.value', 2.5);
+            ->assertJsonPath('metrics.2.value', 0.2);
 
         Http::assertSent(function ($request) {
             if (! str_contains($request->url(), '/users/42/tweets')) {
@@ -601,9 +695,9 @@ class XLiveFeaturesTest extends TestCase
         $this->actingAs($user, 'sanctum')
             ->getJson('/api/dashboard/platform/x')
             ->assertOk()
-            ->assertJsonPath('metrics.1.value', 200)
+            ->assertJsonPath('metrics.1.value', 5200)
             ->assertJsonPath('metrics.1.sub', 'Recent posts and comments')
-            ->assertJsonPath('metrics.2.value', 3);
+            ->assertJsonPath('metrics.2.value', 0.2);
     }
 
     public function test_view_counts_come_from_organic_metrics_when_public_metrics_omit_them(): void

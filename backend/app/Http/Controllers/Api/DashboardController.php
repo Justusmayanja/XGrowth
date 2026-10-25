@@ -42,12 +42,12 @@ class DashboardController extends Controller
         $topOpportunity = null;
         if ($xAccount) {
             try {
-                $topics = $this->x->accountTopics($xAccount)['topics'];
+                $topics = $this->trendEngine->topicsForPage($user)['trends'];
                 if ($topics !== []) {
                     $topOpportunity = [
                         'trend_name' => $topics[0]['name'],
                         'score' => null,
-                        'suggestion' => $topics[0]['figures'],
+                        'suggestion' => $topics[0]['draft'] ?? '',
                     ];
                 }
             } catch (Throwable) {
@@ -218,25 +218,23 @@ class DashboardController extends Controller
         }
 
         try {
-            $live = $this->x->accountTopics($account);
+            $page = $this->trendEngine->topicsForPage($request->user());
         } catch (Throwable $e) {
             report($e);
 
             return response()->json([
                 'opportunities' => [],
-                'note' => 'X did not return topics. '.$e->getMessage(),
+                'note' => 'X did not return the home timeline. '.$e->getMessage(),
             ]);
         }
 
         return response()->json([
             'opportunities' => array_map(fn (array $topic) => [
                 'name' => $topic['name'],
-                'figures' => $topic['figures'],
-                'suggestion' => $topic['figures'],
-            ], array_slice($live['topics'], 0, 5)),
-            'note' => $live['source'] === 'trends'
-                ? 'Topics X is showing for this account.'
-                : 'Topics from this account’s recent posts.',
+                'figures' => '',
+                'suggestion' => (string) ($topic['draft'] ?? ''),
+            ], array_slice($page['trends'], 0, 5)),
+            'note' => $page['note'],
         ]);
     }
 

@@ -224,7 +224,7 @@ class XApiService
     public function accountActivity(ConnectedAccount $account, ?string $niche = null): array
     {
         $nicheKey = substr(md5(mb_strtolower(trim((string) $niche))), 0, 12);
-        $cacheKey = 'x-activity:v5:'.$account->id.':'.$nicheKey;
+        $cacheKey = 'x-activity:v6:'.$account->id.':'.$nicheKey;
         $cached = Cache::get($cacheKey);
         if (is_array($cached) && isset($cached['followers'], $cached['tweets'], $cached['views_known'])) {
             return $cached;
@@ -241,8 +241,7 @@ class XApiService
 
         $user = $me->json('data') ?? [];
         $loaded = $this->ownPostsAndComments($token, (string) ($user['id'] ?? 'me'));
-        $timeline = $loaded['rows'];
-        [$chosen] = $this->rankOwnForNiche($timeline, (string) $niche);
+        $chosen = $loaded['rows'];
 
         $impressions = 0;
         $engagements = 0;
@@ -259,7 +258,7 @@ class XApiService
             $profileClicks += $row['profile_clicks'];
         }
 
-        $viewsKnown = $loaded['complete'] && $loaded['views_known'] && $this->rowsKnowViews($chosen);
+        $viewsKnown = $chosen !== [] && $loaded['complete'] && $loaded['views_known'] && $this->rowsKnowViews($chosen);
         $payload = [
             'followers' => (int) ($user['public_metrics']['followers_count'] ?? 0),
             'impressions' => $impressions,
@@ -785,48 +784,6 @@ class XApiService
     }
 
     /**
-     * When X relevancy is unavailable, keep posts and comments that match the niche
-     * and order them by the impressions X already recorded.
-     *
-     * @param  list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>  $rows
-     * @return array{0: list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>, 1: bool}
-     */
-    private function rankOwnForNiche(array $rows, string $niche): array
-    {
-        $words = $this->nicheWords($niche);
-        $byImpressions = function (array $a, array $b): int {
-            return $b['impressions'] <=> $a['impressions'];
-        };
-
-        if ($words === []) {
-            usort($rows, $byImpressions);
-
-            return [$rows, false];
-        }
-
-        $matched = [];
-        foreach ($rows as $row) {
-            $text = mb_strtolower($row['content']);
-            foreach ($words as $word) {
-                if (str_contains($text, $word)) {
-                    $matched[] = $row;
-                    break;
-                }
-            }
-        }
-
-        if ($matched === []) {
-            usort($rows, $byImpressions);
-
-            return [$rows, false];
-        }
-
-        usort($matched, $byImpressions);
-
-        return [$matched, true];
-    }
-
-    /**
      * @param  array<string, mixed>  $row
      * @return array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, profile_clicks: int, created_at: string}
      */
@@ -886,14 +843,15 @@ class XApiService
      *
      * @return list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>
      */
-    public function homeFeed(ConnectedAccount $account, string $niche): array
+    public function homeFeed(ConnectedAccount $account, string $niche, string $purpose = ''): array
     {
         $userId = (string) ($account->platform_account_id ?? '');
-        if ($userId === '' || $this->nicheWords($niche) === []) {
+        $purposeWords = $this->purposeWords($purpose);
+        if ($userId === '' || ($this->nicheWords($niche) === [] && $purposeWords === [])) {
             return [];
         }
 
-        $cacheKey = 'x-home-feed:v1:'.$account->id.':'.md5(mb_strtolower(trim($niche)));
+        $cacheKey = 'x-home-feed:v3:'.$account->id.':'.md5(mb_strtolower(trim($niche).'|'.$purpose));
         $cached = Cache::get($cacheKey);
         if (is_array($cached)) {
             return $cached;
@@ -918,7 +876,7 @@ class XApiService
         }
 
         $users = collect($response->json('includes.users') ?? [])->keyBy('id');
-        $topics = [];
+        $candidates = [];
         $seen = [];
         foreach ($response->json('data') ?? [] as $row) {
             if (! is_array($row)) {
@@ -940,14 +898,39 @@ class XApiService
             $text = trim((string) preg_replace('/https?:\/\/\S+|#\S+|@\S+/', '', (string) ($row['text'] ?? '')));
             $text = trim((string) preg_replace('/\s+/', ' ', $text));
             $key = mb_strtolower($text);
-            if ($key === '' || isset($seen[$key]) || ! $this->isEnglishPhrase($text) || ! $this->textTouchesNiche($text, $niche)) {
+            if ($key === '' || isset($seen[$key]) || ! $this->isEnglishPhrase($text)) {
                 continue;
             }
             $seen[$key] = true;
             $metrics = is_array($row['public_metrics'] ?? null) ? $row['public_metrics'] : [];
             $author = $users->get($authorId);
             $username = is_array($author) ? (string) ($author['username'] ?? '') : '';
-            $followers = (int) (is_array($author) ? ($author['public_metrics']['followers_count'] ?? 0) : 0);
+            $candidates[] = [
+                'text' => $text,
+                'tweet_id' => (string) ($row['id'] ?? ''),
+                'minutes_ago' => $minutesAgo,
+                'author' => $username !== '' ? '@'.$username : null,
+                'author_followers' => (int) (is_array($author) ? ($author['public_metrics']['followers_count'] ?? 0) : 0),
+                'metrics' => $metrics,
+            ];
+        }
+
+        $topics = [];
+        $newsIsTheAccount = $this->mentionsBlockedNews($niche.' '.$purpose);
+        foreach ($candidates as $candidate) {
+            $text = $candidate['text'];
+            $inNiche = $this->textTouchesNiche($text, $niche);
+            $forLoyalty = str_contains(mb_strtolower($text), 'united states')
+                ? str_ireplace('united states', '', $text)
+                : $text;
+            $loyalty = $inNiche ? null : $this->loyaltyIn($forLoyalty, $purposeWords);
+            if (! $inNiche && $loyalty === null) {
+                continue;
+            }
+            if ($this->mentionsBlockedNews($text) && ! $newsIsTheAccount) {
+                continue;
+            }
+            $metrics = $candidate['metrics'];
             $topic = $this->topicRow(
                 mb_substr($text, 0, 80),
                 null,
@@ -956,10 +939,13 @@ class XApiService
                 isset($metrics['reply_count']) ? (int) $metrics['reply_count'] : null,
             );
             $topic['text'] = mb_substr($text, 0, 240);
-            $topic['tweet_id'] = (string) ($row['id'] ?? '');
-            $topic['minutes_ago'] = $minutesAgo;
-            $topic['author'] = $username !== '' ? '@'.$username : null;
-            $topic['author_followers'] = $followers;
+            $topic['tweet_id'] = $candidate['tweet_id'];
+            $topic['minutes_ago'] = $candidate['minutes_ago'];
+            $topic['author'] = $candidate['author'];
+            $topic['author_followers'] = $candidate['author_followers'];
+            if ($loyalty !== null) {
+                $topic['loyalty'] = $loyalty;
+            }
             $topics[] = $topic;
             if (count($topics) === 6) {
                 break;
@@ -1233,6 +1219,87 @@ class XApiService
         }
 
         return true;
+    }
+
+    /**
+     * Words from the description and the audience. A timeline post has to share one.
+     *
+     * @return list<string>
+     */
+    private function purposeWords(string $purpose): array
+    {
+        return array_slice($this->distinctiveWords($purpose), 0, 12);
+    }
+
+    /**
+     * @param  list<string>  $worlds
+     */
+    private function loyaltyIn(string $text, array $worlds): ?string
+    {
+        $haystack = mb_strtolower($text);
+        $found = [];
+        foreach ($worlds as $word) {
+            if (str_contains($haystack, $word)) {
+                $found[] = $word;
+            }
+        }
+        if ($found === []) {
+            return null;
+        }
+
+        usort($found, fn (string $a, string $b) => mb_strpos($haystack, $a) <=> mb_strpos($haystack, $b));
+
+        return implode(' ', array_map(
+            fn (string $word) => mb_convert_case($word, MB_CASE_TITLE, 'UTF-8'),
+            array_slice($found, 0, 2),
+        ));
+    }
+
+    private function mentionsBlockedNews(string $text): bool
+    {
+        $haystack = mb_strtolower($text);
+        foreach (['war', 'wars', 'trump', 'iran', 'israel', 'gaza', 'putin', 'ukraine', 'nato', 'biden', 'hamas', 'missile', 'missiles', 'airstrike', 'invasion', 'politician', 'election', 'bombing', 'bombs'] as $word) {
+            if (preg_match('/\b'.preg_quote($word, '/').'\b/u', $haystack) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function distinctiveWords(string $text): array
+    {
+        $phrase = mb_strtolower((string) preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $text));
+        $words = preg_split('/\s+/', trim($phrase)) ?: [];
+        $stop = [
+            'that', 'this', 'with', 'from', 'your', 'have', 'been', 'were', 'will', 'they', 'them',
+            'what', 'when', 'where', 'which', 'while', 'after', 'before', 'their', 'there', 'about',
+            'would', 'could', 'should', 'other', 'first', 'next', 'last', 'time', 'said', 'says',
+            'really', 'think', 'know', 'people', 'because', 'thing', 'things', 'something', 'someone',
+            'everyone', 'nothing', 'always', 'never', 'today', 'tonight', 'again', 'still', 'more',
+            'some', 'into', 'over', 'than', 'then', 'only', 'even', 'also', 'back', 'down', 'like',
+            'just', 'want', 'need', 'make', 'made', 'take', 'took', 'come', 'came', 'look', 'looks',
+            'feel', 'feels', 'going', 'good', 'bad', 'best', 'much', 'many', 'very', 'well', 'right',
+            'lost', 'loss', 'scored', 'score', 'game', 'goal', 'goals', 'match', 'team', 'side',
+            'fans', 'club', 'manager', 'coach', 'season', 'league', 'points', 'night', 'morning',
+            'week', 'year', 'years', 'post', 'posts', 'news', 'live', 'home', 'here', 'dont', 'does',
+            'getting', 'being', 'been', 'just', 'who', 'him', 'his', 'her', 'she', 'the', 'and',
+            'account', 'content', 'followers', 'follower', 'promote', 'business', 'customers',
+            'customer', 'audience', 'brand', 'growth', 'social', 'media', 'online', 'shop', 'sells',
+            'sell', 'also', 'handmade', 'people', 'young',
+        ];
+        $out = [];
+        foreach ($words as $word) {
+            if (! is_string($word) || mb_strlen($word) < 4 || in_array($word, $stop, true)) {
+                continue;
+            }
+            $out[$word] = true;
+        }
+
+        return array_keys($out);
     }
 
     private function textTouchesNiche(string $text, string $niche): bool

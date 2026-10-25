@@ -265,8 +265,8 @@ function XBody({ desk }: { desk: Desk }) {
           title="Topics"
           description={
             moments
-              ? `${moments} English posts from what people are talking about.`
-              : "English posts from what people are talking about."
+              ? `${moments} from this account's home timeline, kept when they fit the description.`
+              : "From this account's home timeline, kept when they fit the description."
           }
           action={
             <Link href="/trends" className="text-sm text-muted-foreground hover:text-foreground">

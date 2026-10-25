@@ -215,6 +215,8 @@ Other rules:
 - This is not a schedule. POST when a new moment is actually happening inside this niche: a goal, a price jump in this niche, a decision this niche would post, a large account in this niche saying something new.
 - A new beat of an event already posted about can be POST. The same sentence cannot.
 - Stay in the niche. IGNORE a war, a politician, a celebrity, or any worldwide trend this niche would not post. A high follower count does not make an outside topic relevant.
+- A supplied trend is already from this account's home timeline. It still has to fit the description and the people the account is for. IGNORE it when those people would not care. The aim (grow followers, promote the business, or whatever the profile says) decides the point of the post, not a new subject.
+- A trend with life set is a second loyalty that keeps appearing on this account's own timeline, such as a bag seller who also follows a club. That loyalty is part of this account. POST it as that person, not as an advert for the shop. A war or a politician is still IGNORE.
 - Another match can be POST only when it is already one of the supplied trends and it is the same sport. A price or a rule can be POST only when this niche is money and that item is already one of the supplied trends.
 - content_angle is the opinion, not a summary of the news and not a plan.
 - If a trend is marked adjacent, only choose it when someone in this niche would actually care.
