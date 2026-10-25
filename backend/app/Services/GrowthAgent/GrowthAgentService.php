@@ -83,23 +83,7 @@ class GrowthAgentService
 
         $prefilterLimit = max(1, $this->settings->getInt('growth_brain_prefilter_limit', 5));
         $fromNiche = $this->trends->rankedInNiche($user);
-        $fromAccount = $this->trends->rankedFromAccount($user);
-        if (is_array($fromNiche) && $fromNiche !== []) {
-            $ranked = array_slice($fromNiche, 0, $prefilterLimit);
-        } elseif (is_array($fromAccount) && $fromAccount !== []) {
-            $ranked = array_slice($fromAccount, 0, $prefilterLimit);
-        } else {
-            try {
-                $this->trends->ensureCurrentTrends($user);
-            } catch (Throwable $e) {
-                Log::warning('Could not refresh live conversations', [
-                    'user_id' => $user->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-
-            $ranked = $this->opportunityScorer->rankedForProfile($profile, $prefilterLimit);
-        }
+        $ranked = is_array($fromNiche) ? array_slice($fromNiche, 0, $prefilterLimit) : [];
 
         if ($ranked === []) {
             $this->growthBrain->noteHeat($user->id, false);
@@ -605,6 +589,10 @@ class GrowthAgentService
 
         if (($contentSource === 'original' || trim((string) $trend?->name) === '') && ! $this->silenceHasRunLong($user)) {
             return 'Nothing loud is happening, so nothing goes live.';
+        }
+
+        if ($trend === null) {
+            return null;
         }
 
         if ($this->beatAlreadyPosted($user, $trend)) {

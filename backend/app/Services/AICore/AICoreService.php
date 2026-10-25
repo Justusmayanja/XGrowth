@@ -90,7 +90,7 @@ class AICoreService
         }
 
         if (! empty($params['stay_in_niche'])) {
-            $userPrompt .= "This post is for automation. Write one view a person would actually type. The subject can be this niche or something loud beside it. Do not write a match report, a price bulletin, or a plan.\n";
+            $userPrompt .= "This post is for automation. Write one view a person in this niche would actually type. Stay on this niche. Do not write about a war, a politician, or a story outside it.\n";
         }
 
         if (! empty($params['planner_hint'])) {
@@ -223,7 +223,8 @@ PROMPT;
         }
 
         $text = "\nJoin a conversation that is already happening. The conversation is the hook. Write from this account's side. This account's point of view is the twist.\n";
-        $text .= "The conversation does not have to be about this account. Take it anyway, the way a person in their world would. A club account can have a view on another match. A lender or a crypto account can have a view on a price or a rule that just moved.\n";
+        $text .= "The conversation is already inside this niche. Stay on it. Do not switch to a war, a politician, or any story this niche would not post.\n";
+        $text .= "Another match is allowed only when this conversation is already about that match and it is the same sport. A price or a rule is allowed only when this niche is money and the conversation is already about that price or rule.\n";
         $text .= "Pattern, do not copy these situations: everyone is talking about businesses losing money and costs going up, and the account lends money, so the post is the lender's side of that pain. Everyone is praising two rival teams for being in form, and the account is the third club, so the post answers that praise from the third club's side.\n";
         $text .= "Write a view, the way a person types after seeing it. Not a bulletin, not a plan, not a list of tips. One opinion. Length should change: sometimes one sentence, sometimes two.\n";
         $text .= "Do not explain the link. Do not start with \"as a\". Do not copy another account's sentence.\n";
@@ -232,7 +233,7 @@ PROMPT;
         if ($name !== '') {
             $text .= "The conversation to join: {$name}. Answer what is specifically happening in it. Do not describe the account instead.\n";
         } elseif ($useWebSearch) {
-            $text .= "No conversation was named. Search for what people are actually talking about today and join the loudest specific one. A name, a price, a score, or a decision. Not a category.\n";
+            $text .= "No conversation was named. Search inside this niche only. Do not join the loudest story on the wider internet.\n";
         } else {
             $text .= "No live conversation was named. Still write a specific take from this point of view. Do not write the account notes back to the reader.\n";
         }
@@ -283,7 +284,7 @@ PROMPT;
 
         if (! empty($suggest['trends'])) {
             $text .= '- Conversations happening now: '.implode('; ', $suggest['trends'])."\n";
-            $text .= "  Join one from this account's side, even when it is about someone or something else.\n";
+            $text .= "  Join one of these from this account's side. Do not replace it with a story from outside this niche.\n";
         }
 
         if (! empty($suggest['evergreen'])) {
@@ -292,7 +293,7 @@ PROMPT;
 
         $text .= match ($suggest['prefer'] ?? 'balanced') {
             'original' => "- Recent posts already joined the news. Still join a conversation, and let this account's opinion be the larger part.\n",
-            'trend' => "- Join the loudest conversation. The account's point of view is the twist, not a caption on the news.\n",
+            'trend' => "- Join the niche conversation that was named. The account's point of view is the twist, not a caption on unrelated news.\n",
             default => "- Join one live conversation. The post should only make sense because of who this account is.\n",
         };
 
@@ -339,9 +340,14 @@ PROMPT;
 
         $systemPrompt = 'You find real public conversations happening today. You do not invent topics and you do not return categories.';
         $userPrompt = 'Today is '.now()->toFormattedDateString().".\n";
+        $niche = trim((string) ($user->accountProfile?->resolvedNiche() ?? ''));
+        if ($niche !== '' && ! in_array(strtolower($niche), ['your niche', 'general', 'niche'], true)) {
+            $userPrompt .= "Only conversations inside this niche: {$niche}. Leave out wars, politicians, and any story this niche would not post.\n";
+        }
         $userPrompt .= <<<'PROMPT'
-Use web search. What are people actually talking about right now, in the news and on social media?
-Return 5 specific conversations. Each name should be something a person would recognize today: a match, a price, a person, a decision, a clip. Not "market debate" or "motivation".
+Use web search. What are people in this niche actually talking about right now?
+Return 5 specific conversations inside that niche. Each name should be something a person in the niche would recognize today: a match, a price, a person, a decision, a clip. Not "market debate" or "motivation".
+Leave out wars, politicians, and worldwide news unless the niche itself is that subject.
 Only include a role, a score, or a price if search confirms it today. A former coach, an old rate, or yesterday's score is not current.
 
 Return JSON:

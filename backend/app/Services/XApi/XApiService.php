@@ -224,7 +224,7 @@ class XApiService
     public function accountActivity(ConnectedAccount $account, ?string $niche = null): array
     {
         $nicheKey = substr(md5(mb_strtolower(trim((string) $niche))), 0, 12);
-        $cacheKey = 'x-activity:v4:'.$account->id.':'.$nicheKey;
+        $cacheKey = 'x-activity:v5:'.$account->id.':'.$nicheKey;
         $cached = Cache::get($cacheKey);
         if (is_array($cached) && isset($cached['followers'], $cached['tweets'], $cached['views_known'])) {
             return $cached;
@@ -242,30 +242,19 @@ class XApiService
         $user = $me->json('data') ?? [];
         $loaded = $this->ownPostsAndComments($token, (string) ($user['id'] ?? 'me'));
         $timeline = $loaded['rows'];
-        $byId = [];
-        foreach ($timeline as $row) {
-            $byId[$row['id']] = $row;
-        }
-
-        $rankedForNiche = false;
-        try {
-            $ranked = $this->nicheRankedOwn($token, $account, (string) $niche);
-        } catch (\Throwable) {
-            $ranked = [];
-        }
-
-        if ($ranked !== []) {
-            $chosen = $this->withOwnedMetrics($ranked, $byId);
-            $rankedForNiche = true;
-        } else {
-            [$chosen, $rankedForNiche] = $this->rankOwnForNiche($timeline, (string) $niche);
-        }
+        [$chosen] = $this->rankOwnForNiche($timeline, (string) $niche);
 
         $impressions = 0;
         $engagements = 0;
+        $likes = 0;
+        $replies = 0;
+        $reposts = 0;
         $profileClicks = 0;
         foreach ($chosen as $row) {
             $impressions += $row['impressions'];
+            $likes += $row['likes'];
+            $replies += $row['replies'];
+            $reposts += $row['reposts'];
             $engagements += $row['likes'] + $row['reposts'] + $row['replies'];
             $profileClicks += $row['profile_clicks'];
         }
@@ -274,14 +263,18 @@ class XApiService
         $payload = [
             'followers' => (int) ($user['public_metrics']['followers_count'] ?? 0),
             'impressions' => $impressions,
+            'engagements' => $engagements,
+            'likes' => $likes,
+            'replies' => $replies,
+            'reposts' => $reposts,
             'engagement_rate' => $viewsKnown && $impressions > 0 ? round(($engagements / $impressions) * 100, 1) : 0,
             'profile_clicks' => $profileClicks,
             'views_known' => $viewsKnown,
-            'ranked_for_niche' => $rankedForNiche,
+            'ranked_for_niche' => false,
             'tweets' => $chosen,
         ];
 
-        if ($viewsKnown) {
+        if ($loaded['complete']) {
             Cache::put($cacheKey, $payload, now()->addMinutes(10));
         }
 
@@ -888,6 +881,97 @@ class XApiService
     }
 
     /**
+     * Recent posts on this account's home timeline that belong to the niche.
+     * One small pull. It does not search the rest of X.
+     *
+     * @return list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>
+     */
+    public function homeFeed(ConnectedAccount $account, string $niche): array
+    {
+        $userId = (string) ($account->platform_account_id ?? '');
+        if ($userId === '' || $this->nicheWords($niche) === []) {
+            return [];
+        }
+
+        $cacheKey = 'x-home-feed:v1:'.$account->id.':'.md5(mb_strtolower(trim($niche)));
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        try {
+            $response = Http::withToken($this->accessToken($account))->timeout(8)->get(
+                'https://api.twitter.com/2/users/'.$userId.'/timelines/reverse_chronological',
+                [
+                    'max_results' => 20,
+                    'tweet.fields' => 'public_metrics,created_at,author_id,lang',
+                    'expansions' => 'author_id',
+                    'user.fields' => 'username,public_metrics',
+                ],
+            );
+        } catch (\Throwable) {
+            return [];
+        }
+
+        if ($response->failed()) {
+            return [];
+        }
+
+        $users = collect($response->json('includes.users') ?? [])->keyBy('id');
+        $topics = [];
+        $seen = [];
+        foreach ($response->json('data') ?? [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $authorId = (string) ($row['author_id'] ?? '');
+            if ($authorId !== '' && $authorId === $userId) {
+                continue;
+            }
+            $lang = (string) ($row['lang'] ?? '');
+            if ($lang !== '' && $lang !== 'en') {
+                continue;
+            }
+            $created = isset($row['created_at']) ? \Illuminate\Support\Carbon::parse($row['created_at']) : null;
+            $minutesAgo = $created ? (int) abs($created->diffInMinutes(now())) : null;
+            if ($minutesAgo !== null && $minutesAgo > 12 * 60) {
+                continue;
+            }
+            $text = trim((string) preg_replace('/https?:\/\/\S+|#\S+|@\S+/', '', (string) ($row['text'] ?? '')));
+            $text = trim((string) preg_replace('/\s+/', ' ', $text));
+            $key = mb_strtolower($text);
+            if ($key === '' || isset($seen[$key]) || ! $this->isEnglishPhrase($text) || ! $this->textTouchesNiche($text, $niche)) {
+                continue;
+            }
+            $seen[$key] = true;
+            $metrics = is_array($row['public_metrics'] ?? null) ? $row['public_metrics'] : [];
+            $author = $users->get($authorId);
+            $username = is_array($author) ? (string) ($author['username'] ?? '') : '';
+            $followers = (int) (is_array($author) ? ($author['public_metrics']['followers_count'] ?? 0) : 0);
+            $topic = $this->topicRow(
+                mb_substr($text, 0, 80),
+                null,
+                isset($metrics['impression_count']) ? (int) $metrics['impression_count'] : null,
+                isset($metrics['like_count']) ? (int) $metrics['like_count'] : null,
+                isset($metrics['reply_count']) ? (int) $metrics['reply_count'] : null,
+            );
+            $topic['text'] = mb_substr($text, 0, 240);
+            $topic['tweet_id'] = (string) ($row['id'] ?? '');
+            $topic['minutes_ago'] = $minutesAgo;
+            $topic['author'] = $username !== '' ? '@'.$username : null;
+            $topic['author_followers'] = $followers;
+            $topics[] = $topic;
+            if (count($topics) === 6) {
+                break;
+            }
+        }
+
+        Cache::put($cacheKey, $topics, now()->addMinutes($topics === [] ? 3 : 4));
+
+        return $topics;
+    }
+
+    /**
      * English posts people are writing in this niche right now.
      *
      * @return list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>
@@ -899,7 +983,7 @@ class XApiService
             return [];
         }
 
-        $cacheKey = 'x-niche-topics:v3:'.$account->id.':'.md5(mb_strtolower($query));
+        $cacheKey = 'x-niche-topics:v4:'.$account->id.':'.md5(mb_strtolower($query));
         $cached = Cache::get($cacheKey);
         if (is_array($cached)) {
             return $cached;
@@ -937,7 +1021,7 @@ class XApiService
             $text = trim((string) preg_replace('/https?:\/\/\S+|#\S+|@\S+/', '', (string) ($row['text'] ?? '')));
             $text = trim((string) preg_replace('/\s+/', ' ', $text));
             $key = mb_strtolower($text);
-            if ($key === '' || isset($seen[$key]) || ! $this->isEnglishPhrase($text)) {
+            if ($key === '' || isset($seen[$key]) || ! $this->isEnglishPhrase($text) || ! $this->textHasNicheWords($text, $niche)) {
                 continue;
             }
             $seen[$key] = true;
@@ -1131,11 +1215,44 @@ class XApiService
             return null;
         }
 
-        $terms = count($words) > 1
-            ? '("'.implode(' ', array_slice($words, 0, 4)).'" OR '.implode(' OR ', $words).')'
-            : $words[0];
+        return implode(' ', $words).' -is:retweet';
+    }
 
-        return $terms.' -is:retweet';
+    private function textHasNicheWords(string $text, string $niche): bool
+    {
+        $words = $this->nicheWords($niche);
+        if ($words === []) {
+            return false;
+        }
+
+        $haystack = mb_strtolower($text);
+        foreach ($words as $word) {
+            if (! str_contains($haystack, $word)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function textTouchesNiche(string $text, string $niche): bool
+    {
+        $words = array_values(array_filter(
+            $this->nicheWords($niche),
+            fn (string $word) => ! in_array($word, ['man', 'news', 'sports', 'today', 'live', 'official', 'updates', 'media', 'world', 'people', 'account', 'home'], true)
+        ));
+        if ($words === []) {
+            return $this->textHasNicheWords($text, $niche);
+        }
+
+        $haystack = mb_strtolower($text);
+        foreach ($words as $word) {
+            if (str_contains($haystack, $word)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function authenticatedUserId(string $token): string

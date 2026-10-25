@@ -16,7 +16,16 @@ type Props = {
   xConnected?: boolean;
 };
 
-const CONTROLLED = AUTOMATION_LEVELS.filter((level) => level.value < 3);
+const POSTING_MODES = [
+  AUTOMATION_LEVELS.find((level) => level.value === 3)!,
+  {
+    value: 1,
+    label: "Confirm before posting",
+    hint: "It drafts the post and waits for your yes.",
+  },
+  AUTOMATION_LEVELS.find((level) => level.value === 2)!,
+  AUTOMATION_LEVELS.find((level) => level.value === 0)!,
+];
 
 export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
   const [settings, setSettings] = useState<AutomationSettings | null>(initial);
@@ -81,15 +90,6 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
   const full = settings.automation_level >= 3;
   const paused = settings.engine_paused;
   const willPost = !paused && settings.auto_post_enabled && settings.automation_level >= 2;
-  const status = paused
-    ? "Paused. Nothing is posted until you turn pause off."
-    : full && settings.auto_post_enabled
-      ? "Full automation is on. It posts when something is actually happening, including while you are offline. It skips some big accounts. A quiet stretch can last a few hours, and it does not run past about four."
-      : full
-        ? "Full automation is selected, but posting is off. Turn on “Post on its own” or nothing goes live."
-        : settings.automation_level === 2 && settings.auto_post_enabled
-          ? "Controlled. Strong moments can be posted for you. Everything else stays a draft until you say yes."
-          : "Controlled. Mackie17 drafts, and you decide what goes live.";
 
   return (
     <Card className={paused ? "border-amber-500/40" : full && willPost ? "border-primary/50" : ""}>
@@ -97,9 +97,6 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
         <div className="flex flex-wrap items-center gap-2">
           <CardTitle>X posting</CardTitle>
           {paused && <Badge variant="outline">Paused</Badge>}
-          {!paused && full && settings.auto_post_enabled && <Badge>Full automation</Badge>}
-          {!paused && !willPost && <Badge variant="secondary">Controlled</Badge>}
-          {!paused && !full && willPost && <Badge variant="secondary">Strong moments</Badge>}
         </div>
         <CardDescription>
           Choose who presses publish on X. A switch applies immediately, including while you are offline.
@@ -108,96 +105,45 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
       </CardHeader>
       <CardContent>
         <div className="space-y-5">
-          <p
-            className={cn(
-              "rounded-lg border px-4 py-3 text-sm",
-              willPost && full ? "border-primary/40 bg-primary/10" : "border-border bg-muted/40"
-            )}
-          >
-            {status}
-          </p>
-
-          <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="How X posts">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={full}
-              onClick={() => patch({ automation_level: 3, auto_post_enabled: true })}
-              className={cn(
-                "rounded-lg border p-4 text-left transition-colors",
-                full ? "border-primary bg-primary/10" : "border-border hover:bg-muted"
-              )}
-            >
-              <span className="flex items-center justify-between gap-3">
-                <span className="font-semibold">Full automation</span>
-                <span className={cn("text-xs font-semibold uppercase", full ? "text-primary" : "text-muted-foreground")}>
-                  {full ? "On" : "Off"}
-                </span>
-              </span>
-              <span className="mt-2 block text-sm text-muted-foreground">
-                Drafts a post, checks whether people in your niche would share it, and publishes it while you are away.
-              </span>
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={!full}
-              onClick={() => {
-                if (settings.automation_level >= 3) {
-                  patch({ automation_level: 1, auto_post_enabled: false });
-                }
-              }}
-              className={cn(
-                "rounded-lg border p-4 text-left transition-colors",
-                !full ? "border-primary bg-primary/10" : "border-border hover:bg-muted"
-              )}
-            >
-              <span className="flex items-center justify-between gap-3">
-                <span className="font-semibold">Controlled</span>
-                <span className={cn("text-xs font-semibold uppercase", !full ? "text-primary" : "text-muted-foreground")}>
-                  {!full ? "On" : "Off"}
-                </span>
-              </span>
-              <span className="mt-2 block text-sm text-muted-foreground">
-                You stay in charge. Pick how much Mackie17 does, then use the switches below.
-              </span>
-            </button>
-          </div>
-
-          {!full && (
-            <div className="space-y-2" role="radiogroup" aria-label="Controlled options">
-              <p className="text-sm font-medium">How much you stay involved</p>
-              {CONTROLLED.map((level) => {
-                const selected = settings.automation_level === level.value;
+          <div className="space-y-2">
+            <p className="text-sm font-medium">How it posts</p>
+            <div className="flex flex-col gap-2" role="radiogroup" aria-label="How it posts">
+              {POSTING_MODES.map((mode) => {
+                const selected = settings.automation_level === mode.value;
                 return (
                   <button
-                    key={level.value}
+                    key={mode.value}
                     type="button"
                     role="radio"
                     aria-checked={selected}
                     onClick={() =>
                       patch({
-                        automation_level: level.value,
-                        auto_post_enabled: level.value >= 2,
+                        automation_level: mode.value,
+                        auto_post_enabled: mode.value >= 2,
                       })
                     }
-                    className={cn(
-                      "flex w-full items-center justify-between gap-4 rounded-lg border p-4 text-left",
-                      selected ? "border-primary bg-primary/10" : "border-border hover:bg-muted"
-                    )}
+                    className={`choice-row ${selected ? "is-on" : ""}`}
                   >
-                    <span>
-                      <span className="block font-medium">{level.label}</span>
-                      <span className="mt-1 block text-sm text-muted-foreground">{level.hint}</span>
-                    </span>
-                    <span className="shrink-0 text-xs font-semibold uppercase text-muted-foreground">
-                      {selected ? "On" : "Off"}
+                    <span className="flex items-start gap-3">
+                      <span
+                        className={cn(
+                          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                          selected ? "border-primary" : "border-muted-foreground"
+                        )}
+                        aria-hidden
+                      >
+                        {selected ? <span className="h-2 w-2 rounded-full bg-primary" /> : null}
+                      </span>
+                      <span>
+                        <strong>{mode.label}</strong>
+                        <em>{mode.hint}</em>
+                      </span>
                     </span>
                   </button>
                 );
               })}
             </div>
-          )}
+          </div>
 
           {full && !xConnected && (
             <p className="text-sm text-muted-foreground">
@@ -206,7 +152,6 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
           )}
 
           <div className="space-y-3 border-t border-border pt-4">
-            <p className="text-sm font-medium">Switches</p>
             <SettingsToggle
               id="engine_paused"
               label="Pause Mackie17"

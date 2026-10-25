@@ -36,6 +36,10 @@ type AnalyticsData = {
     followers: number | null;
     followers_change_7d: number | null;
     impressions_7d: number | null;
+    reactions_7d?: number | null;
+    likes_7d?: number | null;
+    replies_7d?: number | null;
+    reposts_7d?: number | null;
     avg_engagement_rate: number | null;
     profile_visits_7d: number | null;
   };
@@ -110,14 +114,22 @@ export default function AnalyticsPage() {
             sub: "Today's total. X does not send the last 7 days.",
           },
           {
-            label: "Impressions (7d)",
-            value: figure(summary.impressions_7d),
-            sub: data.views_known ? "Total reach this week" : "Views did not come back from X",
+            label: data.views_known === false ? "Reactions" : "Impressions (7d)",
+            value: figure(data.views_known === false ? (summary.reactions_7d ?? null) : summary.impressions_7d),
+            sub: data.views_known === false
+              ? "Likes, replies, and reposts. X did not send view counts."
+              : "Total reach this week",
           },
           {
-            label: "Engagement rate",
-            value: summary.avg_engagement_rate == null ? "—" : `${summary.avg_engagement_rate}%`,
-            sub: data.views_known ? "7-day average" : "Views did not come back from X",
+            label: data.views_known === false ? "Replies" : "Engagement rate",
+            value: data.views_known === false
+              ? figure(summary.replies_7d ?? null)
+              : summary.avg_engagement_rate == null
+                ? "—"
+                : `${summary.avg_engagement_rate}%`,
+            sub: data.views_known === false
+              ? `${summary.likes_7d ?? 0} likes · ${summary.reposts_7d ?? 0} reposts`
+              : "7-day average",
           },
           {
             label: "Profile visits (7d)",

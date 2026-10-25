@@ -103,6 +103,10 @@ class AnalyticsController extends Controller
                 'followers' => $activity['followers'],
                 'followers_change_7d' => null,
                 'impressions_7d' => $viewsKnown ? array_sum(array_column($week, 'impressions')) : null,
+                'reactions_7d' => (int) ($activity['engagements'] ?? array_sum(array_column($week, 'engagements'))),
+                'likes_7d' => (int) ($activity['likes'] ?? 0),
+                'replies_7d' => (int) ($activity['replies'] ?? 0),
+                'reposts_7d' => (int) ($activity['reposts'] ?? 0),
                 'avg_engagement_rate' => $viewsKnown ? round(array_sum(array_column($week, 'engagement_rate')) / 7, 1) : null,
                 'profile_visits_7d' => $viewsKnown ? array_sum(array_column($week, 'profile_clicks')) : null,
             ],
@@ -113,7 +117,7 @@ class AnalyticsController extends Controller
                 ? (($activity['ranked_for_niche'] ?? false)
                     ? 'Follower count is current. Impressions are from your recent posts and comments, ranked by X for your niche. X does not provide a 30-day follower history here.'
                     : 'Follower count is current. Impressions are from your recent posts and comments. X does not provide a 30-day follower history here.')
-                : 'Follower count is current. Views did not come back from X, so impressions and engagement are left blank. X does not provide a 30-day follower history here.',
+                : 'Follower count is current. X did not send view counts, so reactions are likes, replies, and reposts from your recent posts. X does not provide a 30-day follower history here.',
         ]);
     }
 

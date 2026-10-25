@@ -113,7 +113,7 @@ class XLiveFeaturesTest extends TestCase
                     ]],
                 ],
             ]),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response(['data' => []]),
         ]);
 
         $this->actingAs($user, 'sanctum')
@@ -171,7 +171,7 @@ class XLiveFeaturesTest extends TestCase
                     ]],
                 ],
             ]),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response(['data' => []]),
         ]);
 
         $this->actingAs($user, 'sanctum')
@@ -212,42 +212,49 @@ class XLiveFeaturesTest extends TestCase
                     ['trend_name' => '#集えNIKKE4周年'],
                 ],
             ]),
-        ]);
-
-        OpenAI::fake([
-            CreateResponse::fake([
-                'choices' => [[
-                    'message' => ['content' => json_encode(['topics' => [
-                        ['name' => 'Arsenal and City in form', 'angle' => 'Answer the form table from this club.', 'draft' => 'City and Arsenal are flying. We already had this standard.'],
-                        ['name' => 'Nicolas Jackson', 'angle' => 'A forward the league is watching.', 'draft' => 'Jackson is the name tonight. The standard here was already set.'],
-                        ['name' => 'Not on the list', 'angle' => 'Invented.', 'draft' => 'This should be dropped.'],
-                    ]])],
-                ]],
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
+                'data' => [
+                    [
+                        'id' => '10',
+                        'text' => 'Manchester United lost and the next manager is the argument',
+                        'author_id' => '8',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(6)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 20, 'reply_count' => 3],
+                    ],
+                    [
+                        'id' => '11',
+                        'text' => 'Trump and Iran are at war tonight',
+                        'author_id' => '7',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(4)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 4000, 'reply_count' => 80],
+                    ],
+                ],
+                'includes' => [
+                    'users' => [
+                        ['id' => '8', 'username' => 'utdnews', 'public_metrics' => ['followers_count' => 120000]],
+                        ['id' => '7', 'username' => 'worldnews', 'public_metrics' => ['followers_count' => 5000000]],
+                    ],
+                ],
             ]),
         ]);
 
         $this->actingAs($user, 'sanctum')
             ->getJson('/api/trends')
             ->assertOk()
-            ->assertJsonPath('source', 'trends')
-            ->assertJsonCount(2, 'trends')
-            ->assertJsonPath('trends.0.name', 'Arsenal and City in form')
-            ->assertJsonPath('trends.0.draft', 'City and Arsenal are flying. We already had this standard.')
-            ->assertJsonMissing(['name' => 'Not on the list'])
-            ->assertJsonMissing(['name' => '日本シリーズ']);
+            ->assertJsonPath('source', 'home')
+            ->assertJsonCount(1, 'trends')
+            ->assertJsonPath('trends.0.name', 'Manchester United lost and the next manager is the argument')
+            ->assertJsonPath('trends.0.draft', '')
+            ->assertJsonMissing(['name' => 'Arsenal and City in form'])
+            ->assertJsonMissing(['name' => 'Trump and Iran are at war tonight']);
 
         $this->actingAs($user, 'sanctum')
             ->getJson('/api/trends')
-            ->assertJsonPath('trends.0.draft', 'City and Arsenal are flying. We already had this standard.');
+            ->assertJsonPath('trends.0.name', 'Manchester United lost and the next manager is the argument');
 
         Http::assertSentCount(1);
-        OpenAI::assertSent(Chat::class, function (string $method, array $parameters): bool {
-            $prompt = $parameters['messages'][1]['content'];
-
-            return str_contains($prompt, 'Arsenal and City in form')
-                && str_contains($prompt, 'Never quote them')
-                && str_contains($prompt, "Write from this account's side");
-        });
     }
 
     public function test_topics_skip_other_languages_and_hashtags(): void
@@ -316,12 +323,12 @@ class XLiveFeaturesTest extends TestCase
         ]);
 
         Http::fake([
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response([
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
                 'data' => [
                     ['id' => '1', 'text' => 'たかほー #sbhawks', 'public_metrics' => ['like_count' => 4]],
                     [
                         'id' => '2',
-                        'text' => 'Rice prices jumped again this week',
+                        'text' => 'Budget cooking rice prices jumped again this week',
                         'public_metrics' => ['like_count' => 9, 'impression_count' => 100],
                     ],
                 ],
@@ -332,7 +339,68 @@ class XLiveFeaturesTest extends TestCase
 
         $this->assertNotNull($ranked);
         $this->assertCount(1, $ranked);
-        $this->assertSame('Rice prices jumped again this week', $ranked[0]['trend']->name);
+        $this->assertSame('Budget cooking rice prices jumped again this week', $ranked[0]['trend']->name);
+    }
+
+    public function test_a_worldwide_trend_is_not_added_to_a_niche_account(): void
+    {
+        $user = User::factory()->create();
+        $user->accountProfile()->create([
+            'custom_niche' => 'Man United',
+            'onboarding_completed' => true,
+        ]);
+        ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'mackie',
+            'access_token' => 'user-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
+                'data' => [
+                    [
+                        'id' => '9',
+                        'text' => 'Trump and Iran are at war tonight',
+                        'author_id' => '7',
+                        'created_at' => now()->subMinutes(8)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 4000, 'reply_count' => 800],
+                    ],
+                    [
+                        'id' => '10',
+                        'text' => 'Man United have scored and the ground has gone',
+                        'author_id' => '8',
+                        'created_at' => now()->subMinutes(6)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 20, 'reply_count' => 3],
+                    ],
+                ],
+                'includes' => [
+                    'users' => [
+                        ['id' => '7', 'username' => 'worldnews', 'public_metrics' => ['followers_count' => 5000000]],
+                        ['id' => '8', 'username' => 'utdnews', 'public_metrics' => ['followers_count' => 120000]],
+                    ],
+                ],
+            ]),
+            'https://api.twitter.com/2/trends/by/woeid/1*' => Http::response([
+                'data' => [
+                    ['trend_name' => 'Trump and Iran', 'tweet_count' => 90000],
+                ],
+            ]),
+        ]);
+
+        $ranked = app(TrendEngineService::class)->rankedInNiche($user);
+
+        $this->assertCount(1, $ranked);
+        $this->assertSame('Man United have scored and the ground has gone', $ranked[0]['trend']->name);
+        $this->assertStringNotContainsString('Trump', json_encode($ranked));
+
+        Http::assertSent(function ($request) {
+            return str_contains($request->url(), '/users/42/timelines/reverse_chronological');
+        });
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/tweets/search/recent'));
     }
 
     public function test_topics_fall_back_to_the_accounts_own_posts(): void
@@ -419,7 +487,7 @@ class XLiveFeaturesTest extends TestCase
                     ]],
                 ],
             ]),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response(['data' => []]),
         ]);
 
         $this->actingAs($user, 'sanctum')
@@ -481,7 +549,7 @@ class XLiveFeaturesTest extends TestCase
                     $this->ownTweet('3', 'same, budget cooking is how I do rice', 80, comment: true),
                 ],
             ]),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response([
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
                 'data' => [
                     $this->ownTweet('3', 'same, budget cooking is how I do rice', 80, comment: true),
                     $this->ownTweet('2', 'a cheap dinner for budget cooking', 120),
@@ -493,21 +561,8 @@ class XLiveFeaturesTest extends TestCase
             ->getJson('/api/dashboard/platform/x')
             ->assertOk()
             ->assertJsonPath('metrics.1.value', 200)
-            ->assertJsonPath('metrics.1.sub', 'Posts and comments, ranked for your niche')
+            ->assertJsonPath('metrics.1.sub', 'Recent posts and comments')
             ->assertJsonPath('metrics.2.value', 2.5);
-
-        Http::assertSent(function ($request) {
-            if (! str_contains($request->url(), '/tweets/search/recent')) {
-                return false;
-            }
-
-            $query = (string) ($request->data()['query'] ?? '');
-
-            return ($request->data()['sort_order'] ?? '') === 'relevancy'
-                && str_contains($query, 'from:mackie')
-                && str_contains($query, 'cooking')
-                && ! str_contains($query, '-is:reply');
-        });
 
         Http::assertSent(function ($request) {
             if (! str_contains($request->url(), '/users/42/tweets')) {
@@ -540,14 +595,14 @@ class XLiveFeaturesTest extends TestCase
                     $this->ownTweet('3', 'same, budget cooking is how I do rice', 80, comment: true, likes: 1),
                 ],
             ]),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response(['data' => []]),
         ]);
 
         $this->actingAs($user, 'sanctum')
             ->getJson('/api/dashboard/platform/x')
             ->assertOk()
             ->assertJsonPath('metrics.1.value', 200)
-            ->assertJsonPath('metrics.1.sub', 'Posts and comments, ranked for your niche')
+            ->assertJsonPath('metrics.1.sub', 'Recent posts and comments')
             ->assertJsonPath('metrics.2.value', 3);
     }
 
@@ -567,7 +622,7 @@ class XLiveFeaturesTest extends TestCase
                     $this->ownTweet('2', 'a cheap dinner for budget cooking', 0, likes: 4, organicImpressions: 900, profileClicks: 7),
                 ],
             ]),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response([
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
                 'data' => [
                     $this->ownTweet('2', 'a cheap dinner for budget cooking', 0, likes: 4),
                 ],
@@ -622,16 +677,18 @@ class XLiveFeaturesTest extends TestCase
                 ],
             ]),
             'https://api.twitter.com/2/users/42/tweets*' => Http::response(['data' => [$tweet]]),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => [$tweet]]),
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response(['data' => [$tweet]]),
         ]);
 
         $this->actingAs($user, 'sanctum')
             ->getJson('/api/dashboard/platform/x')
             ->assertOk()
             ->assertJsonPath('metrics.0.value', 18)
-            ->assertJsonPath('metrics.1.value', null)
-            ->assertJsonPath('metrics.1.sub', 'Views did not come back from X')
-            ->assertJsonPath('metrics.2.value', null);
+            ->assertJsonPath('metrics.1.label', 'Reactions')
+            ->assertJsonPath('metrics.1.value', 5)
+            ->assertJsonPath('metrics.1.sub', 'Likes, replies, and reposts. X did not send view counts.')
+            ->assertJsonPath('metrics.2.label', 'Replies')
+            ->assertJsonPath('metrics.2.value', 0);
     }
 
     /**

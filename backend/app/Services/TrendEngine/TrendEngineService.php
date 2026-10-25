@@ -99,45 +99,14 @@ class TrendEngineService
         $niche = $user->accountProfile?->resolvedNiche() ?? '';
 
         try {
-            $topics = $this->x->nicheConversations($account, $niche);
+            $topics = $this->x->homeFeed($account, $niche);
         } catch (Throwable $e) {
-            Log::warning('Niche search was not available', [
+            Log::warning('The home timeline was not available', [
                 'user_id' => $user->id,
                 'error' => $e->getMessage(),
             ]);
 
             return [];
-        }
-
-        $names = [];
-        foreach ($topics as $topic) {
-            $names[mb_strtolower((string) $topic['name'])] = true;
-        }
-
-        try {
-            foreach ($this->x->loudRoom() as $topic) {
-                $name = trim((string) ($topic['name'] ?? ''));
-                if ($name === '' || isset($names[mb_strtolower($name)])) {
-                    continue;
-                }
-                $names[mb_strtolower($name)] = true;
-                $count = (int) ($topic['tweet_count'] ?? 0);
-                $topics[] = [
-                    'name' => $name,
-                    'posts' => $count,
-                    'impressions' => null,
-                    'likes' => null,
-                    'replies' => null,
-                    'figures' => number_format($count).' posts',
-                    'adjacent' => true,
-                    'text' => $name,
-                ];
-            }
-        } catch (Throwable $e) {
-            Log::warning('The wider room was not available', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage(),
-            ]);
         }
 
         return $this->topicsAsRanked($topics);
@@ -270,6 +239,26 @@ class TrendEngineService
                 'trends' => [],
                 'source' => null,
                 'note' => 'Connect X to load topics from the account.',
+            ];
+        }
+
+        $niche = trim((string) ($user->accountProfile?->resolvedNiche() ?? ''));
+        if ($niche !== '' && ! in_array(strtolower($niche), ['general', 'your niche', 'niche'], true)) {
+            $ranked = $this->rankedInNiche($user) ?? [];
+            $trends = [];
+            foreach (array_slice($ranked, 0, 5) as $row) {
+                $name = trim((string) $row['trend']->name);
+                if ($name !== '') {
+                    $trends[] = ['name' => $name, 'angle' => '', 'draft' => ''];
+                }
+            }
+
+            return [
+                'trends' => $trends,
+                'source' => 'home',
+                'note' => $trends === []
+                    ? 'Nothing in this niche is on the home timeline right now.'
+                    : 'From the posts already on this X account.',
             ];
         }
 

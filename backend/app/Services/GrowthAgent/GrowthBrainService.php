@@ -206,15 +206,16 @@ Tasks:
 5. If POST or ENGAGE: content_angle (max 120 chars). For original, pick/adapt from original_ideas.
 
 Content mix:
-- A live moment overrides the mix. If a trend is live, or a neighboring one is loud, use content_source "trend".
-- If nothing is live and mix.prefer is "original", use content_source "original".
+- A live moment in this niche overrides the mix. Use content_source "trend" only for a trend that is about this niche.
+- If nothing in the niche is live and mix.prefer is "original", use content_source "original". The original post stays inside the niche.
 - content_angle is this account's opinion. It is not a restatement of the description and not a summary of the trend.
 
 Other rules:
 - Respect safety.*_left — if post_left is 0, never decide POST.
-- This is not a schedule. POST when a new moment is actually happening: a goal, a price jump, a decision, a large account in this world saying something new.
+- This is not a schedule. POST when a new moment is actually happening inside this niche: a goal, a price jump in this niche, a decision this niche would post, a large account in this niche saying something new.
 - A new beat of an event already posted about can be POST. The same sentence cannot.
-- A loud neighboring event can be POST when this account would have a view. A club account can have a view on another match. A lender or a crypto account can have a view on a price or a rule that just moved. IGNORE a meme or a celebrity item this account would scroll past.
+- Stay in the niche. IGNORE a war, a politician, a celebrity, or any worldwide trend this niche would not post. A high follower count does not make an outside topic relevant.
+- Another match can be POST only when it is already one of the supplied trends and it is the same sport. A price or a rule can be POST only when this niche is money and that item is already one of the supplied trends.
 - content_angle is the opinion, not a summary of the news and not a plan.
 - If a trend is marked adjacent, only choose it when someone in this niche would actually care.
 - If minutes on a trend are over 180, it is old. Do not treat it as breaking.
@@ -243,11 +244,7 @@ PROMPT;
         }
 
         $meta = is_array($trend->metadata) ? $trend->metadata : [];
-        if (! empty($meta['live'])) {
-            return true;
-        }
-
-        if (! empty($meta['adjacent']) && (float) $trend->score >= 80) {
+        if (! empty($meta['live']) && empty($meta['adjacent'])) {
             return true;
         }
 

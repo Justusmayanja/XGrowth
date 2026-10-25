@@ -35,7 +35,7 @@ class AutopublishTest extends TestCase
     {
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '880']], 201),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response(['data' => []]),
             'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/trends/by/woeid/*' => Http::response(['data' => []], 404),
         ]);
@@ -51,13 +51,53 @@ class AutopublishTest extends TestCase
         Http::assertNotSent(fn ($request) => $request->url() === 'https://api.twitter.com/2/tweets');
     }
 
+    public function test_a_worldwide_story_is_not_posted_on_a_niche_account(): void
+    {
+        $this->useRulesEngine();
+        Http::fake([
+            'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '899']], 201),
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response($this->nicheTweet(
+                'Trump and Iran are at war tonight',
+                'worldnews',
+                5_000_000,
+                5,
+                'tweet-war',
+            )),
+            'https://api.twitter.com/2/trends/by/woeid/1*' => Http::response([
+                'data' => [
+                    ['trend_name' => 'Trump and Iran', 'tweet_count' => 90000],
+                ],
+            ]),
+            'https://api.twitter.com/2/users/personalized_trends*' => Http::response([
+                'data' => [
+                    ['trend_name' => 'Trump and Iran', 'tweet_count' => 90000],
+                ],
+            ]),
+        ]);
+
+        $user = $this->user(level: 3);
+        $this->connectX($user);
+
+        $decision = app(GrowthAgentService::class)->evaluateOpportunities($user->id);
+
+        $this->assertSame('WAIT', $decision);
+        $this->assertSame(0, $user->posts()->count());
+        Http::assertNotSent(fn ($request) => $request->url() === 'https://api.twitter.com/2/tweets');
+    }
+
     public function test_the_same_niche_moment_does_not_post_again_a_few_minutes_later(): void
     {
         $this->useRulesEngine();
         config(['openai.api_key' => 'test-key']);
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '881']], 201),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response($this->nicheTweet(
+                'United have scored and the ground has gone',
+                'FabrizioRomano',
+                2_000_000,
+                8,
+                'tweet-1',
+            )),
             'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/trends/by/woeid/*' => Http::response(['data' => []], 404),
         ]);
@@ -106,7 +146,7 @@ class AutopublishTest extends TestCase
         config(['openai.api_key' => 'test-key']);
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '882']], 201),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response(['data' => []]),
             'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/trends/by/woeid/*' => Http::response(['data' => []], 404),
         ]);
@@ -155,7 +195,7 @@ class AutopublishTest extends TestCase
         config(['openai.api_key' => 'test-key']);
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '883']], 201),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response($this->nicheTweet(
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response($this->nicheTweet(
                 'United have scored and the ground has gone',
                 'FabrizioRomano',
                 2_000_000,
@@ -215,7 +255,7 @@ class AutopublishTest extends TestCase
         config(['openai.api_key' => 'test-key']);
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '884']], 201),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response($this->nicheTweet(
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response($this->nicheTweet(
                 'United have scored again',
                 'FabrizioRomano',
                 2_000_000,
@@ -247,7 +287,7 @@ class AutopublishTest extends TestCase
         config(['openai.api_key' => 'test-key']);
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '885']], 201),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response($this->nicheTweet(
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response($this->nicheTweet(
                 'Ruben Amorim is still the Manchester United coach',
                 'oldtake',
                 5000,
@@ -315,7 +355,7 @@ class AutopublishTest extends TestCase
     {
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '77']], 201),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response(['data' => []]),
             'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/trends/by/woeid/*' => Http::response(['data' => []], 404),
         ]);
@@ -341,7 +381,13 @@ class AutopublishTest extends TestCase
         config(['openai.api_key' => 'test-key']);
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '501']], 201),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response($this->nicheTweet(
+                'Weeknight rice dinners are the United conversation tonight',
+                'utdkitchen',
+                2_000_000,
+                8,
+                'tweet-rice',
+            )),
             'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/trends/by/woeid/*' => Http::response(['data' => []], 404),
         ]);
@@ -383,7 +429,7 @@ class AutopublishTest extends TestCase
         OpenAI::assertSent(Chat::class, function (string $method, array $parameters): bool {
             $prompt = $parameters['messages'][1]['content'];
 
-            return str_contains($prompt, 'The conversation to join: Weeknight rice dinners')
+            return str_contains($prompt, 'The conversation to join: Weeknight rice dinners are the United conversation tonight')
                 && str_contains($prompt, 'Never quote them')
                 && str_contains($prompt, 'the account lends money')
                 && ! str_contains($prompt, 'Weeknight rice dinners —');
@@ -396,7 +442,7 @@ class AutopublishTest extends TestCase
         config(['openai.api_key' => 'test-key']);
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '502']], 201),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response(['data' => []]),
             'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/trends/by/woeid/*' => Http::response(['data' => []], 404),
         ]);
@@ -514,7 +560,7 @@ class AutopublishTest extends TestCase
         ]);
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '890']], 201),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response($this->nicheTweet(
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response($this->nicheTweet(
                 'United have scored and the ground has gone',
                 'FabrizioRomano',
                 2_000_000,
@@ -539,7 +585,7 @@ class AutopublishTest extends TestCase
         config(['openai.api_key' => 'test-key']);
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '891']], 201),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response(['data' => []]),
             'https://api.twitter.com/2/users/personalized_trends*' => Http::response(['data' => []], 404),
             'https://api.twitter.com/2/trends/by/woeid/*' => Http::response(['data' => []], 404),
         ]);
@@ -609,7 +655,7 @@ class AutopublishTest extends TestCase
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '892']], 201),
             'https://api.twitter.com/2/users/*/likes' => Http::response(['data' => ['liked' => true]]),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response([
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response([
                 'data' => [
                     $this->nicheTweet('United have scored again tonight', 'FabrizioRomano', 2_000_000, 10, $liked)['data'][0],
                     $this->nicheTweet('Another angle on the same match', 'someone', 400, 12, 'tweet-other')['data'][0],
@@ -650,8 +696,8 @@ class AutopublishTest extends TestCase
         $replyTo = $this->tweetIdWhere($user->id, 'reply');
         Http::fake([
             'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '893']], 201),
-            'https://api.twitter.com/2/tweets/search/recent*' => Http::response($this->nicheTweet(
-                'The price just jumped and nobody is calm',
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response($this->nicheTweet(
+                'The United price just jumped and nobody is calm',
                 'marketsguy',
                 800,
                 15,
@@ -689,7 +735,7 @@ class AutopublishTest extends TestCase
             'purpose' => 'creator',
             'platforms' => 'x',
             'goal' => 'grow_followers',
-            'custom_niche' => 'Budget home cooking',
+            'custom_niche' => 'United',
             'description' => 'Cheap weeknight meals for one, with honest shortcuts.',
             'audience' => 'Students cooking on a budget',
             'tone' => 'funny',
