@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight } from "lucide-react";
 import { LoadingMark } from "@/components/LoadingMark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { api, getToken } from "@/lib/api";
+import { api, apiForm, getToken } from "@/lib/api";
 import { contentFormatLabel } from "@/lib/content-formats";
 import {
   formatMultiLabels,
@@ -16,9 +17,57 @@ import {
   PLATFORM_ORDER,
   platformName,
   type Platform,
+  YOUTUBE_FORMATS,
+  YOUTUBE_MODES,
 } from "@/lib/profile";
 
 type Metric = { label: string; value: number; sub: string; suffix?: string };
+
+type YouTubePackage = {
+  hook?: string;
+  thumbnail?: string;
+  on_screen?: { text: string; at: string }[];
+  shots?: { prompt: string; seconds: number; kind: string }[];
+  render?: { ready?: boolean; note?: string; kind?: string };
+  publish?: { note?: string };
+  edit?: {
+    caption_style?: string;
+    caption_note?: string;
+    captions?: { text: string; at: string }[];
+    zooms?: { at_ratio: number; scale: number; reason: string }[];
+    color?: { preset?: string; contrast?: number };
+    audio?: { loudness_lufs?: number };
+    silence?: { trim_over_seconds?: number };
+  };
+};
+
+type YouTubeItem = {
+  id: number;
+  mode: string;
+  format: string | null;
+  format_label: string | null;
+  status: string;
+  status_label: string;
+  topic: string | null;
+  title: string | null;
+  script: string | null;
+  description: string | null;
+  episode_number: number | null;
+  source_name: string | null;
+  views: number;
+  average_view_percent: number | null;
+  learning_note: string | null;
+  package: YouTubePackage | null;
+};
+
+type YouTubeSeriesCard = {
+  title: string;
+  premise: string;
+  next_episode: number;
+  holds_until: string | null;
+  characters: { name: string; role: string }[];
+  outline: { number: number; title: string; beat: string }[];
+};
 
 type Desk = {
   platform: Platform;
@@ -30,6 +79,8 @@ type Desk = {
       automation_level?: number;
       mode?: string;
       publish?: string;
+      video_mode?: string;
+      format?: string;
       auto_post_enabled?: boolean;
       engine_paused?: boolean;
     };
@@ -40,12 +91,14 @@ type Desk = {
   counts: { drafts: number; posted: number };
   drafts: { id: number; content: string; content_type: string; created_at: string }[];
   ideas: { name: string; suggestion?: string }[];
+  pipeline?: YouTubeItem[];
+  series?: YouTubeSeriesCard | null;
 };
 
 const LEDE: Record<Platform, string> = {
   x: "It watches your niche and posts when a moment is strong. There is no schedule.",
   tiktok: "It finds ideas that suit the brand, writes them, makes the clip, and suggests a time. You say yes.",
-  youtube: "It looks for ideas likely to catch on, writes what should be said, and makes the video or edits your footage.",
+  youtube: "It searches the niche, writes the script or the edit, and posts when the file and the channel connection are both ready.",
 };
 
 const FORMAT: Record<Platform, string> = {
@@ -80,7 +133,10 @@ function relativeTime(iso: string): string {
 function postingLine(desk: Desk): string {
   if (desk.platform === "tiktok") return "Suggests a time, then waits for your yes";
   if (desk.platform === "youtube") {
-    return desk.setup.settings.publish === "auto" ? "Posts on its own when the video is ready" : "Waits for your yes before posting";
+    const mode = YOUTUBE_MODES.find((item) => item.value === desk.setup.settings.video_mode)?.label ?? "YouTube";
+    const format = YOUTUBE_FORMATS.find((item) => item.value === desk.setup.settings.format)?.label;
+    const publish = desk.setup.settings.publish === "auto" ? "Posts on its own when the file is ready" : "Waits for your yes before posting";
+    return [mode, format, publish].filter(Boolean).join(" · ");
   }
   if (desk.setup.settings.engine_paused) return "Paused. Nothing is posted until you turn it back on";
   const posting = desk.setup.settings.auto_post_enabled !== false;
@@ -413,51 +469,224 @@ function TikTokBody({ desk }: { desk: Desk }) {
   );
 }
 
-function YouTubeBody({ desk }: { desk: Desk }) {
+function YouTubeBody({ desk, onChange }: { desk: Desk; onChange: () => Promise<void> }) {
+  const [note, setNote] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [views, setViews] = useState("");
+  const [percent, setPercent] = useState("");
+  const [busy, setBusy] = useState("");
+  const [message, setMessage] = useState("");
+  const mode = desk.setup.settings.video_mode;
+  const pipeline = desk.pipeline ?? [];
+
+  async function upload(event: FormEvent) {
+    event.preventDefault();
+    if (!file) {
+      setMessage("Choose a video file first.");
+      return;
+    }
+    setBusy("upload");
+    setMessage("");
+    try {
+      const body = new FormData();
+      body.append("footage", file);
+      if (note.trim()) body.append("note", note.trim());
+      await apiForm("/youtube/footage", body);
+      setFile(null);
+      setNote("");
+      await onChange();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not upload the footage.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function confirm(id: number) {
+    setBusy(`confirm-${id}`);
+    setMessage("");
+    try {
+      await api(`/youtube/videos/${id}/confirm`, { method: "POST" });
+      await onChange();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not queue that video.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveResults(id: number) {
+    setBusy(`results-${id}`);
+    setMessage("");
+    try {
+      await api(`/youtube/videos/${id}/results`, {
+        method: "POST",
+        body: JSON.stringify({
+          views: Number(views),
+          average_view_percent: Number(percent),
+        }),
+      });
+      setViews("");
+      setPercent("");
+      await onChange();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not save the results.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2">
+      {mode === "footage" && (
         <Card>
-          <CardContent className="flex h-full flex-col justify-between gap-4 pt-6">
-            <div>
-              <p className="font-medium">Let Mackie17 make it</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Start from an idea. It writes what should be said, then makes the video.
-              </p>
-            </div>
-            <Link href={composeHref("youtube")}>
-              <Button size="sm">Start a video</Button>
-            </Link>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex h-full flex-col justify-between gap-4 pt-6">
-            <div>
-              <p className="font-medium">Bring your own footage</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                It edits what you recorded and writes the title and description around it.
-                {desk.connected ? "" : " Uploads open once YouTube is connected."}
-              </p>
-            </div>
-            <Link href={desk.connected ? "/content-studio?platform=youtube&format=youtube_description" : "/settings"}>
-              <Button size="sm" variant="secondary">
-                {desk.connected ? "Describe the footage" : "Connect YouTube"}
+          <CardHeader>
+            <CardTitle className="text-base">Bring your own footage</CardTitle>
+            <CardDescription>The edit plan is written from the file: captions, zooms, color, and sound.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-3" onSubmit={upload}>
+              <label className="block text-sm">
+                Video file
+                <input
+                  className="mt-1 block w-full text-sm"
+                  type="file"
+                  accept="video/mp4,video/quicktime,video/webm"
+                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                />
+              </label>
+              <label className="block text-sm">
+                What is said, if you want the captions started from your words
+                <Textarea className="mt-1" rows={3} value={note} onChange={(event) => setNote(event.target.value)} />
+              </label>
+              <Button type="submit" size="sm" disabled={busy === "upload"}>
+                {busy === "upload" ? "Writing the edit…" : "Write the edit plan"}
               </Button>
-            </Link>
+            </form>
           </CardContent>
         </Card>
-      </div>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Section title="Ideas likely to catch on" description="Worth a video in your niche this week.">
-          <IdeaList desk={desk} verb="Write it" />
+      )}
+
+      {desk.series && (
+        <Section title={desk.series.title} description={desk.series.premise}>
+          <p className="text-sm text-muted-foreground">
+            {desk.series.holds_until
+              ? `Next episode after ${desk.series.holds_until}.`
+              : `Episode ${desk.series.next_episode} is next.`}
+          </p>
+          <ol className="mt-3 space-y-2">
+            {desk.series.outline.map((episode) => (
+              <li key={episode.number} className="text-sm">
+                <span className="font-medium">{episode.number}. {episode.title}</span>
+                <span className="mt-0.5 block text-muted-foreground">{episode.beat}</span>
+              </li>
+            ))}
+          </ol>
         </Section>
-        <div className="space-y-6">
-          <Section title="Titles and scripts" description="Written and waiting to become videos.">
-            <DraftList desk={desk} empty="Nothing written yet. Start from an idea." />
-          </Section>
-          <Learned desk={desk} />
-        </div>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Section title={mode === "series" ? "The season" : "Ideas likely to catch on"} description="Picked for this account. The engine writes the top one.">
+          {desk.ideas.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {mode === "footage" ? "Footage edits do not search for a topic." : "Topics for this account show here."}
+            </p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {desk.ideas.map((idea) => (
+                <li key={idea.name} className="py-3 first:pt-0 last:pb-0">
+                  <p className="font-medium">{idea.name}</p>
+                  {idea.suggestion && <p className="mt-0.5 text-sm text-muted-foreground">{idea.suggestion}</p>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+
+        <Section title="Scripts and edits" description="Written here. The video file is added when the render or editor is connected.">
+          {pipeline.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {mode === "footage" ? "Upload a video to write the first edit plan." : "The first script is written when YouTube setup finishes."}
+            </p>
+          ) : (
+            <ul className="space-y-5">
+              {pipeline.map((item) => (
+                <li key={item.id} className="space-y-2 border-b border-border pb-5 last:border-0 last:pb-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium">{item.title}</p>
+                    <Badge variant="outline" className="font-normal">{item.status_label}</Badge>
+                  </div>
+                  {item.format_label && <p className="text-xs text-muted-foreground">{item.format_label}</p>}
+                  {item.script && (
+                    <p className="max-h-64 overflow-y-auto whitespace-pre-wrap text-sm text-muted-foreground">{item.script}</p>
+                  )}
+                  {item.package?.render?.note && <p className="text-xs text-muted-foreground">{item.package.render.note}</p>}
+                  {item.package?.publish?.note && <p className="text-xs text-muted-foreground">{item.package.publish.note}</p>}
+                  {item.package?.shots && item.package.shots.length > 0 && (
+                    <ul className="space-y-1 text-sm text-muted-foreground">
+                      {item.package.shots.map((shot, index) => (
+                        <li key={`${item.id}-shot-${index}`}>{shot.seconds}s · {shot.prompt}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {item.package?.edit && (
+                    <div className="space-y-1 text-sm text-muted-foreground">
+                      <p>{item.package.edit.caption_style}</p>
+                      <p>{item.package.edit.caption_note}</p>
+                      {item.package.edit.zooms?.map((zoom) => (
+                        <p key={zoom.reason}>Zoom to {zoom.scale}× · {zoom.reason}</p>
+                      ))}
+                      <p>
+                        Color {item.package.edit.color?.preset}, audio {item.package.edit.audio?.loudness_lufs} LUFS, trim silences over {item.package.edit.silence?.trim_over_seconds}s.
+                      </p>
+                    </div>
+                  )}
+                  {item.learning_note && <p className="text-sm">{item.learning_note}</p>}
+                  {item.status === "waiting" && (
+                    <Button size="sm" variant="secondary" disabled={busy === `confirm-${item.id}`} onClick={() => confirm(item.id)}>
+                      {busy === `confirm-${item.id}` ? "Queuing…" : "Yes, post this"}
+                    </Button>
+                  )}
+                  {(item.status === "waiting" || item.status === "queued") && (
+                    <form
+                      className="flex flex-wrap items-end gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void saveResults(item.id);
+                      }}
+                    >
+                      <label className="text-xs text-muted-foreground">
+                        Views
+                        <input
+                          className="mt-1 block w-24 rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
+                          inputMode="numeric"
+                          value={views}
+                          onChange={(event) => setViews(event.target.value)}
+                          required
+                        />
+                      </label>
+                      <label className="text-xs text-muted-foreground">
+                        % watched
+                        <input
+                          className="mt-1 block w-24 rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
+                          inputMode="decimal"
+                          value={percent}
+                          onChange={(event) => setPercent(event.target.value)}
+                          required
+                        />
+                      </label>
+                      <Button type="submit" size="sm" variant="outline" disabled={busy === `results-${item.id}`}>
+                        {busy === `results-${item.id}` ? "Saving…" : "Save results"}
+                      </Button>
+                    </form>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
       </div>
+      {message && <p className="text-sm text-muted-foreground">{message}</p>}
     </div>
   );
 }
@@ -468,27 +697,29 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
   const [chosen, setChosen] = useState<Platform[]>([]);
   const [error, setError] = useState("");
 
+  const load = useCallback(async () => {
+    try {
+      const state = await api<{ platforms: Platform[]; onboarding_completed: boolean }>("/account/setup");
+      if (!state.onboarding_completed) {
+        router.replace("/onboarding");
+        return;
+      }
+      setChosen(state.platforms);
+      setDesk(await api<Desk>(`/dashboard/platform/${platform}`, undefined, 20000, "The dashboard is taking too long. Refresh in a moment."));
+    } catch (err) {
+      if (!getToken()) {
+        router.replace("/login");
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Could not load this dashboard.");
+    }
+  }, [platform, router]);
+
   useEffect(() => {
     setDesk(null);
-    async function load() {
-      try {
-        const state = await api<{ platforms: Platform[]; onboarding_completed: boolean }>("/account/setup");
-        if (!state.onboarding_completed) {
-          router.replace("/onboarding");
-          return;
-        }
-        setChosen(state.platforms);
-        setDesk(await api<Desk>(`/dashboard/platform/${platform}`, undefined, 20000, "The dashboard is taking too long. Refresh in a moment."));
-      } catch (err) {
-        if (!getToken()) {
-          router.replace("/login");
-          return;
-        }
-        setError(err instanceof Error ? err.message : "Could not load this dashboard.");
-      }
-    }
-    load();
-  }, [platform, router]);
+    setError("");
+    void load();
+  }, [load]);
 
   const name = platformName(platform);
 
@@ -602,7 +833,7 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
       </div>
 
       {platform === "tiktok" && <TikTokBody desk={desk} />}
-      {platform === "youtube" && <YouTubeBody desk={desk} />}
+      {platform === "youtube" && <YouTubeBody desk={desk} onChange={load} />}
     </div>
   );
 }

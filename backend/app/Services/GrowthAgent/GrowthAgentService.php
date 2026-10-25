@@ -31,6 +31,11 @@ class GrowthAgentService
 
     private bool $draftedThisRun = false;
 
+    private bool $postedThisRun = false;
+
+    /** @var list<array{trend: \App\Models\Trend, opportunity_score: float, suggestion?: string}> */
+    private array $momentsThisRun = [];
+
     public function evaluateAllUsers(): int
     {
         $count = 0;
@@ -62,6 +67,8 @@ class GrowthAgentService
 
         $profile = $user->accountProfile;
         $this->draftedThisRun = false;
+        $this->postedThisRun = false;
+        $this->momentsThisRun = [];
 
         if ($profile->engine_paused) {
             return $this->logDecision(
@@ -95,18 +102,17 @@ class GrowthAgentService
         }
 
         if ($ranked === []) {
-            if ($this->shouldFillSilence($user, $profile)) {
-                return $this->evaluateOriginalFallback(
-                    $user,
-                    $profile,
-                    app(\App\Services\AICore\AiContextBuilder::class)->contentMixDigest($user),
-                );
-            }
+            $this->growthBrain->noteHeat($user->id, false);
 
-            $this->logDecision($user, 'WAIT', null, 0, 'No trends available to evaluate yet', []);
-
-            return 'WAIT';
+            return $this->finish(
+                $user,
+                $profile,
+                $this->logDecision($user, 'WAIT', null, 0, 'Nothing loud enough is happening to post', [])
+            );
         }
+
+        $this->momentsThisRun = $ranked;
+        $this->growthBrain->noteHeat($user->id, $this->listIsHot($ranked));
 
         if ($this->growthBrain->isEnabled()) {
             try {
@@ -161,13 +167,32 @@ class GrowthAgentService
         }
 
         if ($decision === 'POST') {
+            $picked = $this->selectMoment($user, $profile, $ranked, $trend);
+            if ($picked['row'] === null) {
+                return $this->logDecision(
+                    $user,
+                    'WAIT',
+                    'resting',
+                    $score,
+                    $picked['reason'],
+                    $context
+                );
+            }
+
+            /** @var \App\Models\Trend $chosen */
+            $chosen = $picked['row']['trend'];
+            $sameBeat = $trend && $this->beatKey($trend) === $this->beatKey($chosen);
+            $angle = $sameBeat
+                ? ($evaluation['content_angle'] ?: $this->bridgeAngle($chosen))
+                : $this->bridgeAngle($chosen);
+
             return $this->actOnPostOpportunity(
                 $user,
                 $profile,
-                $trend,
-                $evaluation['content_angle'],
-                $evaluation['content_source'],
-                $score,
+                $chosen,
+                $angle,
+                'trend',
+                (float) $picked['row']['opportunity_score'],
                 $reason,
                 $context,
             );
@@ -193,25 +218,10 @@ class GrowthAgentService
     private function evaluateWithRules(User $user, AccountProfile $profile, array $ranked): string
     {
         $mix = app(\App\Services\AICore\AiContextBuilder::class)->contentMixDigest($user);
-
-        if ($mix['prefer'] === 'original') {
-            if ($this->canUnattendedPost($profile) && ! $this->shouldFillSilence($user, $profile)) {
-                return $this->logDecision(
-                    $user,
-                    'WAIT',
-                    'resting',
-                    0,
-                    'The niche is quiet, so nothing goes live yet.',
-                    ['engine' => 'rules_fallback', 'content_source' => 'original']
-                );
-            }
-
-            return $this->evaluateOriginalFallback($user, $profile, $mix);
-        }
-
+        $picked = $this->selectMoment($user, $profile, $ranked);
         $top = $ranked[0];
-        $trend = $top['trend'];
-        $score = $top['opportunity_score'];
+        $trend = $picked['trend'] ?? $top['trend'];
+        $score = (float) ($picked['score'] ?? $top['opportunity_score']);
 
         $context = [
             'engine' => 'rules_fallback',
@@ -219,6 +229,7 @@ class GrowthAgentService
             'trend_name' => $trend->name,
             'competition' => $trend->competition,
             'growth_rate' => $trend->growth_rate,
+            'mix' => $mix['prefer'],
         ];
 
         if (! $this->safetyEngine->canAct($user, 'post')) {
@@ -232,10 +243,14 @@ class GrowthAgentService
             );
         }
 
-        $postThreshold = $this->settings->getInt('rules_post_threshold', 82);
-        $engageThreshold = $this->settings->getInt('rules_engage_threshold', 68);
+        if ($picked['row'] === null) {
+            return $this->logDecision($user, 'WAIT', 'resting', $score, $picked['reason'], $context);
+        }
 
-        if ($score >= $postThreshold) {
+        $engageThreshold = $this->settings->getInt('rules_engage_threshold', 68);
+        $postThreshold = $this->settings->getInt('rules_post_threshold', 82);
+
+        if ($score >= $postThreshold || $this->isFreshSpike($trend, $score) || $this->silenceHasRunLong($user)) {
             return $this->actOnPostOpportunity(
                 $user,
                 $profile,
@@ -243,7 +258,7 @@ class GrowthAgentService
                 $this->bridgeAngle($trend),
                 'trend',
                 $score,
-                "People are on \"{$trend->name}\" ({$score}/100). Draft this account's side of it",
+                "People are on \"{$trend->name}\" ({$score}/100). This account's view goes on it",
                 $context,
             );
         }
@@ -269,55 +284,131 @@ class GrowthAgentService
         );
     }
 
-    /**
-     * @param  array<string, mixed>  $mix
-     */
-    private function evaluateOriginalFallback(User $user, AccountProfile $profile, array $mix): string
-    {
-        $score = 78.0;
-        $context = [
-            'engine' => 'rules_fallback',
-            'content_source' => 'original',
-            'mix' => $mix,
-        ];
-
-        if (! $this->safetyEngine->canAct($user, 'post')) {
-            return $this->logDecision(
-                $user,
-                'WAIT',
-                null,
-                $score,
-                'Daily post limit reached — original content draft deferred',
-                $context
-            );
-        }
-
-        $ideas = app(\App\Services\AICore\AiContextBuilder::class)->originalIdeasDigest($profile);
-        $context['content_angle'] = $ideas[0] ?? 'Join what people are talking about, from this account\'s side';
-
-        return $this->actOnPostOpportunity(
-            $user,
-            $profile,
-            null,
-            $context['content_angle'],
-            'original',
-            $score,
-            'Quiet stretch in your niche — original draft checked for virality',
-            $context,
-        );
-    }
-
     private function finish(User $user, AccountProfile $profile, string $decision): string
     {
-        if ($decision === 'POST' || $this->draftedThisRun || ! $this->shouldFillSilence($user, $profile)) {
-            return $decision;
+        if ($decision !== 'POST' && $this->canUnattendedPost($profile) && $this->silenceHasRunLong($user) && $this->safetyEngine->canAct($user, 'post')) {
+            $decision = $this->speakAfterQuiet($user, $profile);
         }
 
-        return $this->evaluateOriginalFallback(
-            $user,
-            $profile,
-            app(\App\Services\AICore\AiContextBuilder::class)->contentMixDigest($user),
-        );
+        if (! $this->postedThisRun) {
+            $this->maybeEngage($user, $profile);
+        }
+
+        return $decision;
+    }
+
+    /**
+     * @param  list<array{trend: \App\Models\Trend, opportunity_score: float, suggestion?: string}>  $ranked
+     * @return array{row: array{trend: \App\Models\Trend, opportunity_score: float}|null, reason: string, score: float, trend: \App\Models\Trend|null}
+     */
+    private function selectMoment(User $user, AccountProfile $profile, array $ranked, ?\App\Models\Trend $preferred = null): array
+    {
+        $ordered = $this->orderedMoments($ranked, $preferred);
+        $unattended = $this->canUnattendedPost($profile);
+        $threshold = $this->settings->getInt('rules_post_threshold', 82);
+        $mild = null;
+        $leftABigAccount = false;
+
+        if ($unattended && $this->silenceHasRunLong($user)) {
+            foreach ($ordered as $row) {
+                $trend = $row['trend'];
+                $score = (float) $row['opportunity_score'];
+                if ($this->beatAlreadyPosted($user, $trend)) {
+                    continue;
+                }
+                $gap = $this->gapHold($user, $trend, $score);
+                if ($gap !== null) {
+                    return ['row' => null, 'reason' => $gap, 'score' => $score, 'trend' => $trend];
+                }
+
+                return ['row' => $row, 'reason' => '', 'score' => $score, 'trend' => $trend];
+            }
+        }
+
+        foreach ($ordered as $row) {
+            $trend = $row['trend'];
+            $score = (float) $row['opportunity_score'];
+            if ($unattended && $this->beatAlreadyPosted($user, $trend)) {
+                continue;
+            }
+
+            if ($unattended && $this->skippedThisBeat($user, $trend)) {
+                $leftABigAccount = true;
+
+                continue;
+            }
+
+            $hot = $score >= $threshold || $this->isFreshSpike($trend, $score);
+            if ($unattended && $hot) {
+                $gap = $this->gapHold($user, $trend, $score);
+                if ($gap !== null) {
+                    return ['row' => null, 'reason' => $gap, 'score' => $score, 'trend' => $trend];
+                }
+
+                return ['row' => $row, 'reason' => '', 'score' => $score, 'trend' => $trend];
+            }
+
+            if (! $unattended) {
+                return ['row' => $row, 'reason' => '', 'score' => $score, 'trend' => $trend];
+            }
+
+            $mild ??= $row;
+        }
+
+        if (is_array($mild)) {
+            return [
+                'row' => $mild,
+                'reason' => '',
+                'score' => (float) $mild['opportunity_score'],
+                'trend' => $mild['trend'],
+            ];
+        }
+
+        $top = $ranked[0] ?? null;
+
+        return [
+            'row' => null,
+            'reason' => $leftABigAccount
+                ? 'Left that one. Not every big account gets an answer.'
+                : 'Nothing new is loud enough to post.',
+            'score' => (float) ($top['opportunity_score'] ?? 0),
+            'trend' => $top['trend'] ?? null,
+        ];
+    }
+
+    /**
+     * @param  list<array{trend: \App\Models\Trend, opportunity_score: float}>  $ranked
+     * @return list<array{trend: \App\Models\Trend, opportunity_score: float}>
+     */
+    private function orderedMoments(array $ranked, ?\App\Models\Trend $preferred): array
+    {
+        if (! $preferred) {
+            return $ranked;
+        }
+
+        $first = null;
+        $rest = [];
+        foreach ($ranked as $row) {
+            if ($first === null && $this->beatKey($row['trend']) === $this->beatKey($preferred)) {
+                $first = $row;
+
+                continue;
+            }
+            $rest[] = $row;
+        }
+
+        if ($first === null) {
+            array_unshift($ranked, [
+                'trend' => $preferred,
+                'opportunity_score' => (float) $preferred->score,
+            ]);
+
+            return $ranked;
+        }
+
+        array_unshift($rest, $first);
+
+        return $rest;
     }
 
     /**
@@ -335,8 +426,11 @@ class GrowthAgentService
     ): string {
         $context['content_source'] = $contentSource;
         $context['trend_name'] = $trend?->name;
+        if ($trend) {
+            $context['beat'] = $this->beatKey($trend);
+        }
 
-        $hold = $this->nichePostHoldReason($user, $profile, $trend?->name, $score, $contentSource);
+        $hold = $this->nichePostHoldReason($user, $profile, $trend, $score, $contentSource);
         if ($hold !== null) {
             return $this->logDecision($user, 'WAIT', 'resting', $score, $hold, $context);
         }
@@ -361,7 +455,7 @@ class GrowthAgentService
             );
         }
 
-        return $this->publishOrHold($user, $profile, $draft, $score, $reason, $context);
+        return $this->publishOrHold($user, $profile, $draft, $trend, $score, $reason, $context);
     }
 
     /**
@@ -371,6 +465,7 @@ class GrowthAgentService
         User $user,
         AccountProfile $profile,
         ?Post $draft,
+        ?\App\Models\Trend $trend,
         float $score,
         string $reason,
         array $context,
@@ -434,7 +529,7 @@ class GrowthAgentService
         $hold = $this->nichePostHoldReason(
             $user,
             $profile,
-            isset($context['trend_name']) ? (string) $context['trend_name'] : null,
+            $trend,
             $score,
             (string) ($context['content_source'] ?? 'trend'),
         );
@@ -481,6 +576,7 @@ class GrowthAgentService
         ]);
         Cache::forget($this->publishLockKey($user->id));
         Cache::forget($this->quietSinceKey($user->id));
+        $this->postedThisRun = true;
         $this->safetyEngine->recordAction($user, 'post');
 
         return $this->logDecision(
@@ -494,12 +590,12 @@ class GrowthAgentService
     }
 
     /**
-     * A strong niche moment can post. A quiet stretch can wait, but not longer than three hours.
+     * A new loud beat can post within minutes. The same beat cannot, and a quiet day does not post on a clock.
      */
     private function nichePostHoldReason(
         User $user,
         AccountProfile $profile,
-        ?string $moment,
+        ?\App\Models\Trend $trend,
         float $score,
         string $contentSource,
     ): ?string {
@@ -507,55 +603,165 @@ class GrowthAgentService
             return null;
         }
 
-        if ($this->postedMinutesAgo($user) < 20) {
-            return 'A post just went live. Another one waits for a later moment in the niche.';
+        if (($contentSource === 'original' || trim((string) $trend?->name) === '') && ! $this->silenceHasRunLong($user)) {
+            return 'Nothing loud is happening, so nothing goes live.';
         }
 
-        if ($this->quietTooLong($user)) {
-            return null;
-        }
-
-        $name = trim((string) $moment);
-        if ($contentSource === 'original' || $name === '') {
-            return 'The niche is quiet, so nothing goes live yet.';
+        if ($this->beatAlreadyPosted($user, $trend)) {
+            return 'This moment was already posted. The next one waits for a different beat.';
         }
 
         $hot = $this->settings->getInt('rules_post_threshold', 82);
-        if ($score < $hot) {
-            return "The niche moment is {$score}/100. It needs {$hot} before it goes live.";
+        if ($score < $hot && ! $this->isFreshSpike($trend, $score) && ! $this->silenceHasRunLong($user)) {
+            return "The moment is {$score}/100. It needs {$hot} before it goes live.";
         }
 
-        $momentKey = mb_strtolower($name);
-        $posted = AiDecision::query()
-            ->where('user_id', $user->id)
-            ->where('action_taken', 'posted')
-            ->where('created_at', '>=', now()->subHours(3))
-            ->get(['context']);
+        return $this->gapHold($user, $trend, $score);
+    }
 
-        foreach ($posted as $decision) {
-            $previous = mb_strtolower(trim((string) ($decision->context['trend_name'] ?? '')));
-            if ($previous !== '' && $previous === $momentKey) {
-                return 'This niche moment was already posted. The next one waits for a different spike, or until three hours have passed.';
-            }
+    private function gapHold(User $user, \App\Models\Trend $trend, float $score): ?string
+    {
+        $ago = $this->postedMinutesAgo($user);
+        $gap = $this->gapMinutes($trend, $score);
+        if ($ago < $gap) {
+            return "A post went out {$ago} minutes ago. This next one waits for the moment, not a clock.";
         }
 
         return null;
     }
 
-    private function shouldFillSilence(User $user, AccountProfile $profile): bool
+    private function gapMinutes(\App\Models\Trend $trend, float $score): int
     {
-        if (! $this->canUnattendedPost($profile) || ! $this->safetyEngine->canAct($user, 'post')) {
+        $wobble = hexdec(substr(md5($this->beatKey($trend)), 0, 2)) % 10;
+        if ($this->isFreshSpike($trend, $score)) {
+            return 5 + ($wobble % 6);
+        }
+
+        if ($score >= 90) {
+            return 8 + $wobble;
+        }
+
+        if ($score >= 85) {
+            return 12 + $wobble;
+        }
+
+        return 25 + $wobble;
+    }
+
+    private function isFreshSpike(\App\Models\Trend $trend, float $score): bool
+    {
+        $meta = is_array($trend->metadata) ? $trend->metadata : [];
+        $minutes = isset($meta['minutes_ago']) && is_numeric($meta['minutes_ago']) ? (int) $meta['minutes_ago'] : null;
+        $followers = (int) ($meta['author_followers'] ?? 0);
+
+        if ($minutes !== null && $minutes <= 25 && $followers >= 100000) {
+            return true;
+        }
+
+        return (bool) ($meta['live'] ?? false) && $minutes !== null && $minutes <= 20 && $score >= 85;
+    }
+
+    private function beatAlreadyPosted(User $user, ?\App\Models\Trend $trend): bool
+    {
+        if (! $trend) {
             return false;
         }
 
-        return $this->quietTooLong($user);
+        $beat = $this->beatKey($trend);
+        $name = mb_strtolower(trim($trend->name));
+        $posted = AiDecision::query()
+            ->where('user_id', $user->id)
+            ->where('action_taken', 'posted')
+            ->where('created_at', '>=', now()->subHours(8))
+            ->get(['context']);
+
+        foreach ($posted as $decision) {
+            $context = is_array($decision->context) ? $decision->context : [];
+            $previousBeat = (string) ($context['beat'] ?? '');
+            if ($previousBeat !== '' && $previousBeat === $beat) {
+                return true;
+            }
+            $previousName = mb_strtolower(trim((string) ($context['trend_name'] ?? '')));
+            if ($previousName !== '' && $previousName === $name) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
-    private function quietTooLong(User $user): bool
+    private function beatKey(\App\Models\Trend $trend): string
     {
-        $last = $user->posts()->where('status', 'posted')->latest('posted_at')->value('posted_at');
-        if ($last) {
-            return Carbon::parse($last)->lte(now()->subHours(3));
+        $meta = is_array($trend->metadata) ? $trend->metadata : [];
+        $id = trim((string) ($meta['tweet_id'] ?? ''));
+        if ($id !== '') {
+            return 'tweet:'.$id;
+        }
+
+        return 'name:'.mb_strtolower(trim($trend->name));
+    }
+
+    /**
+     * @param  list<array{trend: \App\Models\Trend, opportunity_score: float}>  $ranked
+     */
+    private function listIsHot(array $ranked): bool
+    {
+        $top = $ranked[0] ?? null;
+        if (! is_array($top)) {
+            return false;
+        }
+
+        $trend = $top['trend'];
+        $score = (float) $top['opportunity_score'];
+        $meta = is_array($trend->metadata) ? $trend->metadata : [];
+        if (! empty($meta['live']) || $this->isFreshSpike($trend, $score)) {
+            return true;
+        }
+
+        return $score >= 90;
+    }
+
+    private function speakAfterQuiet(User $user, AccountProfile $profile): string
+    {
+        if ($this->momentsThisRun !== []) {
+            $picked = $this->selectMoment($user, $profile, $this->momentsThisRun);
+            if ($picked['row'] !== null) {
+                $trend = $picked['row']['trend'];
+
+                return $this->actOnPostOpportunity(
+                    $user,
+                    $profile,
+                    $trend,
+                    $this->bridgeAngle($trend),
+                    'trend',
+                    (float) $picked['score'],
+                    'A quiet stretch has gone on long enough for one view',
+                    ['engine' => 'quiet_stretch', 'trend_name' => $trend->name],
+                );
+            }
+        }
+
+        return $this->actOnPostOpportunity(
+            $user,
+            $profile,
+            null,
+            'One view after being away, not a plan',
+            'original',
+            80,
+            'A quiet stretch has gone on long enough for one view',
+            ['engine' => 'quiet_stretch', 'content_source' => 'original'],
+        );
+    }
+
+    /**
+     * Quiet is allowed. The length of this stretch sits somewhere between 3 and 4 hours,
+     * and it changes after each post, so it does not land on a clock.
+     */
+    private function silenceHasRunLong(User $user): bool
+    {
+        $ago = $this->postedMinutesAgo($user);
+        if ($ago < 9999) {
+            return $ago >= $this->silenceCeilingMinutes($user);
         }
 
         $started = Cache::get($this->quietSinceKey($user->id));
@@ -565,22 +771,214 @@ class GrowthAgentService
             return false;
         }
 
-        return Carbon::createFromTimestamp((int) $started)->lte(now()->subHours(3));
+        $minutes = (int) abs(now()->diffInMinutes(Carbon::createFromTimestamp((int) $started)));
+
+        return $minutes >= $this->silenceCeilingMinutes($user);
     }
 
-    private function postedMinutesAgo(User $user): int
+    private function silenceCeilingMinutes(User $user): int
     {
-        $last = $user->posts()->where('status', 'posted')->latest('posted_at')->value('posted_at');
-        if (! $last) {
-            return 9999;
+        $lastId = $user->posts()->where('status', 'posted')->where('content_type', 'tweet')->latest('posted_at')->value('id');
+        $seed = $user->id.'|'.($lastId ?: 'quiet');
+
+        return 180 + (hexdec(substr(md5((string) $seed), 0, 2)) % 61);
+    }
+
+    private function skippedThisBeat(User $user, \App\Models\Trend $trend): bool
+    {
+        $meta = is_array($trend->metadata) ? $trend->metadata : [];
+        if ((int) ($meta['author_followers'] ?? 0) < 100000) {
+            return false;
         }
 
-        return (int) abs(Carbon::parse($last)->diffInMinutes(now()));
+        $slot = hexdec(substr(md5($user->id.'|'.$this->beatKey($trend)), 0, 4)) % 2;
+
+        return $slot === 1;
+    }
+
+    private function maybeEngage(User $user, AccountProfile $profile): void
+    {
+        if ($profile->engine_paused || (int) ($profile->automation_level ?? 1) < 2) {
+            return;
+        }
+
+        $account = $user->connectedAccounts()->where('platform', 'x')->where('is_active', true)->first();
+        if (! $account) {
+            return;
+        }
+
+        $sincePost = $this->postedMinutesAgo($user);
+        if ($sincePost === 9999 || $sincePost > 50) {
+            return;
+        }
+
+        $candidates = $this->engagementCandidates();
+        if ($candidates === []) {
+            return;
+        }
+
+        $liked = null;
+        if ($profile->auto_engage_enabled && $this->canEngageNow($user, 'like', 6, 40)) {
+            foreach ($candidates as $candidate) {
+                if (! $this->wantsAction($user, $candidate['id'], 'like', 4)) {
+                    continue;
+                }
+                if ($this->alreadyTouched($user, 'like', $candidate['id'])) {
+                    continue;
+                }
+                try {
+                    $this->xApi->likeTweet($account, $candidate['id']);
+                    $this->safetyEngine->recordAction($user, 'like');
+                    $this->rememberTouch($user, 'like', $candidate['id']);
+                    Cache::put($this->engageGapKey($user->id, 'like'), now()->timestamp, now()->addDay());
+                    $this->logDecision($user, 'ENGAGE', 'liked', null, 'Liked one post. Most posts are left alone.', [
+                        'tweet_id' => $candidate['id'],
+                    ]);
+                    $liked = $candidate['id'];
+                } catch (Throwable $e) {
+                    Log::info('Like was skipped', ['user_id' => $user->id, 'error' => $e->getMessage()]);
+                    $this->rememberTouch($user, 'like', $candidate['id']);
+                }
+                break;
+            }
+        }
+
+        if (! $profile->auto_reply_enabled || ! $this->canEngageNow($user, 'reply', 3, 80)) {
+            return;
+        }
+
+        foreach ($candidates as $candidate) {
+            if ($candidate['id'] === $liked || ! $this->wantsAction($user, $candidate['id'], 'reply', 5)) {
+                continue;
+            }
+            if ($this->alreadyTouched($user, 'reply', $candidate['id'])) {
+                continue;
+            }
+            try {
+                $drafts = $this->aiCore->generateReplyDrafts([
+                    'user' => $user,
+                    'context' => 'A short human reply under this post. One or two sentences. No hashtags, no link, no pitch.',
+                    'tone' => $profile->primaryTone(),
+                    'niche' => $profile->resolvedNiche(),
+                    'post_content' => $candidate['text'],
+                    'human' => true,
+                    'use_web_search' => false,
+                ]);
+                $text = trim((string) ($drafts[0]['content'] ?? ''));
+                if ($text === '') {
+                    return;
+                }
+                $text = mb_substr($text, 0, 270);
+                $platformId = $this->xApi->replyToTweet($account, $candidate['id'], $text);
+                $user->posts()->create([
+                    'content' => $text,
+                    'content_type' => 'reply',
+                    'status' => 'posted',
+                    'platform_post_id' => $platformId,
+                    'connected_account_id' => $account->id,
+                    'posted_at' => now(),
+                ]);
+                $this->safetyEngine->recordAction($user, 'reply');
+                $this->rememberTouch($user, 'reply', $candidate['id']);
+                Cache::put($this->engageGapKey($user->id, 'reply'), now()->timestamp, now()->addDay());
+                $this->logDecision($user, 'ENGAGE', 'replied', null, 'Replied to one post. The rest were left.', [
+                    'tweet_id' => $candidate['id'],
+                ]);
+            } catch (Throwable $e) {
+                Log::info('Reply was skipped', ['user_id' => $user->id, 'error' => $e->getMessage()]);
+                $this->rememberTouch($user, 'reply', $candidate['id']);
+            }
+
+            return;
+        }
+    }
+
+    /**
+     * @return list<array{id: string, text: string}>
+     */
+    private function engagementCandidates(): array
+    {
+        $rows = [];
+        foreach ($this->momentsThisRun as $row) {
+            $trend = $row['trend'];
+            $meta = is_array($trend->metadata) ? $trend->metadata : [];
+            $id = trim((string) ($meta['tweet_id'] ?? ''));
+            if ($id === '') {
+                continue;
+            }
+            $minutes = isset($meta['minutes_ago']) && is_numeric($meta['minutes_ago']) ? (int) $meta['minutes_ago'] : null;
+            if ($minutes !== null && ($minutes < 2 || $minutes > 180)) {
+                continue;
+            }
+            $text = trim((string) ($meta['text'] ?? $trend->name));
+            if ($text === '') {
+                continue;
+            }
+            $rows[] = ['id' => $id, 'text' => mb_substr($text, 0, 240)];
+        }
+
+        return $rows;
+    }
+
+    private function canEngageNow(User $user, string $action, int $dailyCap, int $gapMinutes): bool
+    {
+        if (! $this->safetyEngine->canAct($user, $action)) {
+            return false;
+        }
+
+        $status = $this->safetyEngine->status($user);
+        if ((int) ($status['actions'][$action]['count'] ?? 0) >= $dailyCap) {
+            return false;
+        }
+
+        $last = Cache::get($this->engageGapKey($user->id, $action));
+        if (! is_numeric($last)) {
+            return true;
+        }
+
+        return (int) abs(now()->diffInMinutes(Carbon::createFromTimestamp((int) $last))) >= $gapMinutes;
+    }
+
+    private function wantsAction(User $user, string $tweetId, string $action, int $oneIn): bool
+    {
+        $oneIn = max(2, $oneIn);
+
+        return hexdec(substr(md5($user->id.'|'.$tweetId.'|'.$action), 0, 4)) % $oneIn === 0;
+    }
+
+    private function alreadyTouched(User $user, string $action, string $tweetId): bool
+    {
+        return Cache::has($this->touchKey($user->id, $action, $tweetId));
+    }
+
+    private function rememberTouch(User $user, string $action, string $tweetId): void
+    {
+        Cache::put($this->touchKey($user->id, $action, $tweetId), 1, now()->addDays(7));
+    }
+
+    private function touchKey(int $userId, string $action, string $tweetId): string
+    {
+        return "engage:{$action}:{$userId}:{$tweetId}";
+    }
+
+    private function engageGapKey(int $userId, string $action): string
+    {
+        return "engage:last:{$action}:{$userId}";
     }
 
     private function quietSinceKey(int $userId): string
     {
         return "autopost:quiet-since:{$userId}";
+    }
+
+    private function postedMinutesAgo(User $user): int
+    {
+        $last = $user->posts()->where('status', 'posted')->where('content_type', 'tweet')->latest('posted_at')->value('posted_at');
+        if (! $last) {
+            return 9999;
+        }
+
+        return (int) abs(Carbon::parse($last)->diffInMinutes(now()));
     }
 
     private function publishLockKey(int $userId): string
@@ -614,16 +1012,17 @@ class GrowthAgentService
         }
 
         $isOriginal = $contentSource === 'original' || $trend === null;
-        $fullAuto = (int) ($profile->automation_level ?? 1) >= 3;
 
         try {
             $metadata = is_array($trend?->metadata) ? $trend->metadata : [];
             $liveName = in_array($metadata['source'] ?? '', ['x', 'live'], true) ? $trend->name : null;
+            $sourceText = trim((string) ($metadata['text'] ?? ''));
+            $conversation = $sourceText !== '' ? $sourceText : $liveName;
 
             $params = [
                 'user' => $user,
-                'topic' => $liveName ?? 'a conversation people are having today',
-                'conversation' => $liveName,
+                'topic' => $conversation ?? 'a conversation people are having today',
+                'conversation' => $conversation,
                 'join_live' => true,
                 'tone' => $profile->primaryTone(),
                 'niche' => $profile->resolvedNiche(),
@@ -635,10 +1034,20 @@ class GrowthAgentService
                 'planner_hint' => $this->safeHint($contentAngle, $profile),
                 'variant_count' => 1,
                 'recent_posts' => $user->posts()->latest()->limit(5)->pluck('content')->all(),
-                'use_web_search' => $liveName === null && ($fullAuto || (! $isOriginal && $this->shouldUseWebSearchForTrend($trend))),
+                'use_web_search' => ! $isOriginal
+                    && $this->settings->getBool('web_search_enabled', true)
+                    && ($liveName !== null || $this->shouldUseWebSearchForTrend($trend)),
                 'score_virality' => true,
                 'content_source' => $isOriginal ? 'original' : 'trend',
             ];
+            if ($sourceText !== '') {
+                $params['reaction'] = [
+                    'text' => $sourceText,
+                    'author' => $metadata['author'] ?? null,
+                    'followers' => (int) ($metadata['author_followers'] ?? 0),
+                    'minutes_ago' => $metadata['minutes_ago'] ?? null,
+                ];
+            }
 
             try {
                 $result = $this->aiCore->generateContentVariants($params);
@@ -683,11 +1092,16 @@ class GrowthAgentService
     private function bridgeAngle(\App\Models\Trend $trend): string
     {
         $metadata = is_array($trend->metadata) ? $trend->metadata : [];
-        $live = in_array($metadata['source'] ?? '', ['x', 'live'], true);
+        $author = trim((string) ($metadata['author'] ?? ''));
+        if ($author !== '' && (int) ($metadata['author_followers'] ?? 0) >= 100000) {
+            return 'Your own view on what '.$author.' just said. Do not repeat their line';
+        }
 
-        return $live
-            ? 'Answer "'.$trend->name.'" from this account\'s side'
-            : 'Join what people are talking about today, from this account\'s side';
+        if (! empty($metadata['adjacent'])) {
+            return 'Your view on "'.$trend->name.'" from this account\'s side of the wider news';
+        }
+
+        return 'Your view on "'.$trend->name.'", not a recap';
     }
 
     private function safeHint(?string $hint, AccountProfile $profile): ?string

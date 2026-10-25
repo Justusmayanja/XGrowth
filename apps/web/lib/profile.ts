@@ -153,6 +153,19 @@ export const PRESENCE = [
   { value: "faceless", label: "Faceless", hint: "Text, screen recordings, or stock footage." },
 ];
 
+export const YOUTUBE_MODES = [
+  { value: "short", label: "YouTube Shorts", hint: "A short, often. It searches the niche, writes the script, and lines up the next one after it learns." },
+  { value: "series", label: "Episodes", hint: "A story told in episodes. It scripts the season, then one episode a week." },
+  { value: "footage", label: "Edit my footage", hint: "You upload a video. It plans captions, zooms, color, and sound." },
+];
+
+export const YOUTUBE_FORMATS = [
+  { value: "faceless_voiceover", label: "Faceless voiceover", hint: "Narration over a few shots. No face." },
+  { value: "text_on_screen", label: "Text on screen", hint: "One idea, big captions, a simple background." },
+  { value: "scene", label: "Scene short", hint: "Pictures that follow the script." },
+  { value: "list_facts", label: "List or facts", hint: "A few points, one visual each." },
+];
+
 export type GoalOption = { value: string; label: string; hint: string };
 
 export const PLATFORM_GOALS: Record<Platform, GoalOption[]> = {
@@ -184,7 +197,13 @@ export const SIDE_HUSTLE_GOALS: Record<Platform, string[]> = {
 
 export type PlatformSetupState = {
   goals: string[];
-  settings: { automation_level?: number; mode?: string; publish?: string };
+  settings: {
+    automation_level?: number;
+    mode?: string;
+    publish?: string;
+    video_mode?: string;
+    format?: string;
+  };
   completed: boolean;
 };
 

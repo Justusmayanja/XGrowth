@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PlatformSetup;
 use App\Services\TrendEngine\TrendEngineService;
 use App\Services\XApi\XApiService;
+use App\Services\YouTube\YouTubeEngineService;
 use Throwable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,6 +16,7 @@ class DashboardController extends Controller
     public function __construct(
         private readonly XApiService $x,
         private readonly TrendEngineService $trendEngine,
+        private readonly YouTubeEngineService $youtube,
     ) {}
 
     public function stats(Request $request): JsonResponse
@@ -153,6 +155,12 @@ class DashboardController extends Controller
             }
         }
 
+        $youtubeDesk = ['ideas' => [], 'pipeline' => [], 'series' => null];
+        if ($platform === 'youtube' && $profile && $setup?->completed_at) {
+            $youtubeDesk = $this->youtube->desk($user);
+            $ideas = $youtubeDesk['ideas'];
+        }
+
         $settings = is_array($setup?->settings) ? $setup->settings : [];
         if ($platform === 'x' && $profile) {
             $settings['automation_level'] = (int) ($profile->automation_level ?? ($settings['automation_level'] ?? 1));
@@ -181,6 +189,8 @@ class DashboardController extends Controller
             ],
             'drafts' => $drafts,
             'ideas' => $ideas,
+            'pipeline' => $youtubeDesk['pipeline'],
+            'series' => $youtubeDesk['series'],
         ]);
     }
 

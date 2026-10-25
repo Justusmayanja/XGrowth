@@ -67,6 +67,16 @@ class User extends Authenticatable
         return $this->hasMany(Post::class);
     }
 
+    public function platformSetups(): HasMany
+    {
+        return $this->hasMany(PlatformSetup::class);
+    }
+
+    public function youtubeVideos(): HasMany
+    {
+        return $this->hasMany(YouTubeVideo::class);
+    }
+
     public function aiDecisions(): HasMany
     {
         return $this->hasMany(AiDecision::class);

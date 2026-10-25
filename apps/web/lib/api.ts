@@ -85,3 +85,34 @@ export async function api<T = unknown>(
 
   return data as T;
 }
+
+export async function apiForm<T = unknown>(path: string, body: FormData, timeoutMs = 60000): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const apiBase = resolveApiBase();
+
+  let response: Response;
+  try {
+    response = await fetch(`${apiBase}${path}`, { method: "POST", headers, body, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("The upload timed out. Try a shorter video.");
+    }
+    throw new Error("Could not reach the API. Start the backend with: cd backend && php artisan serve");
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const errors = (data as { errors?: Record<string, string[]> }).errors;
+    const firstFieldError = errors ? Object.values(errors).flat().find(Boolean) : undefined;
+    throw new Error(firstFieldError || (data as { message?: string }).message || `Request failed (${response.status})`);
+  }
+
+  return data as T;
+}

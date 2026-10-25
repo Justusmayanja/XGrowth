@@ -60,12 +60,19 @@ class AccountSetupTest extends TestCase
         $api->postJson('/api/account/setup/platforms/youtube', [
             'goals' => ['for_you'],
             'publish' => 'wait',
+            'video_mode' => 'short',
+            'format' => 'text_on_screen',
         ])->assertStatus(422)->assertJsonValidationErrors('goals.0');
 
         $api->postJson('/api/account/setup/platforms/youtube', [
             'goals' => ['subscribers', 'monetize'],
             'publish' => 'wait',
-        ])->assertOk()->assertJsonPath('setups.youtube.settings.publish', 'wait');
+            'video_mode' => 'short',
+            'format' => 'text_on_screen',
+        ])->assertOk()
+            ->assertJsonPath('setups.youtube.settings.publish', 'wait')
+            ->assertJsonPath('setups.youtube.settings.video_mode', 'short')
+            ->assertJsonPath('setups.youtube.settings.format', 'text_on_screen');
 
         $this->assertSame('monetize,grow_followers', $profile->fresh()->goal);
         $this->assertSame(

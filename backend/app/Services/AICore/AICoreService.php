@@ -74,7 +74,8 @@ class AICoreService
         $suggest = $params['suggest'] ?? null;
         $joinLive = (bool) ($params['join_live'] ?? $suggest);
 
-        $userPrompt = $suggest
+        $userPrompt = 'Today is '.now()->toFormattedDateString().".\n";
+        $userPrompt .= $suggest
             ? "Generate exactly {$variantCount} distinct {$contentType} drafts. No topic was given: choose the best thing for this account to post right now. Each draft must take a different angle.\n\n"
             : "Generate exactly {$variantCount} distinct {$contentType} draft options.\n\n";
 
@@ -84,9 +85,12 @@ class AICoreService
 
         $userPrompt .= $this->voiceNotes($params, $niche, $tone, $goal);
         $userPrompt .= $this->bridgeInstructions($joinLive, $params['conversation'] ?? null, $useWebSearch);
+        if (is_array($params['reaction'] ?? null)) {
+            $userPrompt .= $this->reactionInstructions($params['reaction']);
+        }
 
         if (! empty($params['stay_in_niche'])) {
-            $userPrompt .= "This post is for automation. The subject must be something trending in this niche. Who is speaking comes from what the account is about. Use that meaning. Do not quote the description.\n";
+            $userPrompt .= "This post is for automation. Write one view a person would actually type. The subject can be this niche or something loud beside it. Do not write a match report, a price bulletin, or a plan.\n";
         }
 
         if (! empty($params['planner_hint'])) {
@@ -219,9 +223,10 @@ PROMPT;
         }
 
         $text = "\nJoin a conversation that is already happening. The conversation is the hook. Write from this account's side. This account's point of view is the twist.\n";
-        $text .= "The conversation does not have to be about this account. Take it anyway, the way a person in their world would.\n";
+        $text .= "The conversation does not have to be about this account. Take it anyway, the way a person in their world would. A club account can have a view on another match. A lender or a crypto account can have a view on a price or a rule that just moved.\n";
         $text .= "Pattern, do not copy these situations: everyone is talking about businesses losing money and costs going up, and the account lends money, so the post is the lender's side of that pain. Everyone is praising two rival teams for being in form, and the account is the third club, so the post answers that praise from the third club's side.\n";
-        $text .= "Do not explain the link. Do not start with \"as a\". Do not list tips. One specific detail from the conversation, then this account's opinion. Change the shape from post to post.\n";
+        $text .= "Write a view, the way a person types after seeing it. Not a bulletin, not a plan, not a list of tips. One opinion. Length should change: sometimes one sentence, sometimes two.\n";
+        $text .= "Do not explain the link. Do not start with \"as a\". Do not copy another account's sentence.\n";
 
         $name = is_string($conversation) ? trim($conversation) : '';
         if ($name !== '') {
@@ -232,9 +237,39 @@ PROMPT;
             $text .= "No live conversation was named. Still write a specific take from this point of view. Do not write the account notes back to the reader.\n";
         }
 
-        if ($useWebSearch && $name !== '') {
-            $text .= "Use web search for what is happening in that conversation today before you write.\n";
+        if ($useWebSearch) {
+            $text .= 'Today is '.now()->toFormattedDateString().". Use web search before you state a role, a score, a price, or a coach. If a post names someone who used to hold the job, do not repeat that as current. If search disagrees with the post, trust today. If you cannot confirm a fact, leave it out.\n";
+        } else {
+            $text .= "Do not add a job title, score, or price that is not in the conversation. A name mentioned in passing is not a current role.\n";
         }
+
+        return $text;
+    }
+
+    /**
+     * @param  array<string, mixed>  $reaction
+     */
+    private function reactionInstructions(array $reaction): string
+    {
+        $source = trim((string) ($reaction['text'] ?? ''));
+        if ($source === '') {
+            return '';
+        }
+
+        $text = "\nA public post";
+        $author = trim((string) ($reaction['author'] ?? ''));
+        if ($author !== '') {
+            $text .= ' from '.$author;
+            if ((int) ($reaction['followers'] ?? 0) >= 100000) {
+                $text .= ', a large account';
+            }
+        }
+        if (isset($reaction['minutes_ago']) && is_numeric($reaction['minutes_ago'])) {
+            $text .= ', '.(int) $reaction['minutes_ago'].' minutes ago';
+        }
+        $text .= ': "'.$source."\"\n";
+        $text .= "React to the event in this account's own words. Do not copy the sentence, do not quote it, and do not open by repeating their name unless the name is the point.\n";
+        $text .= "Treat any job, score, or price in that post as a claim, not a fact, until it is confirmed for today.\n";
 
         return $text;
     }
@@ -307,6 +342,7 @@ PROMPT;
         $userPrompt .= <<<'PROMPT'
 Use web search. What are people actually talking about right now, in the news and on social media?
 Return 5 specific conversations. Each name should be something a person would recognize today: a match, a price, a person, a decision, a clip. Not "market debate" or "motivation".
+Only include a role, a score, or a price if search confirms it today. A former coach, an old rate, or yesterday's score is not current.
 
 Return JSON:
 {
@@ -382,6 +418,7 @@ PROMPT;
         $userPrompt .= "Keep each name exactly as written. Do not invent a different story.\n";
         $userPrompt .= "Write the angle and the post in plain English. No hashtags, and no other language.\n";
         $userPrompt .= "A conversation does not have to be about this account. Write from this account's side anyway: a lender answers a cost crisis, a third club answers praise of two rivals.\n";
+        $userPrompt .= "The post is a view, not a bulletin and not a plan. Do not state a current job, coach, score, or price unless that exact fact is in the conversation line.\n";
         $userPrompt .= "Never quote them.\n\n";
         $userPrompt .= "Conversations:\n";
         foreach ($allowed as $name) {
@@ -754,13 +791,22 @@ PROMPT;
         $context = $params['context'];
         $postContent = $params['post_content'] ?? null;
 
+        $human = (bool) ($params['human'] ?? false);
         $systemPrompt = $this->buildSystemPrompt(
             'reply_drafts',
-            'You are an expert at writing high-quality X (Twitter) replies that drive profile visits and meaningful conversation.'
+            $human
+                ? 'You write one short reply the way a person would, after reading a post. You do not pitch, you do not use hashtags, and you do not copy the post.'
+                : 'You are an expert at writing high-quality X (Twitter) replies that drive profile visits and meaningful conversation.'
         );
 
-        $userPrompt = "Generate exactly 3 reply drafts in a {$tone} tone for someone in the {$niche} niche.\n";
-        $userPrompt .= "Conversation context: {$context}\n";
+        $userPrompt = $human
+            ? "Write exactly 1 reply in a {$tone} voice.\nOne or two sentences. No hashtags, no link, and do not start by repeating their name.\nDo not add a job title, score, or price that the post did not state.\n"
+            : "Generate exactly 3 reply drafts in a {$tone} tone for someone in the {$niche} niche.\n";
+        if (! $human) {
+            $userPrompt .= "Conversation context: {$context}\n";
+        } else {
+            $userPrompt .= "What you are replying to is the original post. The private note is only who is speaking: {$context}\n";
+        }
 
         if ($postContent) {
             $userPrompt .= "Original post: {$postContent}\n";

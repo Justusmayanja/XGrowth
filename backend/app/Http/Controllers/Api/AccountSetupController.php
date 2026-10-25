@@ -10,7 +10,9 @@ use App\Models\User;
 use App\Services\AICore\AICoreService;
 use App\Services\Billing\TrialService;
 use App\Services\GrowthAgent\GrowthAgentService;
+use App\Services\YouTube\YouTubeEngineService;
 use App\Support\SetupCatalog;
+use App\Support\YouTubeCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -127,6 +129,8 @@ class AccountSetupController extends Controller
 
         if ($platform === 'youtube') {
             $rules['publish'] = ['required', 'in:auto,wait'];
+            $rules['video_mode'] = ['required', Rule::in(YouTubeCatalog::MODES)];
+            $rules['format'] = ['required_unless:video_mode,footage', 'nullable', Rule::in(YouTubeCatalog::FORMATS)];
         }
 
         $validated = $request->validate($rules);
@@ -134,7 +138,11 @@ class AccountSetupController extends Controller
 
         $settings = match ($platform) {
             'x' => ['automation_level' => (int) $validated['automation_level'], 'mode' => $validated['mode']],
-            'youtube' => ['publish' => $validated['publish']],
+            'youtube' => array_filter([
+                'publish' => $validated['publish'],
+                'video_mode' => $validated['video_mode'],
+                'format' => $validated['video_mode'] === 'footage' ? null : ($validated['format'] ?? null),
+            ], fn ($value) => $value !== null),
             default => ['publish' => 'confirm'],
         };
 
@@ -164,6 +172,10 @@ class AccountSetupController extends Controller
 
         if ($platform === 'x') {
             app(\App\Services\GrowthAgent\GrowthBrainService::class)->forgetScheduledCooldown($user->id);
+        }
+
+        if ($platform === 'youtube') {
+            app(YouTubeEngineService::class)->run($user->fresh());
         }
 
         if ($firstCompletion) {

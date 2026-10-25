@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\SocialAuthController;
 use App\Http\Controllers\Api\BillingController;
 use App\Http\Controllers\Api\BillingWebhookController;
 use App\Http\Controllers\Api\SubscriptionPlanController;
+use App\Http\Controllers\Api\YouTubeController;
 
 Route::get('/health', fn () => response()->json([
     'status' => 'ok',
@@ -78,6 +79,11 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::put('/content/drafts/{post}', [ContentController::class, 'updateDraft']);
         Route::delete('/content/drafts/{post}', [ContentController::class, 'destroy']);
         Route::get('/content/posts', [ContentController::class, 'index']);
+
+        Route::post('/youtube/run', [YouTubeController::class, 'run']);
+        Route::post('/youtube/footage', [YouTubeController::class, 'footage']);
+        Route::post('/youtube/videos/{video}/confirm', [YouTubeController::class, 'confirm']);
+        Route::post('/youtube/videos/{video}/results', [YouTubeController::class, 'results']);
 
         Route::get('/growth-agent/settings', [GrowthAgentController::class, 'settings']);
         Route::put('/growth-agent/settings', [GrowthAgentController::class, 'updateSettings']);

@@ -84,7 +84,7 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
   const status = paused
     ? "Paused. Nothing is posted until you turn pause off."
     : full && settings.auto_post_enabled
-      ? "Full automation is on. It posts when the niche spikes, including while you are offline. A quiet stretch can wait, but not longer than three hours."
+      ? "Full automation is on. It posts when something is actually happening, including while you are offline. It skips some big accounts. A quiet stretch can last a few hours, and it does not run past about four."
       : full
         ? "Full automation is selected, but posting is off. Turn on “Post on its own” or nothing goes live."
         : settings.automation_level === 2 && settings.auto_post_enabled
@@ -225,23 +225,23 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
             <SettingsToggle
               id="auto_reply_enabled"
               label="Reply on its own"
-              description="On lets Mackie17 send replies for you when that action is allowed. Off leaves replies for you."
+              description="On sends a few replies a day, written for that post. It does not reply to every post."
               checked={settings.auto_reply_enabled}
               onChange={(checked) => patch({ auto_reply_enabled: checked })}
               disabled={paused}
             />
             <SettingsToggle
               id="auto_engage_enabled"
-              label="Suggest conversations"
-              description="On recommends replies and conversations to join. Off stops those suggestions."
+              label="Like some posts"
+              description="On likes a few posts in the niche. It does not like every post, and it leaves gaps between likes."
               checked={settings.auto_engage_enabled}
               onChange={(checked) => patch({ auto_engage_enabled: checked })}
               disabled={paused}
             />
             <SettingsToggle
               id="posting_mode"
-              label="Post on quiet days"
-              description="A quiet niche can wait. It still gets a post before three hours have passed."
+              label="Smaller moments"
+              description="On leans a little toward a take that is not breaking news. Off favors the spike. Neither one posts because time passed."
               checked={settings.mode === "proactive"}
               onChange={(checked) => patch({ mode: checked ? "proactive" : "reactive" })}
               disabled={paused}
@@ -249,7 +249,7 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Automation posts for a strong niche moment. If the niche stays quiet, the wait stops at three hours.
+            It skips some big accounts, likes and replies only sometimes, and a quiet stretch ends somewhere between three and four hours. That length moves, so it is not a clock.
           </p>
 
           <Link href="/growth-agent">

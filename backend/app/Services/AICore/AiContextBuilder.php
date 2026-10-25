@@ -50,7 +50,14 @@ class AiContextBuilder
                 'comp' => $trend->competition,
                 'tags' => array_slice($trend->niche_tags ?? [], 0, 4),
                 'src' => $meta['source'] ?? 'catalog',
-                'x_snip' => isset($meta['x_summary']) ? mb_substr((string) $meta['x_summary'], 0, 120) : null,
+                'mins' => isset($meta['minutes_ago']) && is_numeric($meta['minutes_ago']) ? (int) $meta['minutes_ago'] : null,
+                'who' => isset($meta['author']) ? mb_substr((string) $meta['author'], 0, 40) : null,
+                'reach' => isset($meta['author_followers']) ? (int) $meta['author_followers'] : null,
+                'near' => (bool) ($meta['adjacent'] ?? false),
+                'live' => (bool) ($meta['live'] ?? false),
+                'x_snip' => isset($meta['text'])
+                    ? mb_substr((string) $meta['text'], 0, 160)
+                    : (isset($meta['x_summary']) ? mb_substr((string) $meta['x_summary'], 0, 120) : null),
             ];
         }, $trends);
     }

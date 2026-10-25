@@ -29,6 +29,8 @@ import {
   SIDE_HUSTLE_GOALS,
   TONES,
   WEEKLY_TIME,
+  YOUTUBE_FORMATS,
+  YOUTUBE_MODES,
 } from "@/lib/profile";
 
 type ChapterSetup = {
@@ -36,6 +38,8 @@ type ChapterSetup = {
   automation_level: number;
   mode: string;
   publish: string;
+  video_mode: string;
+  format: string;
   completed: boolean;
 };
 
@@ -60,7 +64,7 @@ type XConnectStatus = {
 };
 
 type SharedStep = "platforms" | "purpose" | "discovery" | "niche" | "describe" | "audience" | "voice";
-type ChapterStage = "goals" | "pace" | "connect" | "publish" | "done";
+type ChapterStage = "goals" | "pace" | "connect" | "publish" | "shape" | "done";
 type Step = { kind: "shared"; key: SharedStep } | { kind: "chapter"; platform: Platform; stage: ChapterStage };
 
 const MODES = [
@@ -77,13 +81,13 @@ const HANDS = [
 
 const YOUTUBE_PUBLISH = [
   { value: "wait", label: "Wait for me", hint: "It prepares the title, description, and timing. You publish." },
-  { value: "auto", label: "Post on its own", hint: "Uploads you approve go out at the suggested time." },
+  { value: "auto", label: "Post on its own", hint: "When the video file is ready, it uploads without asking again." },
 ];
 
 const CHAPTER_STAGES: Record<Platform, ChapterStage[]> = {
   x: ["goals", "pace", "connect", "done"],
   tiktok: ["goals", "publish", "done"],
-  youtube: ["goals", "publish", "done"],
+  youtube: ["goals", "shape", "publish", "done"],
 };
 
 const EMPTY_SETUP: ChapterSetup = {
@@ -91,6 +95,8 @@ const EMPTY_SETUP: ChapterSetup = {
   automation_level: 1,
   mode: "reactive",
   publish: "wait",
+  video_mode: "",
+  format: "",
   completed: false,
 };
 
@@ -141,6 +147,8 @@ function stateToData(state: SetupState, focus: Platform | null): WizardData {
       automation_level: saved?.settings?.automation_level ?? 1,
       mode: saved?.settings?.mode ?? "reactive",
       publish: saved?.settings?.publish === "auto" ? "auto" : "wait",
+      video_mode: saved?.settings?.video_mode ?? "",
+      format: saved?.settings?.format ?? "",
       completed: saved?.completed ?? false,
     };
   }
@@ -342,6 +350,11 @@ export function OnboardingWizard() {
     if (!step) return false;
     if (step.kind === "chapter") {
       if (step.stage === "goals") return data.setups[step.platform].goals.length > 0;
+      if (step.stage === "shape") {
+        const setup = data.setups.youtube;
+        if (!setup.video_mode) return false;
+        return setup.video_mode === "footage" || setup.format !== "";
+      }
       return true;
     }
     switch (step.key) {
@@ -397,7 +410,11 @@ export function OnboardingWizard() {
       body.automation_level = setup.automation_level;
       body.mode = setup.mode;
     }
-    if (platform === "youtube") body.publish = setup.publish;
+    if (platform === "youtube") {
+      body.publish = setup.publish;
+      body.video_mode = setup.video_mode;
+      if (setup.video_mode !== "footage") body.format = setup.format;
+    }
 
     const state = await api<SetupState>(`/account/setup/platforms/${platform}`, {
       method: "POST",
@@ -531,10 +548,15 @@ export function OnboardingWizard() {
         return { title: "How should X run?", lede: "You can change this later in Settings." };
       case "connect":
         return { title: "Connect X.", lede: "Optional for now. Drafts work without a connection." };
+      case "shape":
+        return {
+          title: "What kind of YouTube?",
+          lede: "Shorts, a series told in episodes, or footage you already filmed.",
+        };
       case "publish":
         return step.platform === "tiktok"
           ? { title: "How TikTok publishes.", lede: "TikTok never posts on its own. It waits for your yes." }
-          : { title: "How should YouTube publish?", lede: "Pick one. You can change it later in Settings." };
+          : { title: "How should YouTube publish?", lede: "When the video file is ready, it can upload on its own or wait for you." };
       case "done": {
         const nextPlatform = data.platforms.find((p) => p !== step.platform && !data.setups[p].completed);
         return {
@@ -836,6 +858,31 @@ export function OnboardingWizard() {
         </div>
       )}
 
+      {step.kind === "chapter" && step.stage === "shape" && (
+        <div className="space-y-6">
+          <ChoiceList
+            options={YOUTUBE_MODES}
+            value={data.setups.youtube.video_mode || null}
+            onChange={(video_mode) =>
+              updateSetup("youtube", {
+                video_mode,
+                format: video_mode === "footage" ? "" : data.setups.youtube.format,
+              })
+            }
+          />
+          {data.setups.youtube.video_mode !== "" && data.setups.youtube.video_mode !== "footage" && (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-[#a1a1aa]">How the picture is made</p>
+              <ChoiceList
+                options={YOUTUBE_FORMATS}
+                value={data.setups.youtube.format || null}
+                onChange={(format) => updateSetup("youtube", { format })}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       {step.kind === "chapter" && step.stage === "publish" && step.platform === "tiktok" && (
         <div className="space-y-4">
           <div className="choice-note text-sm">
@@ -864,7 +911,8 @@ export function OnboardingWizard() {
           <div className="choice-note text-sm">
             <p className="font-medium">Connecting YouTube</p>
             <p className="mt-2 leading-relaxed text-muted">
-              The connection opens after Google approves the app. You can draft titles and descriptions now.
+              The channel connection opens after Google approves the app. Scripts, episode plans, and
+              edit plans are written before that. Nothing uploads until the connection and the video file exist.
             </p>
           </div>
         </div>

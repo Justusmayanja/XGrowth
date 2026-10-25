@@ -109,6 +109,37 @@ class TrendEngineService
             return [];
         }
 
+        $names = [];
+        foreach ($topics as $topic) {
+            $names[mb_strtolower((string) $topic['name'])] = true;
+        }
+
+        try {
+            foreach ($this->x->loudRoom() as $topic) {
+                $name = trim((string) ($topic['name'] ?? ''));
+                if ($name === '' || isset($names[mb_strtolower($name)])) {
+                    continue;
+                }
+                $names[mb_strtolower($name)] = true;
+                $count = (int) ($topic['tweet_count'] ?? 0);
+                $topics[] = [
+                    'name' => $name,
+                    'posts' => $count,
+                    'impressions' => null,
+                    'likes' => null,
+                    'replies' => null,
+                    'figures' => number_format($count).' posts',
+                    'adjacent' => true,
+                    'text' => $name,
+                ];
+            }
+        } catch (Throwable $e) {
+            Log::warning('The wider room was not available', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         return $this->topicsAsRanked($topics);
     }
 
@@ -125,7 +156,12 @@ class TrendEngineService
         $ranked = [];
 
         foreach ($topics as $topic) {
-            $score = $this->heatScore($topic);
+            $adjacent = (bool) ($topic['adjacent'] ?? false);
+            $score = $adjacent ? $this->roomScore((int) ($topic['posts'] ?? 0)) : $this->heatScore($topic);
+            $minutes = isset($topic['minutes_ago']) && is_numeric($topic['minutes_ago'])
+                ? (int) $topic['minutes_ago']
+                : null;
+            $followers = (int) ($topic['author_followers'] ?? 0);
             $ranked[] = [
                 'trend' => new Trend([
                     'name' => $topic['name'],
@@ -134,11 +170,21 @@ class TrendEngineService
                     'growth_rate' => 0,
                     'competition' => 'medium',
                     'niche_tags' => [],
-                    'metadata' => ['source' => 'x', 'niche' => true],
+                    'metadata' => [
+                        'source' => 'x',
+                        'niche' => ! $adjacent,
+                        'adjacent' => $adjacent,
+                        'minutes_ago' => $minutes,
+                        'author' => $topic['author'] ?? null,
+                        'author_followers' => $followers,
+                        'tweet_id' => $topic['tweet_id'] ?? null,
+                        'text' => $topic['text'] ?? $topic['name'],
+                        'live' => $minutes !== null && $minutes <= 90,
+                    ],
                     'detected_at' => now(),
                 ]),
                 'opportunity_score' => $score,
-                'suggestion' => 'Trending in this niche',
+                'suggestion' => $this->momentSuggestion($adjacent, $followers, $minutes),
             ];
         }
 
@@ -159,11 +205,51 @@ class TrendEngineService
             + ((int) ($topic['impressions'] ?? 0) / 50)
             + ((int) ($topic['posts'] ?? 0) / 25);
 
-        if ($heat <= 0) {
-            return 30.0;
+        $base = $heat <= 0 ? 30.0 : round(min(100, 30 + (18 * log10(1 + $heat))), 1);
+        $minutes = isset($topic['minutes_ago']) && is_numeric($topic['minutes_ago'])
+            ? (int) $topic['minutes_ago']
+            : null;
+        $followers = (int) ($topic['author_followers'] ?? 0);
+
+        if ($minutes !== null && $minutes > 12 * 60) {
+            return min($base, 40);
         }
 
-        return round(min(100, 30 + (18 * log10(1 + $heat))), 1);
+        if ($minutes !== null && $minutes <= 25 && $followers >= 100000) {
+            return max($base, 94);
+        }
+
+        if ($minutes !== null && $minutes <= 40 && $followers >= 25000) {
+            return max($base, 90);
+        }
+
+        if ($minutes !== null && $minutes <= 20 && $heat >= 40) {
+            return max($base, 88);
+        }
+
+        if ($minutes !== null && $minutes > 180) {
+            return min($base, 64);
+        }
+
+        return $base;
+    }
+
+    private function roomScore(int $posts): float
+    {
+        return $posts >= 8000 ? 86.0 : 82.0;
+    }
+
+    private function momentSuggestion(bool $adjacent, int $followers, ?int $minutes): string
+    {
+        if ($followers >= 100000 && $minutes !== null && $minutes <= 40) {
+            return 'A large account just posted';
+        }
+
+        if ($adjacent) {
+            return 'Loud beside this niche';
+        }
+
+        return 'People are talking about this now';
     }
 
     /**

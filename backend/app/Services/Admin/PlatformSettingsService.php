@@ -31,7 +31,7 @@ class PlatformSettingsService
             'group' => 'scheduler',
             'type' => 'integer',
             'label' => 'Growth evaluation interval (minutes)',
-            'description' => 'How often the scheduler runs AI growth evaluations for all users.',
+            'description' => 'The engine looks every 5 minutes so a live moment is not missed. Posts are not sent on this timer.',
             'default' => '30',
         ],
         'growth_brain_enabled' => [
@@ -52,7 +52,7 @@ class PlatformSettingsService
             'group' => 'growth_brain',
             'type' => 'integer',
             'label' => 'Per-user eval cooldown (minutes)',
-            'description' => 'Skip scheduled re-evaluation for a user if evaluated within this many minutes.',
+            'description' => 'A quiet account waits this long before another look. A live moment is looked at about every 5 minutes.',
             'default' => '30',
         ],
         'growth_brain_max_output_tokens' => [

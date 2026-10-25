@@ -106,21 +106,22 @@ class GrowthBrainService
             $contentSource = 'trend';
         }
 
+        $candidate = $trendId
+            ? collect($trends)->firstWhere('id', $trendId)
+            : null;
+        if (! $candidate && $trends !== []) {
+            $candidate = $trends[0];
+        }
+
         $mix = $this->context->contentMixDigest($user);
-        if ($mix['prefer'] === 'original') {
+        if ($mix['prefer'] === 'original' && ! $this->momentIsLive($candidate)) {
             $contentSource = 'original';
-            $trendId = null;
-        } elseif ($mix['prefer'] === 'trend') {
+            $candidate = null;
+        } elseif ($mix['prefer'] === 'trend' || $this->momentIsLive($candidate)) {
             $contentSource = 'trend';
         }
 
-        $trend = ($contentSource === 'trend' && $trendId)
-            ? collect($trends)->firstWhere('id', $trendId)
-            : null;
-
-        if ($contentSource === 'trend' && ! $trend && $trends !== []) {
-            $trend = $trends[0];
-        }
+        $trend = $contentSource === 'trend' ? $candidate : null;
 
         $score = max(0, min(100, (float) ($parsed['opportunity_score'] ?? 0)));
         $reason = trim((string) ($parsed['reason'] ?? 'AI evaluation completed.'));
@@ -165,19 +166,29 @@ class GrowthBrainService
         Cache::forget($this->cooldownKey($userId));
     }
 
+    public function noteHeat(int $userId, bool $hot): void
+    {
+        Cache::put($this->heatKey($userId), $hot ? 'hot' : 'quiet', now()->addHours(2));
+    }
+
     public function shouldSkipScheduledEvaluation(int $userId): bool
     {
-        $cooldown = max(0, $this->settings->getInt('growth_eval_cooldown_minutes', 30));
-        if ($cooldown <= 0) {
-            return false;
-        }
-
         $last = Cache::get($this->cooldownKey($userId));
         if (! is_numeric($last)) {
             return false;
         }
 
-        return now()->diffInMinutes(\Illuminate\Support\Carbon::createFromTimestamp((int) $last)) < $cooldown;
+        $minutes = (int) abs(now()->diffInMinutes(\Illuminate\Support\Carbon::createFromTimestamp((int) $last)));
+        if (Cache::get($this->heatKey($userId)) === 'hot') {
+            return $minutes < 4;
+        }
+
+        $cooldown = max(0, $this->settings->getInt('growth_eval_cooldown_minutes', 30));
+        if ($cooldown <= 0) {
+            return false;
+        }
+
+        return $minutes < $cooldown;
     }
 
     private function buildSystemPrompt(): string
@@ -194,16 +205,23 @@ Tasks:
 4. Short reason (max 2 sentences).
 5. If POST or ENGAGE: content_angle (max 120 chars). For original, pick/adapt from original_ideas.
 
-Content mix (mandatory):
-- Obey mix.max_trend_pct — trend-based posts must stay at or below that share.
-- If mix.prefer is "original", you MUST use content_source "original" and trend_id null.
-- If mix.prefer is "trend", pick the conversation that is happening in this niche.
-- If mix.prefer is "balanced", choose the better opportunity between a niche conversation and an original idea.
-- content_angle is how this account joins that niche conversation, using what the account is about. It is not a restatement of the description and not a summary of the trend.
+Content mix:
+- A live moment overrides the mix. If a trend is live, or a neighboring one is loud, use content_source "trend".
+- If nothing is live and mix.prefer is "original", use content_source "original".
+- content_angle is this account's opinion. It is not a restatement of the description and not a summary of the trend.
 
 Other rules:
 - Respect safety.*_left — if post_left is 0, never decide POST.
-- If profile.automation is 3 and profile.auto_post is true, choose POST only when the niche has a specific hot moment, such as a result that just landed. A quiet day is WAIT. Never choose POST to fill time.
+- This is not a schedule. POST when a new moment is actually happening: a goal, a price jump, a decision, a large account in this world saying something new.
+- A new beat of an event already posted about can be POST. The same sentence cannot.
+- A loud neighboring event can be POST when this account would have a view. A club account can have a view on another match. A lender or a crypto account can have a view on a price or a rule that just moved. IGNORE a meme or a celebrity item this account would scroll past.
+- content_angle is the opinion, not a summary of the news and not a plan.
+- If a trend is marked adjacent, only choose it when someone in this niche would actually care.
+- If minutes on a trend are over 180, it is old. Do not treat it as breaking.
+- A name in a post is not a current job. Do not put a coach, a rate, or a score into content_angle unless the input states it as happening now.
+- A large account posting does not mean POST. Skip some. Answer the ones this account would actually care about.
+- A quiet stretch is normal. If last.mins is past about 180, one post can end the stretch. Do not turn that into a repeating clock.
+- If nothing new is loud and the stretch is still short, WAIT.
 - If profile.automation is below 2, POST means the moment is worth a draft. The app will not publish it.
 - Do not invent trends or metrics not in the input.
 
@@ -218,8 +236,33 @@ PROMPT;
         return $adminRules."\n\n---\n\n".$role;
     }
 
+    private function momentIsLive(?Trend $trend): bool
+    {
+        if (! $trend) {
+            return false;
+        }
+
+        $meta = is_array($trend->metadata) ? $trend->metadata : [];
+        if (! empty($meta['live'])) {
+            return true;
+        }
+
+        if (! empty($meta['adjacent']) && (float) $trend->score >= 80) {
+            return true;
+        }
+
+        $minutes = $meta['minutes_ago'] ?? null;
+
+        return is_numeric($minutes) && (int) $minutes <= 90;
+    }
+
     private function cooldownKey(int $userId): string
     {
         return "growth_brain:last_eval:{$userId}";
+    }
+
+    private function heatKey(int $userId): string
+    {
+        return "growth:heat:{$userId}";
     }
 }

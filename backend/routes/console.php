@@ -9,6 +9,7 @@ use App\Services\Billing\TrialService;
 use App\Services\GrowthAgent\GrowthAgentService;
 use App\Services\GrowthAgent\SafetyEngineService;
 use App\Services\TrendEngine\TrendEngineService;
+use App\Services\YouTube\YouTubeEngineService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -72,7 +73,8 @@ Schedule::call(fn () => app(BillingLifecycle::class)->sweep())
 
 $settings = app(PlatformSettingsService::class);
 $trendFetchTimes = $settings->getFetchTimes();
-$evalInterval = min(59, max(30, $settings->getInt('growth_evaluation_interval_minutes', 30)));
+// The loop only looks. A loud moment can post within minutes; a quiet day does not post on this timer.
+$evalInterval = 5;
 
 if (config('queue.default') === 'redis') {
     foreach ($trendFetchTimes as $time) {
@@ -87,6 +89,16 @@ if (config('queue.default') === 'redis') {
     }
     Schedule::call(fn () => app(SafetyEngineService::class)->resetDailyBudgets())->dailyAt('00:05');
 }
+
+Artisan::command('youtube:run', function () {
+    $count = app(YouTubeEngineService::class)->runAll();
+    $this->info("Ran the YouTube engine for {$count} account(s).");
+})->purpose('Find the next YouTube video, script it, and queue it');
+
+Schedule::call(fn () => app(YouTubeEngineService::class)->runAll())
+    ->hourly()
+    ->name('youtube-engine')
+    ->withoutOverlapping(15);
 
 // Run in the scheduler process. A queued job never posts when no queue worker is running.
 Schedule::call(fn () => app(GrowthAgentService::class)->evaluateAllUsers())
