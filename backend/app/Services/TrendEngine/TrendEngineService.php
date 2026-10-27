@@ -77,6 +77,41 @@ class TrendEngineService
     }
 
     /**
+     * A short look at the home timeline for stories that are still hot.
+     * Separate from the 7-day list shown on Topics. The model is not called here.
+     *
+     * @return list<array{trend: Trend, opportunity_score: float, suggestion: string}>|null
+     */
+    public function rankedForWatch(User $user): ?array
+    {
+        $account = $user->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->first();
+
+        if (! $account) {
+            return null;
+        }
+
+        $profile = $user->accountProfile;
+        $niche = $profile?->resolvedNiche() ?? '';
+        $purpose = trim((string) ($profile?->description ?? '').' '.(string) ($profile?->audience ?? ''));
+
+        try {
+            $topics = $this->x->homeFeed($account, $niche, $purpose, watch: true);
+        } catch (Throwable $e) {
+            Log::warning('The timeline watch was not available', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+
+        return $this->topicsAsRanked($topics);
+    }
+
+    /**
      * @param  list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>  $topics
      * @return list<array{trend: Trend, opportunity_score: float, suggestion: string}>
      */
@@ -232,7 +267,7 @@ class TrendEngineService
             return [
                 'trends' => $trends,
                 'source' => 'home',
-                'note' => 'From this account\'s home timeline. The same list is kept for 7 days.',
+                'note' => 'From this account\'s home timeline. It is read a few times a day, then reused.',
             ];
         }
 
@@ -248,8 +283,8 @@ class TrendEngineService
             'trends' => $own,
             'source' => $own === [] ? 'home' : 'posts',
             'note' => $own === []
-                ? 'Nothing on the home timeline fits this account. That check is kept for 7 days.'
-                : 'From posts this account wrote itself. Nothing on the home timeline fit, and that check is kept for 7 days.',
+                ? 'Nothing on the home timeline fits this account. That check is reused for eight hours.'
+                : 'From posts this account wrote itself. Nothing on the home timeline fit, and that check is reused for eight hours.',
         ];
     }
 

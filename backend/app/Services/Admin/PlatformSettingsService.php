@@ -17,7 +17,7 @@ class PlatformSettingsService
             'group' => 'trends',
             'type' => 'string',
             'label' => 'Trend fetch times',
-            'description' => 'Not used for automatic pulls. Each account\'s home timeline is read once and kept for 7 days.',
+            'description' => 'Not used for automatic pulls. Each account\'s home timeline is read a few times a day.',
             'default' => '06:00,14:00,22:00',
         ],
         'trend_fetch_cooldown_hours' => [

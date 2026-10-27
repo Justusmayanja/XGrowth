@@ -119,7 +119,7 @@ function TopicTrends({ platform }: { platform: ReturnType<typeof usePlatform> })
       <DeskHeading icon={Hash} title="Topics">
         <p className="text-muted-foreground">
           {platform === "x"
-            ? "Posts from this account's home timeline, kept for 7 days. If none fit, posts the account wrote itself."
+            ? "Posts from this account's home timeline, read a few times a day. If none fit, posts the account wrote itself."
             : "Topics for this account."}
         </p>
       </DeskHeading>

@@ -79,7 +79,7 @@ class DashboardController extends Controller
             ],
             'note' => $hasXConnected
                 ? null
-                : 'Connect X to load live followers and impressions.',
+                : 'Connect X to load followers and impressions.',
         ]);
     }
 
@@ -132,15 +132,15 @@ class DashboardController extends Controller
                 ['label' => 'Views', 'value' => $preview ? 2400 + ($seed % 50000) : 0, 'sub' => 'Last 28 days'],
             ],
             default => $live && ($live['metrics_loaded'] ?? false) ? [
-                ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Live from X'],
+                ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Results for the last seven days'],
                 ($live['views_known'] ?? false)
-                    ? ['label' => 'Impressions', 'value' => $live['impressions'], 'sub' => $this->impressionBasis($live).$this->sinceYesterday($live['impressions_change'] ?? null)]
-                    : ['label' => 'Reactions', 'value' => (int) ($live['engagements'] ?? 0), 'sub' => 'Likes, replies, and reposts. X did not send view counts.'.$this->sinceYesterday($live['likes_change'] ?? null)],
+                    ? ['label' => 'Impressions', 'value' => $live['impressions'], 'sub' => 'Results for the last seven days']
+                    : ['label' => 'Reactions', 'value' => (int) ($live['engagements'] ?? 0), 'sub' => 'Results for the last seven days'],
                 ($live['views_known'] ?? false)
-                    ? ['label' => 'Likes', 'value' => (int) ($live['likes'] ?? 0), 'sub' => 'From these posts.'.$this->sinceYesterday($live['likes_change'] ?? null)]
-                    : ['label' => 'Likes', 'value' => (int) ($live['likes'] ?? 0), 'sub' => ((int) ($live['replies'] ?? 0)).' replies · '.((int) ($live['reposts'] ?? 0)).' reposts'.$this->sinceYesterday($live['likes_change'] ?? null)],
+                    ? ['label' => 'Likes', 'value' => (int) ($live['likes'] ?? 0), 'sub' => 'Results for the last seven days']
+                    : ['label' => 'Likes', 'value' => (int) ($live['likes'] ?? 0), 'sub' => 'Results for the last seven days'],
             ] : ($live ? [
-                ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Live from X'],
+                ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Results for the last seven days'],
                 ['label' => 'Reactions', 'value' => null, 'sub' => 'Could not load likes from X'],
                 ['label' => 'Likes', 'value' => null, 'sub' => 'Could not load likes from X'],
             ] : [

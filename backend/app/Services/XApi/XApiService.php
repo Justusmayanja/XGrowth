@@ -14,6 +14,14 @@ class XApiService
 {
     public const SCOPES = 'tweet.read tweet.write users.read like.read offline.access';
 
+    /** X bills about $0.005 per post and $0.010 per user. Amounts are stored in thousandths of a dollar. */
+    private const POST_MILLS = 5;
+
+    private const USER_MILLS = 10;
+
+    /** Leaves room for a couple of model calls inside a $0.40 day. */
+    private const DAILY_READ_MILLS = 360;
+
     public function configured(): bool
     {
         return filled(config('services.x.client_id')) && filled(config('services.x.client_secret'));
@@ -217,17 +225,20 @@ class XApiService
 
     /**
      * Followers, plus impressions from this account's recent posts and comments.
-     * When the niche can be searched, X's relevancy order decides which of those count.
+     * Fetched once and kept for seven days. The niche is unused so every caller shares one snapshot.
      *
      * @return array{followers: int, impressions: int, engagement_rate: float, profile_clicks: int, views_known: bool, ranked_for_niche: bool, tweets: list<array<string, mixed>>}
      */
     public function accountActivity(ConnectedAccount $account, ?string $niche = null): array
     {
-        $nicheKey = substr(md5(mb_strtolower(trim((string) $niche))), 0, 12);
-        $cacheKey = 'x-activity:v7:'.$account->id.':'.$nicheKey;
+        $cacheKey = 'x-activity:v8:'.$account->id;
         $cached = Cache::get($cacheKey);
         if (is_array($cached) && isset($cached['followers'], $cached['tweets'], $cached['views_known'])) {
             return $cached;
+        }
+
+        if (! $this->canAffordReads($account->id, 10, 1)) {
+            throw new RuntimeException('The daily X read budget for this account is used. Figures return tomorrow.');
         }
 
         $token = $this->accessToken($account);
@@ -274,19 +285,21 @@ class XApiService
             'metrics_loaded' => $metricsLoaded,
             'ranked_for_niche' => false,
             'tweets' => $chosen,
+            'fetched_at' => now()->toIso8601String(),
         ];
 
         if ($metricsLoaded) {
             $payload = $this->rememberTotals($account, $payload);
-            Cache::put($cacheKey, $payload, now()->addMinutes(10));
         }
+
+        $this->chargeReads($account->id, $loaded['complete'] ? 10 : 0, 1);
+        Cache::put($cacheKey, $payload, now()->addDays(7));
 
         return $payload;
     }
 
     /**
-     * Topics X is showing for this account, or topics from the account's own posts.
-     * Cached so opening the app twice does not call X again. No AI.
+     * Trend endpoints are not called. Topics come from the home timeline.
      *
      * @return array{source: string, topics: list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>}
      */
@@ -297,25 +310,10 @@ class XApiService
             return $cached;
         }
 
-        $token = $this->accessToken($account);
-        $topics = $this->trendsForAccount($token);
-        $source = 'trends';
-
-        if ($topics === []) {
-            $topics = $this->topicsFromOwnPosts($token, $account);
-            $source = 'posts';
-        }
-
-        $payload = [
-            'source' => $source,
-            'topics' => $topics,
+        return [
+            'source' => 'home',
+            'topics' => [],
         ];
-
-        if ($topics !== []) {
-            Cache::put($this->topicCacheKey($account), $payload, now()->addMinutes(20));
-        }
-
-        return $payload;
     }
 
     /**
@@ -363,7 +361,8 @@ class XApiService
         ];
 
         if ($errors === []) {
-            Cache::put($this->replyCacheKey($account), $feed, now()->addMinutes(10));
+            $feed['fetched_at'] = now()->toIso8601String();
+            Cache::put($this->replyCacheKey($account), $feed, now()->addDays(7));
         }
 
         return $feed;
@@ -515,7 +514,7 @@ class XApiService
 
     private function replyCacheKey(ConnectedAccount $account): string
     {
-        return 'x-replies:'.$account->id;
+        return 'x-replies:v2:'.$account->id;
     }
 
     /**
@@ -523,10 +522,14 @@ class XApiService
      */
     public function mentions(ConnectedAccount $account): array
     {
+        if (! $this->canAffordReads($account->id, 5, 5)) {
+            return [];
+        }
+
         $token = $this->accessToken($account);
         $userId = (string) ($account->platform_account_id ?: $this->authenticatedUserId($token));
         $response = Http::withToken($token)->get('https://api.twitter.com/2/users/'.$userId.'/mentions', [
-            'max_results' => 25,
+            'max_results' => 5,
             'tweet.fields' => 'public_metrics,created_at,author_id',
             'expansions' => 'author_id',
             'user.fields' => 'username,public_metrics',
@@ -535,6 +538,8 @@ class XApiService
         if ($response->failed()) {
             throw new RuntimeException($this->apiError($response));
         }
+
+        $this->chargeReads($account->id, 5, 5);
 
         return $this->normalizeTweets($response->json() ?? [], 'mention');
     }
@@ -620,28 +625,13 @@ class XApiService
      */
     private function ownPostsAndComments(string $token, string $userId): array
     {
-        $public = $this->tweetPage($token, $userId, false);
-        $owned = $this->tweetPage($token, $userId, true);
-
-        if ($public === null && $owned === null) {
-            return ['rows' => [], 'complete' => false, 'views_known' => false];
+        $rows = $this->tweetPage($token, $userId, true);
+        if ($rows === null) {
+            $rows = $this->tweetPage($token, $userId, false);
         }
 
-        $rows = $public ?? $owned ?? [];
-        if (is_array($public) && is_array($owned)) {
-            $byId = [];
-            foreach ($owned as $row) {
-                $byId[$row['id']] = $row;
-            }
-            foreach ($rows as $i => $row) {
-                $extra = $byId[$row['id']] ?? null;
-                if (! is_array($extra) || ! ($extra['views_known'] ?? false) || (int) $extra['impressions'] <= 0) {
-                    continue;
-                }
-                $rows[$i]['impressions'] = (int) $extra['impressions'];
-                $rows[$i]['views_known'] = true;
-                $rows[$i]['profile_clicks'] = max((int) ($row['profile_clicks'] ?? 0), (int) ($extra['profile_clicks'] ?? 0));
-            }
+        if ($rows === null) {
+            return ['rows' => [], 'complete' => false, 'views_known' => false];
         }
 
         return [
@@ -657,7 +647,7 @@ class XApiService
     private function tweetPage(string $token, string $userId, bool $ownedMetrics): ?array
     {
         $query = [
-            'max_results' => 100,
+            'max_results' => 10,
             'exclude' => 'retweets',
             'tweet.fields' => $ownedMetrics
                 ? 'public_metrics,organic_metrics,non_public_metrics,created_at,referenced_tweets'
@@ -878,11 +868,11 @@ class XApiService
 
     /**
      * Posts on this account's home timeline that belong to the niche.
-     * One small pull, then the same list for 7 days. It does not search the rest of X.
+     * One page of five posts, reused for eight hours. It does not search the rest of X.
      *
      * @return list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>
      */
-    public function homeFeed(ConnectedAccount $account, string $niche, string $purpose = ''): array
+    public function homeFeed(ConnectedAccount $account, string $niche, string $purpose = '', bool $watch = false): array
     {
         $userId = (string) ($account->platform_account_id ?? '');
         $purposeWords = $this->purposeWords($purpose);
@@ -890,29 +880,39 @@ class XApiService
             return [];
         }
 
-        $cacheKey = 'x-home-feed:v5:'.$account->id.':'.md5(mb_strtolower(trim($niche).'|'.$purpose));
+        $cacheKey = 'x-home-timeline:v6:'.$account->id.':'.md5(mb_strtolower(trim($niche).'|'.$purpose));
         $cached = Cache::get($cacheKey);
         if (is_array($cached) && array_key_exists('topics', $cached) && is_array($cached['topics'])) {
-            return $this->agedHomeTopics($cached['topics']);
+            return $this->topicsWithin($cached['topics'], $watch);
+        }
+
+        if (! $this->canAffordReads($account->id, 5, 5)) {
+            return [];
         }
 
         try {
             $response = Http::withToken($this->accessToken($account))->timeout(8)->get(
                 'https://api.twitter.com/2/users/'.$userId.'/timelines/reverse_chronological',
                 [
-                    'max_results' => 20,
+                    'max_results' => 5,
                     'tweet.fields' => 'public_metrics,created_at,author_id,lang',
                     'expansions' => 'author_id',
                     'user.fields' => 'username,public_metrics',
                 ],
             );
         } catch (\Throwable) {
+            Cache::put($cacheKey, ['fetched_at' => now()->toIso8601String(), 'topics' => []], now()->addMinutes(30));
+
             return [];
         }
 
         if ($response->failed()) {
+            Cache::put($cacheKey, ['fetched_at' => now()->toIso8601String(), 'topics' => []], now()->addMinutes(30));
+
             return [];
         }
+
+        $this->chargeReads($account->id, 5, 5);
 
         $users = collect($response->json('includes.users') ?? [])->keyBy('id');
         $candidates = [];
@@ -931,7 +931,8 @@ class XApiService
             }
             $created = isset($row['created_at']) ? \Illuminate\Support\Carbon::parse($row['created_at']) : null;
             $minutesAgo = $created ? (int) abs($created->diffInMinutes(now())) : null;
-            if ($minutesAgo !== null && $minutesAgo > 12 * 60) {
+            $ageLimit = 12 * 60;
+            if ($minutesAgo !== null && $minutesAgo > $ageLimit) {
                 continue;
             }
             $text = trim((string) preg_replace('/https?:\/\/\S+|#\S+|@\S+/', '', (string) ($row['text'] ?? '')));
@@ -988,7 +989,7 @@ class XApiService
                 $topic['loyalty'] = $loyalty;
             }
             $topics[] = $topic;
-            if (count($topics) === 6) {
+            if (count($topics) === 5) {
                 break;
             }
         }
@@ -996,9 +997,60 @@ class XApiService
         Cache::put($cacheKey, [
             'fetched_at' => now()->toIso8601String(),
             'topics' => $topics,
-        ], now()->addDays(7));
+        ], now()->addHours(8));
 
-        return $this->agedHomeTopics($topics);
+        return $this->topicsWithin($topics, $watch);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $topics
+     * @return list<array<string, mixed>>
+     */
+    private function topicsWithin(array $topics, bool $watch): array
+    {
+        $limit = $watch ? 180 : 12 * 60;
+        $fresh = [];
+        foreach ($this->agedHomeTopics($topics) as $topic) {
+            if (! is_array($topic)) {
+                continue;
+            }
+            $minutes = $topic['minutes_ago'] ?? null;
+            if (is_numeric($minutes) && (int) $minutes > $limit) {
+                continue;
+            }
+            $fresh[] = $topic;
+        }
+
+        return $fresh;
+    }
+
+    private function canAffordReads(int $accountId, int $posts, int $users): bool
+    {
+        return $this->spentMills($accountId) + $this->readMills($posts, $users) <= self::DAILY_READ_MILLS;
+    }
+
+    private function chargeReads(int $accountId, int $posts, int $users): void
+    {
+        Cache::put(
+            $this->readSpendKey($accountId),
+            $this->spentMills($accountId) + $this->readMills($posts, $users),
+            now()->endOfDay()->addHour(),
+        );
+    }
+
+    private function spentMills(int $accountId): int
+    {
+        return (int) Cache::get($this->readSpendKey($accountId), 0);
+    }
+
+    private function readSpendKey(int $accountId): string
+    {
+        return 'x-read-spend:v1:'.$accountId.':'.now()->toDateString();
+    }
+
+    private function readMills(int $posts, int $users): int
+    {
+        return ($posts * self::POST_MILLS) + ($users * self::USER_MILLS);
     }
 
     /**

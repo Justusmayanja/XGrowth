@@ -59,6 +59,11 @@ class GrowthBrainService
 
         $this->usage->assertCanGenerate($user);
 
+        $callsKey = 'growth-brain-calls:v1:'.$user->id.':'.now()->toDateString();
+        if ((int) Cache::get($callsKey, 0) >= 2) {
+            throw new RuntimeException('The growth model already ran twice today.');
+        }
+
         $trends = array_map(fn (array $row) => $row['trend'], $rankedTrends);
         $payload = [
             'profile' => $this->context->profileDigest($profile),
@@ -71,6 +76,7 @@ class GrowthBrainService
 
         $systemPrompt = $this->buildSystemPrompt();
         $userPrompt = $this->context->encode($payload);
+        Cache::put($callsKey, (int) Cache::get($callsKey, 0) + 1, now()->endOfDay()->addHour());
 
         try {
             $response = OpenAI::chat()->create([

@@ -102,12 +102,12 @@ function GrowthAnalytics() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <DeskHeading icon={BarChart3} title="Results">
           <p className="text-muted-foreground">
-            Followers, impressions, and which posts held attention
+            Results for the last seven days. Fetched again when the week ends.
           </p>
         </DeskHeading>
         {data.preview_metrics && (
           <Badge variant="outline" className="border-amber-500/40 text-amber-300">
-            Connect X for live totals.
+            Connect X to load the seven-day results.
           </Badge>
         )}
       </div>
@@ -119,7 +119,7 @@ function GrowthAnalytics() {
           {
             label: "Followers",
             value: figure(summary.followers),
-            sub: "Today's total. X does not send the last 7 days.",
+            sub: "Results for the last seven days",
           },
           {
             label: data.views_known === false ? "Reactions" : "Impressions (7d)",

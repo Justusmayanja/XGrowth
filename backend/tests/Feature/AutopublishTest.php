@@ -803,6 +803,78 @@ class AutopublishTest extends TestCase
         ];
     }
 
+    public function test_a_hot_story_is_read_again_only_after_the_watch_window(): void
+    {
+        $this->useRulesEngine();
+        config(['openai.api_key' => 'test-key']);
+        Http::fake([
+            'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => '901']], 201),
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response($this->nicheTweet(
+                'United have scored and the ground has gone',
+                'FabrizioRomano',
+                2_000_000,
+                8,
+                'tweet-watch',
+            )),
+        ]);
+        OpenAI::fake([
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['variants' => [[
+                        'content' => 'That finish was filthy.',
+                        'angle' => 'The finish',
+                        'virality_score' => 90,
+                        'estimated_reach' => 'high',
+                    ]]])],
+                ]],
+            ]),
+        ]);
+
+        $user = $this->user(level: 3);
+        $this->connectX($user);
+        $user->connectedAccounts()->update([
+            'refresh_token' => null,
+            'token_expires_at' => now()->addDays(3),
+        ]);
+        $engine = app(GrowthAgentService::class);
+        $engine->evaluateOpportunities($user->id);
+
+        $this->travel(2)->hours();
+        $engine->evaluateOpportunities($user->id);
+
+        $pulls = fn () => collect(Http::recorded())->filter(
+            fn (array $pair) => str_contains($pair[0]->url(), '/timelines/reverse_chronological')
+        );
+        $this->assertCount(1, $pulls());
+
+        $this->travel(7)->hours();
+        $engine->evaluateOpportunities($user->id);
+        $this->assertCount(2, $pulls());
+    }
+
+    public function test_a_quiet_story_does_not_ask_the_model(): void
+    {
+        config(['openai.api_key' => 'test-key']);
+        Http::fake([
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response($this->nicheTweet(
+                'Rice is still the cheapest dinner',
+                'home_cook',
+                200,
+                60,
+                'tweet-quiet',
+            )),
+        ]);
+        OpenAI::fake();
+
+        $user = $this->user(level: 3);
+        $this->connectX($user);
+
+        $decision = app(GrowthAgentService::class)->evaluateOpportunities($user->id);
+
+        $this->assertSame('WAIT', $decision);
+        OpenAI::assertNothingSent();
+    }
+
     private function tweetIdWhere(int $userId, string $kind): string
     {
         for ($n = 1; $n <= 80; $n++) {

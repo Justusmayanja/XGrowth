@@ -415,7 +415,7 @@ class XLiveFeaturesTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/tweets/search/recent'));
     }
 
-    public function test_the_home_timeline_is_kept_for_seven_days_without_another_pull(): void
+    public function test_the_home_timeline_is_reused_for_eight_hours(): void
     {
         $user = User::factory()->create();
         $user->accountProfile()->create([
@@ -457,18 +457,21 @@ class XLiveFeaturesTest extends TestCase
         $this->assertCount(1, $first);
         $this->assertLessThan(30, (int) $first[0]['trend']->metadata['minutes_ago']);
 
-        $this->travel(2)->days();
+        $this->travel(6)->hours();
 
         $second = $engine->rankedInNiche($user);
         $this->assertCount(1, $second);
         $this->assertSame('Man United have scored and the ground has gone', $second[0]['trend']->name);
-        $this->assertGreaterThan(12 * 60, (int) $second[0]['trend']->metadata['minutes_ago']);
-        $this->assertFalse((bool) $second[0]['trend']->metadata['live']);
+        $this->assertGreaterThan(300, (int) $second[0]['trend']->metadata['minutes_ago']);
 
-        $pulls = collect(Http::recorded())->filter(
+        $pulls = fn () => collect(Http::recorded())->filter(
             fn (array $pair) => str_contains($pair[0]->url(), '/timelines/reverse_chronological')
         );
-        $this->assertCount(1, $pulls);
+        $this->assertCount(1, $pulls());
+
+        $this->travel(3)->hours();
+        $engine->rankedInNiche($user);
+        $this->assertCount(2, $pulls());
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/tweets/search/recent'));
     }
 
@@ -714,17 +717,16 @@ class XLiveFeaturesTest extends TestCase
             ->getJson('/api/dashboard/platform/x')
             ->assertOk()
             ->assertJsonPath('metrics.1.value', 5200)
-            ->assertJsonPath('metrics.1.sub', 'Recent posts and comments')
+            ->assertJsonPath('metrics.1.sub', 'Results for the last seven days')
             ->assertJsonPath('metrics.2.label', 'Likes')
             ->assertJsonPath('metrics.2.value', 6);
 
-        Http::assertSent(function ($request) {
-            if (! str_contains($request->url(), '/users/42/tweets')) {
-                return false;
-            }
-
-            return ($request->data()['exclude'] ?? '') === 'retweets';
-        });
+        $tweetReads = collect(Http::recorded())->filter(
+            fn (array $pair) => str_contains($pair[0]->url(), '/users/42/tweets')
+        );
+        $this->assertCount(1, $tweetReads);
+        $this->assertSame('10', (string) $tweetReads->first()[0]->data()['max_results']);
+        $this->assertSame('retweets', $tweetReads->first()[0]->data()['exclude']);
     }
 
     public function test_impressions_fall_back_to_niche_posts_and_comments_when_search_is_empty(): void
@@ -756,7 +758,7 @@ class XLiveFeaturesTest extends TestCase
             ->getJson('/api/dashboard/platform/x')
             ->assertOk()
             ->assertJsonPath('metrics.1.value', 5200)
-            ->assertJsonPath('metrics.1.sub', 'Recent posts and comments')
+            ->assertJsonPath('metrics.1.sub', 'Results for the last seven days')
             ->assertJsonPath('metrics.2.label', 'Likes')
             ->assertJsonPath('metrics.2.value', 7);
     }
@@ -842,7 +844,7 @@ class XLiveFeaturesTest extends TestCase
             ->assertJsonPath('metrics.0.value', 18)
             ->assertJsonPath('metrics.1.label', 'Reactions')
             ->assertJsonPath('metrics.1.value', 5)
-            ->assertJsonPath('metrics.1.sub', 'Likes, replies, and reposts. X did not send view counts.')
+            ->assertJsonPath('metrics.1.sub', 'Results for the last seven days')
             ->assertJsonPath('metrics.2.label', 'Likes')
             ->assertJsonPath('metrics.2.value', 4);
     }
@@ -859,11 +861,6 @@ class XLiveFeaturesTest extends TestCase
                 ]);
             }
             if (str_contains($url, '/tweets')) {
-                $fields = (string) ($request->data()['tweet.fields'] ?? '');
-                if (str_contains($fields, 'organic_metrics')) {
-                    return Http::response(['data' => []]);
-                }
-
                 return Http::response([
                     'data' => [[
                         'id' => '2',
@@ -1011,10 +1008,52 @@ class XLiveFeaturesTest extends TestCase
             ->assertOk()
             ->assertJsonPath('metrics.1.label', 'Impressions')
             ->assertJsonPath('metrics.1.value', 1000)
-            ->assertJsonPath('metrics.1.sub', 'Kept from yesterday. X did not send a new view count. No change since yesterday')
+            ->assertJsonPath('metrics.1.sub', 'Results for the last seven days')
             ->assertJsonPath('metrics.2.label', 'Likes')
             ->assertJsonPath('metrics.2.value', 14)
-            ->assertJsonPath('metrics.2.sub', 'From these posts. +4 since yesterday');
+            ->assertJsonPath('metrics.2.sub', 'Results for the last seven days');
+    }
+
+    public function test_a_spent_read_budget_does_not_call_x(): void
+    {
+        [$user] = $this->connectedCook();
+        $account = $user->connectedAccounts()->first();
+        Cache::put('x-read-spend:v1:'.$account->id.':'.now()->toDateString(), 360, now()->addHour());
+        Http::fake();
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x')
+            ->assertOk();
+
+        Http::assertNothingSent();
+    }
+
+    public function test_follower_counts_stay_for_seven_days(): void
+    {
+        [$user] = $this->connectedCook();
+        Http::fake([
+            'https://api.twitter.com/2/users/me*' => Http::response([
+                'data' => ['id' => '42', 'public_metrics' => ['followers_count' => 18]],
+            ]),
+            'https://api.twitter.com/2/users/42/tweets*' => Http::response(['data' => []]),
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response(['data' => []]),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x')
+            ->assertOk()
+            ->assertJsonPath('metrics.0.sub', 'Results for the last seven days');
+
+        $this->actingAs($user, 'sanctum')->getJson('/api/dashboard/platform/x')->assertOk();
+
+        $me = fn () => collect(Http::recorded())->filter(
+            fn (array $pair) => str_contains($pair[0]->url(), '/users/me')
+        );
+        $this->assertCount(1, $me());
+
+        $this->travel(8)->days();
+        $this->actingAs($user, 'sanctum')->getJson('/api/dashboard/platform/x')->assertOk();
+        $this->assertCount(2, $me());
     }
 
     /**

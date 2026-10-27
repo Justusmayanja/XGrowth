@@ -64,8 +64,8 @@ class EngagementController extends Controller
             'posts' => $feed['posts'],
             'stats' => $stats,
             'note' => $feed['posts'] === []
-                ? 'No mentions or replies came back from this X account.'
-                : 'Up to five mentions and replies on this X account. Counts are the ones X returned.',
+                ? 'No mentions or replies came back. This check is kept for seven days.'
+                : 'Results for the last seven days. Mentions are fetched again when the week ends.',
         ]);
     }
 

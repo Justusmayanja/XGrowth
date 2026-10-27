@@ -72,7 +72,7 @@ Schedule::call(fn () => app(BillingLifecycle::class)->sweep())
     ->hourly()
     ->name('billing-sweep');
 
-// The loop only looks. Topic reads come from each account's home timeline and are kept for 7 days.
+// The loop only looks. The home timeline is read a few times a day, then reused.
 $evalInterval = 5;
 
 if (config('queue.default') === 'redis') {

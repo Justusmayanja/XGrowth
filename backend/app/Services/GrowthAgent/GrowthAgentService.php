@@ -82,8 +82,12 @@ class GrowthAgentService
         }
 
         $prefilterLimit = max(1, $this->settings->getInt('growth_brain_prefilter_limit', 5));
-        $fromNiche = $this->trends->rankedInNiche($user);
+        $fromNiche = $this->trends->rankedForWatch($user);
         $ranked = is_array($fromNiche) ? array_slice($fromNiche, 0, $prefilterLimit) : [];
+
+        if ($this->growthBrain->isEnabled()) {
+            $ranked = $this->freshHotMoments($user, $ranked);
+        }
 
         if ($ranked === []) {
             $this->growthBrain->noteHeat($user->id, false);
@@ -636,6 +640,46 @@ class GrowthAgentService
         return 25 + $wobble;
     }
 
+    /**
+     * The model is asked only about a story that is still hot and has not been judged yet.
+     * A quiet timeline look does not call the model. The same story is not judged again for 7 days.
+     *
+     * @param  list<array{trend: \App\Models\Trend, opportunity_score: float, suggestion?: string}>  $ranked
+     * @return list<array{trend: \App\Models\Trend, opportunity_score: float, suggestion?: string}>
+     */
+    private function freshHotMoments(User $user, array $ranked): array
+    {
+        $seen = Cache::get($this->seenMomentsKey($user->id));
+        $seen = is_array($seen) ? $seen : [];
+        $hot = [];
+
+        foreach ($ranked as $row) {
+            $key = $this->beatKey($row['trend']);
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $score = (float) $row['opportunity_score'];
+            if ($score < 82 && ! $this->isFreshSpike($row['trend'], $score)) {
+                continue;
+            }
+
+            $seen[$key] = 1;
+            $hot[] = $row;
+        }
+
+        if ($hot !== []) {
+            Cache::put($this->seenMomentsKey($user->id), $seen, now()->addDays(7));
+        }
+
+        return $hot;
+    }
+
+    private function seenMomentsKey(int $userId): string
+    {
+        return 'growth-seen:v1:'.$userId;
+    }
+
     private function isFreshSpike(\App\Models\Trend $trend, float $score): bool
     {
         $meta = is_array($trend->metadata) ? $trend->metadata : [];
@@ -993,11 +1037,16 @@ class GrowthAgentService
         ?string $contentAngle,
         string $contentSource = 'trend',
     ): ?Post {
-        $this->draftedThisRun = true;
-
         if (! $this->aiCore->isConfigured()) {
             return null;
         }
+
+        $draftsKey = 'growth-drafts:v1:'.$user->id.':'.now()->toDateString();
+        if ((int) Cache::get($draftsKey, 0) >= 2) {
+            return null;
+        }
+
+        $this->draftedThisRun = true;
 
         $isOriginal = $contentSource === 'original' || $trend === null;
 
@@ -1023,9 +1072,7 @@ class GrowthAgentService
                 'planner_hint' => $this->safeHint($contentAngle, $profile),
                 'variant_count' => 1,
                 'recent_posts' => $this->voiceExamples($user),
-                'use_web_search' => ! $isOriginal
-                    && $this->settings->getBool('web_search_enabled', true)
-                    && ($liveName !== null || $this->shouldUseWebSearchForTrend($trend)),
+                'use_web_search' => false,
                 'score_virality' => true,
                 'content_source' => $isOriginal ? 'original' : 'trend',
             ];
@@ -1058,7 +1105,7 @@ class GrowthAgentService
                 return null;
             }
 
-            return Post::create([
+            $draft = Post::create([
                 'user_id' => $user->id,
                 'trend_id' => $isOriginal ? null : $trend?->id,
                 'content' => $variant['content'],
@@ -1066,6 +1113,9 @@ class GrowthAgentService
                 'status' => 'draft',
                 'virality_predicted' => $variant['virality_score'],
             ]);
+            Cache::put($draftsKey, (int) Cache::get($draftsKey, 0) + 1, now()->endOfDay()->addHour());
+
+            return $draft;
         } catch (RuntimeException $e) {
             Log::warning('Autopilot draft generation skipped', [
                 'user_id' => $user->id,
@@ -1136,24 +1186,6 @@ class GrowthAgentService
         }
 
         return mb_substr($hint, 0, 140);
-    }
-
-    private function shouldUseWebSearchForTrend(?\App\Models\Trend $trend): bool
-    {
-        if (! $trend || ! $this->settings->getBool('web_search_enabled', true)) {
-            return false;
-        }
-
-        $keywords = ['breaking', 'news', 'deadline', 'transfer', 'launch', 'live', 'today'];
-        $name = strtolower($trend->name);
-
-        foreach ($keywords as $keyword) {
-            if (str_contains($name, $keyword)) {
-                return true;
-            }
-        }
-
-        return ($trend->growth_rate ?? 0) >= 25;
     }
 
     /**
