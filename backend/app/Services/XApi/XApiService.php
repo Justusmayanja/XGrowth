@@ -334,15 +334,10 @@ class XApiService
         $posts = [];
         $errors = [];
 
-        foreach ([
-            fn () => $this->mentions($account),
-            fn () => $this->repliesToAccount($account),
-        ] as $load) {
-            try {
-                $posts = array_merge($posts, $load());
-            } catch (\Throwable $e) {
-                $errors[] = $e->getMessage();
-            }
+        try {
+            $posts = $this->mentions($account);
+        } catch (\Throwable $e) {
+            $errors[] = $e->getMessage();
         }
 
         $seen = [];
@@ -545,33 +540,23 @@ class XApiService
     }
 
     /**
+     * Replies are already on the mentions timeline. A platform search is not used.
+     *
      * @return list<array<string, mixed>>
      */
     public function repliesToAccount(ConnectedAccount $account): array
     {
-        $username = strtolower((string) preg_replace('/[^A-Za-z0-9_]/', '', (string) $account->username));
-        if ($username === '') {
-            return [];
-        }
-
-        return $this->searchRecent(
-            $account,
-            'to:'.$username.' -from:'.$username.' -is:retweet',
-            'mention',
-        );
+        return [];
     }
 
     /**
+     * Topic discovery reads the home timeline. It does not search X.
+     *
      * @return list<array<string, mixed>>
      */
     public function searchNiche(ConnectedAccount $account, string $niche): array
     {
-        $query = $this->nicheQuery($niche);
-        if ($query === null) {
-            return [];
-        }
-
-        return $this->searchRecent($account, $query, 'niche');
+        return [];
     }
 
     /**
@@ -582,40 +567,11 @@ class XApiService
         $token = $this->appBearer();
         $response = Http::withToken($token)->get('https://api.twitter.com/2/trends/by/woeid/1');
 
-        if ($response->successful()) {
-            $topics = $this->topicsFromTrends($response->json() ?? []);
-            if ($topics !== []) {
-                return $topics;
-            }
+        if ($response->failed()) {
+            throw new RuntimeException($this->apiError($response));
         }
 
-        $search = Http::withToken($token)->get('https://api.twitter.com/2/tweets/search/recent', [
-            'query' => '("breaking" OR announced OR "just in") -is:retweet lang:en',
-            'max_results' => 10,
-            'tweet.fields' => 'public_metrics',
-        ]);
-
-        if ($search->failed()) {
-            throw new RuntimeException($this->apiError($response->failed() ? $response : $search));
-        }
-
-        $topics = [];
-        foreach ($search->json('data') ?? [] as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-            $name = trim(preg_replace('/\s+/', ' ', (string) ($row['text'] ?? '')) ?? '');
-            if ($name === '') {
-                continue;
-            }
-            $metrics = $row['public_metrics'] ?? [];
-            $topics[] = [
-                'name' => mb_substr($name, 0, 80),
-                'tweet_count' => (int) (($metrics['like_count'] ?? 0) + ($metrics['retweet_count'] ?? 0)),
-            ];
-        }
-
-        return $topics;
+        return $this->topicsFromTrends($response->json() ?? []);
     }
 
     public function accessToken(ConnectedAccount $account): string
@@ -726,79 +682,6 @@ class XApiService
                 continue;
             }
             $rows[] = $normalized;
-        }
-
-        return $rows;
-    }
-
-    /**
-     * X recent search, limited to this account, ordered the way X ranks the niche.
-     *
-     * @return list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>
-     */
-    private function nicheRankedOwn(string $token, ConnectedAccount $account, string $niche): array
-    {
-        $username = strtolower((string) preg_replace('/[^A-Za-z0-9_]/', '', (string) $account->username));
-        $nicheQuery = $this->nicheQuery($niche);
-        if ($username === '' || $nicheQuery === null) {
-            return [];
-        }
-
-        $response = Http::withToken($token)->timeout(6)->get('https://api.twitter.com/2/tweets/search/recent', [
-            'query' => 'from:'.$username.' '.$nicheQuery,
-            'max_results' => 100,
-            'sort_order' => 'relevancy',
-            'tweet.fields' => 'public_metrics,created_at,referenced_tweets,author_id',
-        ]);
-
-        if ($response->failed()) {
-            return [];
-        }
-
-        $ownId = (string) ($account->platform_account_id ?? '');
-        $rows = [];
-        foreach ($response->json('data') ?? [] as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-            $authorId = (string) ($row['author_id'] ?? '');
-            if ($ownId !== '' && $authorId !== '' && $authorId !== $ownId) {
-                continue;
-            }
-            $normalized = $this->activityRow($row);
-            if ($normalized['id'] === '') {
-                continue;
-            }
-            $rows[] = $normalized;
-        }
-
-        return $rows;
-    }
-
-    /**
-     * @param  list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>  $ranked
-     * @param  array<string, array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>  $owned
-     * @return list<array{id: string, content: string, kind: string, impressions: int, likes: int, reposts: int, replies: int, created_at: string}>
-     */
-    private function withOwnedMetrics(array $ranked, array $owned): array
-    {
-        $rows = [];
-        foreach ($ranked as $row) {
-            $live = $owned[$row['id']] ?? null;
-            if ($live !== null) {
-                $row['impressions'] = max($row['impressions'], $live['impressions']);
-                $row['likes'] = max($row['likes'], $live['likes']);
-                $row['reposts'] = max($row['reposts'], $live['reposts']);
-                $row['replies'] = max($row['replies'], $live['replies']);
-                $row['profile_clicks'] = max((int) ($row['profile_clicks'] ?? 0), (int) ($live['profile_clicks'] ?? 0));
-                if ($live['views_known'] ?? false) {
-                    $row['views_known'] = true;
-                }
-                if ($row['kind'] === 'post' && $live['kind'] === 'comment') {
-                    $row['kind'] = 'comment';
-                }
-            }
-            $rows[] = $row;
         }
 
         return $rows;
@@ -994,8 +877,8 @@ class XApiService
     }
 
     /**
-     * Recent posts on this account's home timeline that belong to the niche.
-     * One small pull. It does not search the rest of X.
+     * Posts on this account's home timeline that belong to the niche.
+     * One small pull, then the same list for 7 days. It does not search the rest of X.
      *
      * @return list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>
      */
@@ -1007,10 +890,10 @@ class XApiService
             return [];
         }
 
-        $cacheKey = 'x-home-feed:v4:'.$account->id.':'.md5(mb_strtolower(trim($niche).'|'.$purpose));
+        $cacheKey = 'x-home-feed:v5:'.$account->id.':'.md5(mb_strtolower(trim($niche).'|'.$purpose));
         $cached = Cache::get($cacheKey);
-        if (is_array($cached)) {
-            return $cached;
+        if (is_array($cached) && array_key_exists('topics', $cached) && is_array($cached['topics'])) {
+            return $this->agedHomeTopics($cached['topics']);
         }
 
         try {
@@ -1064,6 +947,7 @@ class XApiService
             $candidates[] = [
                 'text' => $text,
                 'tweet_id' => (string) ($row['id'] ?? ''),
+                'created_at' => $created?->toIso8601String() ?? now()->toIso8601String(),
                 'minutes_ago' => $minutesAgo,
                 'author' => $username !== '' ? '@'.$username : null,
                 'author_followers' => (int) (is_array($author) ? ($author['public_metrics']['followers_count'] ?? 0) : 0),
@@ -1096,6 +980,7 @@ class XApiService
             );
             $topic['text'] = mb_substr($text, 0, 240);
             $topic['tweet_id'] = $candidate['tweet_id'];
+            $topic['created_at'] = $candidate['created_at'];
             $topic['minutes_ago'] = $candidate['minutes_ago'];
             $topic['author'] = $candidate['author'];
             $topic['author_followers'] = $candidate['author_followers'];
@@ -1108,165 +993,55 @@ class XApiService
             }
         }
 
-        Cache::put($cacheKey, $topics, now()->addMinutes($topics === [] ? 3 : 4));
+        Cache::put($cacheKey, [
+            'fetched_at' => now()->toIso8601String(),
+            'topics' => $topics,
+        ], now()->addDays(7));
+
+        return $this->agedHomeTopics($topics);
+    }
+
+    /**
+     * The stored list stays the same. Age is counted from when each post was written,
+     * so a week-old snapshot is no longer treated as something that just happened.
+     *
+     * @param  list<array<string, mixed>>  $topics
+     * @return list<array<string, mixed>>
+     */
+    private function agedHomeTopics(array $topics): array
+    {
+        foreach ($topics as $i => $topic) {
+            if (! is_array($topic)) {
+                continue;
+            }
+            $created = $topic['created_at'] ?? null;
+            if (is_string($created) && $created !== '') {
+                $topic['minutes_ago'] = (int) abs(\Illuminate\Support\Carbon::parse($created)->diffInMinutes(now()));
+            }
+            $topics[$i] = $topic;
+        }
 
         return $topics;
     }
 
     /**
-     * English posts people are writing in this niche right now.
+     * Topic discovery uses the home timeline. This does not search X.
      *
      * @return list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>
      */
     public function nicheConversations(ConnectedAccount $account, string $niche): array
     {
-        $query = $this->nicheQuery($niche);
-        if ($query === null) {
-            return [];
-        }
-
-        $cacheKey = 'x-niche-topics:v4:'.$account->id.':'.md5(mb_strtolower($query));
-        $cached = Cache::get($cacheKey);
-        if (is_array($cached)) {
-            return $cached;
-        }
-
-        $query .= ' lang:en';
-        $ownId = (string) ($account->platform_account_id ?? '');
-
-        try {
-            $response = $this->recentNicheSearch($account, $query);
-        } catch (\Throwable) {
-            return [];
-        }
-
-        if ($response === null) {
-            return [];
-        }
-
-        $users = collect($response->json('includes.users') ?? [])->keyBy('id');
-        $topics = [];
-        $seen = [];
-        foreach ($response->json('data') ?? [] as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-            $authorId = (string) ($row['author_id'] ?? '');
-            if ($ownId !== '' && $authorId === $ownId) {
-                continue;
-            }
-            $created = isset($row['created_at']) ? \Illuminate\Support\Carbon::parse($row['created_at']) : null;
-            $minutesAgo = $created ? (int) abs($created->diffInMinutes(now())) : null;
-            if ($minutesAgo !== null && $minutesAgo > 12 * 60) {
-                continue;
-            }
-            $text = trim((string) preg_replace('/https?:\/\/\S+|#\S+|@\S+/', '', (string) ($row['text'] ?? '')));
-            $text = trim((string) preg_replace('/\s+/', ' ', $text));
-            $key = mb_strtolower($text);
-            if ($key === '' || isset($seen[$key]) || ! $this->isEnglishPhrase($text) || ! $this->textHasNicheWords($text, $niche)) {
-                continue;
-            }
-            $seen[$key] = true;
-            $metrics = is_array($row['public_metrics'] ?? null) ? $row['public_metrics'] : [];
-            $author = $users->get($authorId);
-            $username = is_array($author) ? (string) ($author['username'] ?? '') : '';
-            $followers = (int) (is_array($author) ? ($author['public_metrics']['followers_count'] ?? 0) : 0);
-            $topic = $this->topicRow(
-                mb_substr($text, 0, 80),
-                null,
-                isset($metrics['impression_count']) ? (int) $metrics['impression_count'] : null,
-                isset($metrics['like_count']) ? (int) $metrics['like_count'] : null,
-                isset($metrics['reply_count']) ? (int) $metrics['reply_count'] : null,
-            );
-            $topic['text'] = mb_substr($text, 0, 240);
-            $topic['tweet_id'] = (string) ($row['id'] ?? '');
-            $topic['minutes_ago'] = $minutesAgo;
-            $topic['author'] = $username !== '' ? '@'.$username : null;
-            $topic['author_followers'] = $followers;
-            $topics[] = $topic;
-            if (count($topics) === 6) {
-                break;
-            }
-        }
-
-        Cache::put($cacheKey, $topics, now()->addMinutes($topics === [] ? 3 : 4));
-
-        return $topics;
+        return [];
     }
 
     /**
-     * Names that are loud on X right now, outside this account's own search.
-     * Empty when the trends endpoint is unavailable. Cached so every account does not call it.
+     * Worldwide trend names are not loaded. Topics come from the home timeline.
      *
      * @return list<array{name: string, tweet_count: int}>
      */
     public function loudRoom(): array
     {
-        if (! $this->configured()) {
-            return [];
-        }
-
-        $cached = Cache::get('x-loud-room:v1');
-        if (is_array($cached)) {
-            return $cached;
-        }
-
-        try {
-            $response = Http::withToken($this->appBearer())->timeout(6)->get('https://api.twitter.com/2/trends/by/woeid/1');
-        } catch (\Throwable) {
-            return [];
-        }
-
-        if (! $response->successful()) {
-            Cache::put('x-loud-room:v1', [], now()->addMinutes(8));
-
-            return [];
-        }
-
-        $topics = [];
-        foreach ($this->topicsFromTrends($response->json() ?? []) as $topic) {
-            if (! $this->isEnglishPhrase($topic['name']) || $topic['tweet_count'] < 1500) {
-                continue;
-            }
-            $topics[] = $topic;
-            if (count($topics) === 4) {
-                break;
-            }
-        }
-
-        Cache::put('x-loud-room:v1', $topics, now()->addMinutes(8));
-
-        return $topics;
-    }
-
-    private function recentNicheSearch(ConnectedAccount $account, string $query): ?\Illuminate\Http\Client\Response
-    {
-        $params = [
-            'query' => $query,
-            'max_results' => 20,
-            'sort_order' => 'recency',
-            'start_time' => now()->subHours(12)->utc()->format('Y-m-d\TH:i:s\Z'),
-            'tweet.fields' => 'public_metrics,lang,created_at,author_id',
-            'expansions' => 'author_id',
-            'user.fields' => 'username,public_metrics',
-        ];
-
-        $response = Http::withToken($this->accessToken($account))->timeout(8)->get(
-            'https://api.twitter.com/2/tweets/search/recent',
-            $params,
-        );
-
-        if ($response->successful()) {
-            return $response;
-        }
-
-        unset($params['sort_order']);
-        $retry = Http::withToken($this->accessToken($account))->timeout(8)->get(
-            'https://api.twitter.com/2/tweets/search/recent',
-            $params,
-        );
-
-        return $retry->successful() ? $retry : null;
+        return [];
     }
 
     /**
@@ -1287,27 +1062,6 @@ class XApiService
         )));
 
         return array_slice($words, 0, 6);
-    }
-
-    /**
-     * @return list<array<string, mixed>>
-     */
-    private function searchRecent(ConnectedAccount $account, string $query, string $kind): array
-    {
-        $token = $this->accessToken($account);
-        $response = Http::withToken($token)->get('https://api.twitter.com/2/tweets/search/recent', [
-            'query' => $query,
-            'max_results' => 25,
-            'tweet.fields' => 'public_metrics,created_at,author_id',
-            'expansions' => 'author_id',
-            'user.fields' => 'username,public_metrics',
-        ]);
-
-        if ($response->failed()) {
-            throw new RuntimeException($this->apiError($response));
-        }
-
-        return $this->normalizeTweets($response->json() ?? [], $kind);
     }
 
     /**
@@ -1348,16 +1102,6 @@ class XApiService
         }
 
         return $posts;
-    }
-
-    private function nicheQuery(string $niche): ?string
-    {
-        $words = $this->nicheWords($niche);
-        if ($words === []) {
-            return null;
-        }
-
-        return implode(' ', $words).' -is:retweet';
     }
 
     private function textHasNicheWords(string $text, string $niche): bool

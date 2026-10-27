@@ -232,7 +232,7 @@ class TrendEngineService
             return [
                 'trends' => $trends,
                 'source' => 'home',
-                'note' => 'From the home timeline, kept when it fits this account.',
+                'note' => 'From this account\'s home timeline. The same list is kept for 7 days.',
             ];
         }
 
@@ -248,8 +248,8 @@ class TrendEngineService
             'trends' => $own,
             'source' => $own === [] ? 'home' : 'posts',
             'note' => $own === []
-                ? 'Nothing on the home timeline fits this account right now.'
-                : 'From posts this account wrote itself. Nothing on the home timeline fit.',
+                ? 'Nothing on the home timeline fits this account. That check is kept for 7 days.'
+                : 'From posts this account wrote itself. Nothing on the home timeline fit, and that check is kept for 7 days.',
         ];
     }
 
@@ -266,13 +266,6 @@ class TrendEngineService
 
         if ($this->hasFreshLiveTrends()) {
             return;
-        }
-
-        if ($this->x->configured()) {
-            $this->fetchGlobalTrends(force: true);
-            if ($this->hasFreshLiveTrends()) {
-                return;
-            }
         }
 
         if (! $this->settings->getBool('web_search_enabled', true) || ! $this->ai->isConfigured()) {

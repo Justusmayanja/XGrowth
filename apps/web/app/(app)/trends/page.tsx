@@ -21,7 +21,8 @@ export default function TrendsPage() {
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Post | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [posting, setPosting] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -51,21 +52,58 @@ export default function TrendsPage() {
 
   const active = selected ?? posts[0] ?? null;
 
-  async function saveDraft() {
-    if (!active?.post) {
+  async function createTweet() {
+    if (!active?.name || platform !== "x") {
       return;
     }
-    setSaving(true);
+    setCreating(true);
     try {
-      await api("/content/drafts", {
+      const data = await api<{ variants: { content: string }[] }>(
+        "/content/generate",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            mode: "describe",
+            topic: active.name,
+            content_type: "tweet",
+          }),
+        },
+        60000,
+        "Writing the tweet took too long. Try again.",
+      );
+      const content = data.variants[0]?.content?.trim();
+      if (!content) {
+        toast.error("No tweet came back.");
+        return;
+      }
+      const next = { name: active.name, post: content };
+      setPosts((current) => current.map((item) => (item.name === active.name ? next : item)));
+      setSelected(next);
+      toast.success("Tweet written");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not write the tweet");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function postTweet() {
+    if (!active?.post || active.post === active.name) {
+      toast.error("Write the tweet first.");
+      return;
+    }
+    setPosting(true);
+    try {
+      const saved = await api<{ post: { id: number } }>("/content/drafts", {
         method: "POST",
         body: JSON.stringify({ content: active.post, content_type: "tweet" }),
       });
-      toast.success("Saved to drafts");
+      await api(`/content/drafts/${saved.post.id}/publish`, { method: "POST" }, 20000, "Posting to X took too long.");
+      toast.success("Posted to X");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save the draft");
+      toast.error(err instanceof Error ? err.message : "Could not post to X");
     } finally {
-      setSaving(false);
+      setPosting(false);
     }
   }
 
@@ -74,7 +112,7 @@ export default function TrendsPage() {
       <DeskHeading icon={Hash} title="Topics">
         <p className="text-muted-foreground">
           {platform === "x"
-            ? "Posts from this account's home timeline, or from posts the account wrote itself."
+            ? "Posts from this account's home timeline, kept for 7 days. If none fit, posts the account wrote itself."
             : "Topics for this account."}
         </p>
       </DeskHeading>
@@ -109,15 +147,27 @@ export default function TrendsPage() {
           <Card>
             <CardHeader>
               <CardTitle>{active?.name ?? "Post"}</CardTitle>
-              <CardDescription>The post from Today</CardDescription>
+              <CardDescription>
+                {active && active.post !== active.name ? "Written for this account" : "Write a tweet from this topic, then post it"}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {active?.post ? (
                 <>
                   <p className="mb-4 text-sm leading-relaxed">{active.post}</p>
-                  <Button size="sm" variant="secondary" onClick={saveDraft} disabled={saving}>
-                    {saving ? "Saving…" : "Save to drafts"}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={createTweet} disabled={creating || posting || platform !== "x"}>
+                      {creating ? "Writing…" : "Create tweet"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={postTweet}
+                      disabled={creating || posting || active.post === active.name}
+                    >
+                      {posting ? "Posting…" : "Post to X"}
+                    </Button>
+                  </div>
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">Nothing to show yet.</p>

@@ -311,8 +311,8 @@ function XBody({ desk }: { desk: Desk }) {
           title="Topics"
           description={
             moments
-              ? `${moments} from this account's home timeline, kept when they fit the description.`
-              : "From this account's home timeline, kept when they fit the description."
+              ? `${moments} from this account's home timeline, kept for 7 days when they fit the description.`
+              : "From this account's home timeline, kept for 7 days when they fit the description."
           }
           action={
             <Link href="/trends" className="text-sm text-muted-foreground hover:text-foreground">

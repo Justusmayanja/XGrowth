@@ -40,6 +40,11 @@ class AiUsageService
 
     public function canUse(User $user, string $actionType): bool
     {
+        // Writing a tweet is not capped. The daily count is still stored for the admin view.
+        if ($actionType === self::ACTION_GENERATION) {
+            return true;
+        }
+
         $budget = $this->budgetFor($user, $actionType);
 
         return $this->draftUses($user, $budget) < $budget->daily_limit;

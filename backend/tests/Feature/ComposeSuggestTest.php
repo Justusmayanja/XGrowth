@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AccountProfile;
 use App\Models\PlatformSetting;
 use App\Models\Post;
+use App\Models\RateLimitBudget;
 use App\Models\Trend;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
@@ -147,6 +148,43 @@ class ComposeSuggestTest extends TestCase
         $this->assertSame('Arsenal and City both in form', $ranked[0]['trend']->name);
         $this->assertStringContainsString("this account's side", $ranked[0]['suggestion']);
         $this->assertSame(0, Trend::query()->where('metadata->source', 'mock')->count());
+    }
+
+    public function test_a_full_daily_draft_count_still_writes_a_tweet(): void
+    {
+        config(['openai.api_key' => 'test-key']);
+        $this->disableWebSearch();
+
+        OpenAI::fake([
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['variants' => [[
+                        'content' => 'Rice, eggs, and soy sauce. Dinner for 40p.',
+                        'angle' => 'Cheapest meal of the week',
+                        'virality_score' => 80,
+                        'estimated_reach' => 'high',
+                    ]]])],
+                ]],
+            ]),
+        ]);
+
+        $user = $this->userWithProfile();
+        RateLimitBudget::create([
+            'user_id' => $user->id,
+            'action_type' => 'ai_generation',
+            'count' => 30,
+            'daily_limit' => 30,
+            'budget_date' => now()->toDateString(),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/content/generate', [
+                'mode' => 'describe',
+                'topic' => 'A cheap dinner',
+                'content_type' => 'tweet',
+            ])
+            ->assertOk()
+            ->assertJsonPath('variants.0.content', 'Rice, eggs, and soy sauce. Dinner for 40p.');
     }
 
     private function disableWebSearch(): void

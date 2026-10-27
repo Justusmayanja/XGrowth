@@ -17,14 +17,14 @@ class PlatformSettingsService
             'group' => 'trends',
             'type' => 'string',
             'label' => 'Trend fetch times',
-            'description' => 'Comma-separated times (HH:MM, server timezone) when the X trend catalog refreshes. Fewer fetches = lower X API cost.',
+            'description' => 'Not used for automatic pulls. Each account\'s home timeline is read once and kept for 7 days.',
             'default' => '06:00,14:00,22:00',
         ],
         'trend_fetch_cooldown_hours' => [
             'group' => 'trends',
             'type' => 'integer',
             'label' => 'Trend fetch cooldown (hours)',
-            'description' => 'Minimum hours between trend catalog refreshes, even inside a fetch window.',
+            'description' => 'Not used for automatic pulls. A home-timeline list stays in place for 7 days.',
             'default' => '4',
         ],
         'growth_evaluation_interval_minutes' => [

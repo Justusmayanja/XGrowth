@@ -415,6 +415,63 @@ class XLiveFeaturesTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/tweets/search/recent'));
     }
 
+    public function test_the_home_timeline_is_kept_for_seven_days_without_another_pull(): void
+    {
+        $user = User::factory()->create();
+        $user->accountProfile()->create([
+            'custom_niche' => 'Man United',
+            'onboarding_completed' => true,
+        ]);
+        ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'mackie',
+            'access_token' => 'user-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
+                'data' => [[
+                    'id' => '10',
+                    'text' => 'Man United have scored and the ground has gone',
+                    'author_id' => '8',
+                    'lang' => 'en',
+                    'created_at' => now()->subMinutes(6)->toIso8601String(),
+                    'public_metrics' => ['like_count' => 20, 'reply_count' => 3],
+                ]],
+                'includes' => [
+                    'users' => [[
+                        'id' => '8',
+                        'username' => 'utdnews',
+                        'public_metrics' => ['followers_count' => 120000],
+                    ]],
+                ],
+            ]),
+        ]);
+
+        $engine = app(TrendEngineService::class);
+        $first = $engine->rankedInNiche($user);
+        $this->assertCount(1, $first);
+        $this->assertLessThan(30, (int) $first[0]['trend']->metadata['minutes_ago']);
+
+        $this->travel(2)->days();
+
+        $second = $engine->rankedInNiche($user);
+        $this->assertCount(1, $second);
+        $this->assertSame('Man United have scored and the ground has gone', $second[0]['trend']->name);
+        $this->assertGreaterThan(12 * 60, (int) $second[0]['trend']->metadata['minutes_ago']);
+        $this->assertFalse((bool) $second[0]['trend']->metadata['live']);
+
+        $pulls = collect(Http::recorded())->filter(
+            fn (array $pair) => str_contains($pair[0]->url(), '/timelines/reverse_chronological')
+        );
+        $this->assertCount(1, $pulls);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/tweets/search/recent'));
+    }
+
     public function test_a_shop_account_can_also_speak_for_a_loyalty_that_keeps_appearing(): void
     {
         $user = User::factory()->create();

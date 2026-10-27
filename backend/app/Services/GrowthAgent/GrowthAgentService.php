@@ -660,7 +660,7 @@ class GrowthAgentService
         $posted = AiDecision::query()
             ->where('user_id', $user->id)
             ->where('action_taken', 'posted')
-            ->where('created_at', '>=', now()->subHours(8))
+            ->where('created_at', '>=', now()->subDays(7))
             ->get(['context']);
 
         foreach ($posted as $decision) {

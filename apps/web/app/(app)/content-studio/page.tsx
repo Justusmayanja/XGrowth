@@ -101,14 +101,7 @@ export default function ContentStudioPage() {
   const webSearchDisabled =
     !usage?.web_search_enabled || (usage?.web_searches.remaining ?? 0) <= 0;
 
-  const reachedDraftLimit =
-    usage != null && usage.ai_generations.limit > 0 && usage.ai_generations.remaining <= 0;
-
   async function write(search: boolean) {
-    if (reachedDraftLimit && usage) {
-      toast.error(`You've reached today's limit of ${usage.ai_generations.limit} drafts.`);
-      return;
-    }
     if (search && webSearchDisabled) {
       toast.error(
         usage && !usage.web_search_enabled
@@ -130,16 +123,21 @@ export default function ContentStudioPage() {
         variants: Variant[];
         note: string;
         usage?: AiUsageStatus;
-      }>("/content/generate", {
-        method: "POST",
-        body: JSON.stringify({
-          mode: nextMode,
-          topic: nextMode === "describe" ? typed : null,
-          tone,
-          content_type: contentType,
-          use_web_search: search && !webSearchDisabled,
-        }),
-      });
+      }>(
+        "/content/generate",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            mode: nextMode,
+            topic: nextMode === "describe" ? typed : null,
+            tone,
+            content_type: contentType,
+            use_web_search: search && !webSearchDisabled,
+          }),
+        },
+        60000,
+        "Writing the tweet took too long. Try again.",
+      );
       setVariants(data.variants);
       setNote(data.note);
       if (data.usage) {
@@ -212,14 +210,9 @@ export default function ContentStudioPage() {
             Open drafts
           </Link>
         </p>
-        {usage && (
+        {usage?.web_search_enabled && (
           <p className="mt-2 text-sm text-muted-foreground">
-            {reachedDraftLimit
-              ? `You've reached today's limit of ${usage.ai_generations.limit} drafts.`
-              : `Drafts left today: ${usage.ai_generations.remaining}`}
-            {usage.web_search_enabled && (
-              <> · Web lookups left: {usage.web_searches.remaining}</>
-            )}
+            Web lookups left: {usage.web_searches.remaining}
           </p>
         )}
       </DeskHeading>
@@ -336,11 +329,6 @@ export default function ContentStudioPage() {
                   {loading ? "Searching…" : "Search"}
                 </Button>
               </div>
-              {reachedDraftLimit && usage && (
-                <p className="text-xs text-muted-foreground">
-                  You've reached today's limit of {usage.ai_generations.limit} drafts. Automatic checks no longer use this allowance. Try again tomorrow.
-                </p>
-              )}
               <p className="text-xs text-muted-foreground">
                 Search looks up what is happening in this account, then writes from the description and the people it is for.
               </p>

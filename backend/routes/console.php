@@ -1,9 +1,7 @@
 <?php
 
-use App\Jobs\FetchGlobalTrendsJob;
 use App\Jobs\SafetyResetJob;
 use App\Models\User;
-use App\Services\Admin\PlatformSettingsService;
 use App\Services\Billing\BillingLifecycle;
 use App\Services\Billing\TrialService;
 use App\Services\GrowthAgent\GrowthAgentService;
@@ -26,7 +24,7 @@ Artisan::command('xpulse:evaluate', function () {
 Artisan::command('xpulse:seed-trends', function () {
     $trends = app(TrendEngineService::class)->fetchGlobalTrends(force: true);
     $this->info('Refreshed '.count($trends).' trend(s).');
-})->purpose('Refresh the shared trend catalog from X');
+})->purpose('Manually refresh the shared trend catalog. Account topics use the home timeline and are not refreshed here.');
 
 Artisan::command('xpulse:reset-safety', function () {
     $deleted = app(SafetyEngineService::class)->resetDailyBudgets();
@@ -71,22 +69,12 @@ Schedule::call(fn () => app(BillingLifecycle::class)->sweep())
     ->hourly()
     ->name('billing-sweep');
 
-$settings = app(PlatformSettingsService::class);
-$trendFetchTimes = $settings->getFetchTimes();
-// The loop only looks. A loud moment can post within minutes; a quiet day does not post on this timer.
+// The loop only looks. Topic reads come from each account's home timeline and are kept for 7 days.
 $evalInterval = 5;
 
 if (config('queue.default') === 'redis') {
-    foreach ($trendFetchTimes as $time) {
-        Schedule::job(new FetchGlobalTrendsJob)->dailyAt($time);
-    }
     Schedule::job(new SafetyResetJob)->dailyAt('00:05');
 } else {
-    foreach ($trendFetchTimes as $time) {
-        Schedule::call(fn () => app(TrendEngineService::class)->fetchGlobalTrends())
-            ->dailyAt($time)
-            ->name("fetch-trends-{$time}");
-    }
     Schedule::call(fn () => app(SafetyEngineService::class)->resetDailyBudgets())->dailyAt('00:05');
 }
 

@@ -84,22 +84,5 @@ export function TrialBanner() {
     );
   }
 
-  if (subscription?.status === "trial_ended") {
-    return (
-      <div
-        role="status"
-        className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-accent bg-card px-4 py-3 text-sm"
-      >
-        <p>
-          <span className="font-medium">Your free trial has ended.</span>{" "}
-          <span className="text-muted-foreground">Upgrade to keep your platforms and packages.</span>
-        </p>
-        <Link href="/pricing" className="btn btn-primary text-sm">
-          Upgrade now
-        </Link>
-      </div>
-    );
-  }
-
   return null;
 }
