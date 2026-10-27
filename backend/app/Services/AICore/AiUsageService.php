@@ -42,7 +42,7 @@ class AiUsageService
     {
         $budget = $this->budgetFor($user, $actionType);
 
-        return $budget->count < $budget->daily_limit;
+        return $this->draftUses($user, $budget) < $budget->daily_limit;
     }
 
     /**
@@ -57,9 +57,11 @@ class AiUsageService
      *     metadata?: array<string, mixed>|null
      * }  $usage
      */
-    public function record(User $user, array $usage): void
+    public function record(User $user, array $usage, bool $countsAsDraft = true): void
     {
-        $this->increment($user, self::ACTION_GENERATION);
+        if ($countsAsDraft) {
+            $this->increment($user, self::ACTION_GENERATION);
+        }
 
         $webSearchCalls = (int) ($usage['web_search_calls'] ?? 0);
         if ($webSearchCalls > 0) {
@@ -110,17 +112,19 @@ class AiUsageService
     private function budgetSnapshot(User $user, string $actionType): array
     {
         $budget = $this->budgetFor($user, $actionType);
+        $used = $this->draftUses($user, $budget);
 
         return [
-            'used' => $budget->count,
+            'used' => $used,
             'limit' => $budget->daily_limit,
-            'remaining' => max(0, $budget->daily_limit - $budget->count),
+            'remaining' => max(0, $budget->daily_limit - $used),
         ];
     }
 
     private function budgetFor(User $user, string $actionType): RateLimitBudget
     {
-        return RateLimitBudget::firstOrCreate(
+        $limit = $this->dailyLimitFor($user, $actionType);
+        $budget = RateLimitBudget::firstOrCreate(
             [
                 'user_id' => $user->id,
                 'connected_account_id' => null,
@@ -129,9 +133,35 @@ class AiUsageService
             ],
             [
                 'count' => 0,
-                'daily_limit' => $this->dailyLimitFor($user, $actionType),
+                'daily_limit' => $limit,
             ]
         );
+
+        if ($limit > 0 && (int) $budget->daily_limit < $limit) {
+            $budget->daily_limit = $limit;
+            $budget->save();
+        }
+
+        return $budget;
+    }
+
+    /**
+     * Background checks were counted as drafts. Those do not use up the compose allowance.
+     */
+    private function draftUses(User $user, RateLimitBudget $budget): int
+    {
+        $count = (int) $budget->count;
+        if ($budget->action_type !== self::ACTION_GENERATION) {
+            return $count;
+        }
+
+        $background = AiUsageLog::query()
+            ->where('user_id', $user->id)
+            ->where('feature', 'growth_evaluation')
+            ->where('created_at', '>=', Carbon::today())
+            ->count();
+
+        return max(0, $count - $background);
     }
 
     private function dailyLimitFor(User $user, string $actionType): int
@@ -156,7 +186,7 @@ class AiUsageService
 
         return match ($actionType) {
             self::ACTION_WEB_SEARCH => "Daily web search limit reached ({$snapshot['limit']} per day on your {$user->subscription_plan} plan). Web search uses extra tokens and tool fees — try again tomorrow or generate without web search.",
-            default => "Daily AI generation limit reached ({$snapshot['limit']} per day on your {$user->subscription_plan} plan). Try again tomorrow or upgrade your plan.",
+            default => "You've reached today's limit of {$snapshot['limit']} drafts. Try again tomorrow.",
         };
     }
 }

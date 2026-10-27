@@ -45,6 +45,60 @@ class YouTubeController extends Controller
         return response()->json($this->engine->desk($request->user()));
     }
 
+    public function listings(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'videos' => ['required', 'array', 'min:1', 'max:200'],
+            'videos.*.channel' => ['required', 'string', 'max:120'],
+            'videos.*.title' => ['required', 'string', 'max:200'],
+            'videos.*.views' => ['required', 'integer', 'min:0'],
+            'videos.*.url' => ['nullable', 'string', 'max:300'],
+            'videos.*.duration' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $this->engine->storeListings($request->user(), $validated['videos']);
+
+        return response()->json($this->engine->desk($request->user()));
+    }
+
+    public function transcript(Request $request, YouTubeVideo $video): JsonResponse
+    {
+        abort_unless($video->user_id === $request->user()->id, 404);
+        $validated = $request->validate([
+            'transcript' => ['required', 'string', 'max:200000'],
+        ]);
+        $this->engine->storeTranscript($video, $validated['transcript']);
+
+        return response()->json($this->engine->desk($request->user()));
+    }
+
+    public function retention(Request $request, YouTubeVideo $video): JsonResponse
+    {
+        abort_unless($video->user_id === $request->user()->id, 404);
+        $validated = $request->validate([
+            'csv' => ['required', 'string', 'max:200000'],
+            'duration' => ['nullable', 'numeric', 'min:1'],
+        ]);
+        $this->engine->recordRetention(
+            $video,
+            $validated['csv'],
+            isset($validated['duration']) ? (float) $validated['duration'] : null,
+        );
+
+        return response()->json($this->engine->desk($request->user()));
+    }
+
+    public function comments(Request $request, YouTubeVideo $video): JsonResponse
+    {
+        abort_unless($video->user_id === $request->user()->id, 404);
+        $validated = $request->validate([
+            'comments' => ['required', 'string', 'max:20000'],
+        ]);
+        $this->engine->storeComments($request->user(), $video, $validated['comments']);
+
+        return response()->json($this->engine->desk($request->user()));
+    }
+
     public function footage(Request $request): JsonResponse
     {
         $validated = $request->validate([

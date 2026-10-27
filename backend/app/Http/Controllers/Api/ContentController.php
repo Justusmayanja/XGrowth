@@ -222,6 +222,24 @@ class ContentController extends Controller
             ->latest()
             ->paginate(20);
 
+        $profile = $request->user()->accountProfile;
+        $purpose = trim((string) ($profile?->description ?? '').' '.(string) ($profile?->audience ?? '').' '.(string) ($profile?->resolvedNiche() ?? ''));
+        $x = app(XApiService::class);
+        $posts->setCollection(
+            $posts->getCollection()
+                ->reject(function ($post) use ($x, $purpose) {
+                    if ($post->status !== 'draft') {
+                        return false;
+                    }
+                    if (str_starts_with((string) $post->content_type, 'tiktok') || str_starts_with((string) $post->content_type, 'youtube')) {
+                        return false;
+                    }
+
+                    return $x->isOutsideTheAccount((string) $post->content, $purpose);
+                })
+                ->values()
+        );
+
         return response()->json($posts);
     }
 

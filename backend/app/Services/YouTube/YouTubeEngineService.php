@@ -19,6 +19,11 @@ class YouTubeEngineService
         private readonly YouTubeDemandService $demand,
         private readonly YouTubeScriptWriter $scripts,
         private readonly YouTubeEditPlanner $edits,
+        private readonly YouTubeRetentionReader $retention,
+        private readonly YouTubeShortsCutter $shorts,
+        private readonly YouTubeCommentTriage $comments,
+        private readonly YouTubeAudit $audit,
+        private readonly YouTubeSeriesPlanner $seriesPlanner,
     ) {}
 
     public function runAll(): int
@@ -53,6 +58,15 @@ class YouTubeEngineService
         }
     }
 
+    /**
+     * @param  list<array{channel: string, title: string, views: int, url?: string, duration?: int}>  $videos
+     */
+    public function storeListings(User $user, array $videos): void
+    {
+        $this->demand->storeListings($user, $videos);
+        $this->run($user);
+    }
+
     public function confirm(YouTubeVideo $video): YouTubeVideo
     {
         if ($video->status !== 'waiting') {
@@ -77,35 +91,83 @@ class YouTubeEngineService
 
     public function recordResults(YouTubeVideo $video, int $views, float $percent): YouTubeVideo
     {
-        if (! in_array($video->status, ['waiting', 'queued'], true)) {
+        if (! in_array($video->status, ['waiting', 'queued', 'learned'], true)) {
             throw ValidationException::withMessages([
                 'status' => ['Results can be saved once the video is ready to post.'],
             ]);
         }
 
-        $note = match (true) {
-            $percent >= 50 => 'People stayed. The next piece keeps this shape.',
-            $percent < 30 => 'People left early. The next piece uses a different opening.',
-            default => 'Recorded. The next search takes this into account.',
-        };
-
         $package = $video->package ?? [];
-        $package['learning'] = [
+        $package['model_learning'] = [
+            'case' => 'unshaped',
+            'change_opening' => false,
             'views' => $views,
             'average_view_percent' => $percent,
-            'note' => $note,
+            'note' => 'Average view percent is stored for the model. It does not choose the opening. A Studio retention export does.',
         ];
 
         $video->update([
             'views' => $views,
             'average_view_percent' => $percent,
-            'learning_note' => $note,
+            'learning_note' => null,
             'learned_at' => now(),
             'status' => 'learned',
             'package' => $package,
         ]);
 
         $this->run($video->user);
+
+        return $video->fresh();
+    }
+
+    public function recordRetention(YouTubeVideo $video, string $csv, ?float $duration = null): YouTubeVideo
+    {
+        $package = $video->package ?? [];
+        $transcript = (string) ($package['transcript'] ?? '');
+        $cues = $transcript !== '' ? $this->shorts->cues($transcript) : null;
+        $package['model_learning'] = $this->retention->read($csv, $duration, $cues);
+
+        $video->update([
+            'learning_note' => null,
+            'learned_at' => now(),
+            'status' => 'learned',
+            'package' => $package,
+        ]);
+
+        $this->run($video->user);
+
+        return $video->fresh();
+    }
+
+    public function storeTranscript(YouTubeVideo $video, string $transcript): YouTubeVideo
+    {
+        $package = $video->package ?? [];
+        $package['transcript'] = $transcript;
+        $package['shorts'] = $this->shorts->cut($transcript);
+        $video->update(['package' => $package]);
+
+        return $video->fresh();
+    }
+
+    public function storeComments(User $user, YouTubeVideo $video, string $pasted): YouTubeVideo
+    {
+        $user->loadMissing('accountProfile');
+        $profile = $user->accountProfile;
+        if (! $profile) {
+            throw ValidationException::withMessages([
+                'comments' => ['Finish the account description before replying.'],
+            ]);
+        }
+
+        $triage = $this->comments->triage($pasted, $profile, (string) $video->script);
+        $package = $video->package ?? [];
+        $package['comments'] = [
+            'counts' => $triage['counts'],
+            'replies' => $triage['replies'],
+            'pin' => $triage['pin'],
+        ];
+        $video->update(['package' => $package]);
+        $this->demand->storeTopics($user, $triage['topics']);
 
         return $video->fresh();
     }
@@ -148,16 +210,19 @@ class YouTubeEngineService
             'format' => null,
             'status' => 'awaiting_edit',
             'topic' => $plan['title'],
-            'title' => $plan['title'],
+            'title' => $this->fitTitle((string) $plan['title']),
             'script' => $note,
             'description' => $plan['description'],
             'package' => [
+                'kind' => 'footage',
                 'edit' => $plan,
+                'thumbnail' => 'See it plainly',
                 'render' => $plan['render'],
                 'publish' => [
                     'mode' => $setup->settings['publish'] ?? 'wait',
                     'note' => 'The upload waits for the edited file and the YouTube connection.',
                 ],
+                'gate' => 'Ship it, or change it?',
             ],
             'source_path' => $path,
             'source_name' => $file->getClientOriginalName(),
@@ -165,27 +230,34 @@ class YouTubeEngineService
     }
 
     /**
-     * @return array{ideas: list<array{name: string, suggestion: string}>, pipeline: list<array<string, mixed>>, series: array<string, mixed>|null}
+     * @return array{ideas: list<array{name: string, suggestion: string}>, week: list<array<string, mixed>>, niche: array<string, mixed>, audit: array<string, mixed>, pipeline: list<array<string, mixed>>, series: array<string, mixed>|null}
      */
     public function desk(User $user): array
     {
         $setup = $this->setup($user);
-        if (! $setup) {
-            return ['ideas' => [], 'pipeline' => [], 'series' => null];
-        }
-
         $profile = $user->accountProfile;
-        $settings = is_array($setup->settings) ? $setup->settings : [];
-        $mode = $settings['video_mode'] ?? 'short';
-        $format = $settings['format'] ?? 'text_on_screen';
-
-        $ideas = [];
-        if ($profile && $mode !== 'footage') {
-            $ideas = array_map(fn (array $idea) => [
-                'name' => $idea['topic'],
-                'suggestion' => $idea['reason'],
-            ], $this->demand->ranked($profile, is_string($format) ? $format : 'text_on_screen', $user, 3));
+        if (! $setup || ! $profile) {
+            return [
+                'ideas' => [],
+                'week' => [],
+                'niche' => [
+                    'working' => [],
+                    'shared' => '',
+                    'makeable' => [],
+                    'skipped' => [],
+                    'note' => '',
+                ],
+                'audit' => ['fix' => '', 'working' => [], 'not_yet' => ''],
+                'pipeline' => [],
+                'series' => null,
+            ];
         }
+
+        $research = $this->demand->research($profile, $user);
+        $ideas = array_map(fn (array $idea) => [
+            'name' => $idea['topic'],
+            'suggestion' => $idea['reason'],
+        ], $research['week']);
 
         $pipeline = YouTubeVideo::query()
             ->where('user_id', $user->id)
@@ -208,8 +280,19 @@ class YouTubeEngineService
             }
         }
 
+        $videos = YouTubeVideo::query()->where('user_id', $user->id)->latest('id')->limit(10)->get();
+
         return [
             'ideas' => $ideas,
+            'week' => $research['week'],
+            'niche' => [
+                'working' => $research['working'],
+                'shared' => $research['shared'],
+                'makeable' => $research['makeable'],
+                'skipped' => $research['skipped'],
+                'note' => $research['note'],
+            ],
+            'audit' => $this->audit->audit($videos),
             'pipeline' => $pipeline,
             'series' => $series?->toDesk($holdsUntil),
         ];
@@ -255,26 +338,45 @@ class YouTubeEngineService
 
         return $mode === 'series'
             ? $this->makeEpisode($user, $profile, $setup, $last)
-            : $this->makeShort($user, $profile, $setup, $last);
+            : $this->makePiece($user, $profile, $setup, $last);
     }
 
-    private function makeShort(User $user, AccountProfile $profile, PlatformSetup $setup, ?YouTubeVideo $last): ?YouTubeVideo
+    private function makePiece(User $user, AccountProfile $profile, PlatformSetup $setup, ?YouTubeVideo $last): ?YouTubeVideo
     {
         $format = $setup->settings['format'] ?? 'text_on_screen';
         if (! in_array($format, YouTubeCatalog::FORMATS, true)) {
             return null;
         }
 
-        $ranked = $this->demand->ranked($profile, $format, $user, 6);
-        $idea = $ranked[0] ?? null;
+        $week = $this->demand->research($profile, $user)['week'];
+        $used = YouTubeVideo::query()->where('user_id', $user->id)->pluck('topic')->all();
+        $idea = null;
+        foreach ($week as $candidate) {
+            if (! in_array($candidate['topic'], $used, true)) {
+                $idea = $candidate;
+                break;
+            }
+        }
+        $idea ??= $week[0] ?? null;
         if ($idea === null) {
             return null;
         }
 
-        $script = $this->scripts->short($user, $profile, $idea, $format, $last?->learning_note);
+        $script = $this->scripts->piece($user, $profile, $idea, $format, $this->lessonFor($last));
         $publish = ($setup->settings['publish'] ?? 'wait') === 'auto' ? 'auto' : 'wait';
 
-        return $this->storePackage($user, null, 'short', $format, $idea['topic'], $idea['score'], null, $script, $publish, $format === 'text_on_screen' ? 'text' : 'clips');
+        return $this->storePackage(
+            $user,
+            null,
+            'short',
+            $format,
+            $idea['topic'],
+            (float) $idea['score'],
+            null,
+            $script,
+            $publish,
+            $format === 'text_on_screen' ? 'text' : 'clips',
+        );
     }
 
     private function makeEpisode(User $user, AccountProfile $profile, PlatformSetup $setup, ?YouTubeVideo $last): YouTubeVideo
@@ -288,8 +390,8 @@ class YouTubeEngineService
         if (! is_array($episode)) {
             $episode = [
                 'number' => $number,
-                'title' => 'What happens after episode '.($number - 1),
-                'beat' => 'The last episode left a problem. This one has to answer it.',
+                'title' => $this->fitTitle($series->premise),
+                'beat' => 'Stay inside the premise. Do not open a new subject.',
             ];
             $outline[] = $episode;
             $series->outline = $outline;
@@ -306,11 +408,12 @@ class YouTubeEngineService
             $series->premise,
             [
                 'number' => $number,
-                'title' => (string) ($episode['title'] ?? 'Episode '.$number),
+                'title' => (string) ($episode['title'] ?? $series->premise),
                 'beat' => (string) ($episode['beat'] ?? ''),
             ],
             $series->characters ?? [],
-            $last?->learning_note,
+            $format,
+            $this->lessonFor($last),
         );
 
         $series->update([
@@ -320,11 +423,22 @@ class YouTubeEngineService
 
         $publish = ($setup->settings['publish'] ?? 'wait') === 'auto' ? 'auto' : 'wait';
 
-        return $this->storePackage($user, $series, 'series', $format, (string) $episode['title'], 70, $number, $script, $publish, 'narration');
+        return $this->storePackage(
+            $user,
+            $series,
+            'series',
+            $format,
+            (string) $episode['title'],
+            (float) ($script['titles'][0]['score'] ?? 70),
+            $number,
+            $script,
+            $publish,
+            'narration',
+        );
     }
 
     /**
-     * @param  array{title: string, hook: string, spoken: string, description: string, thumbnail: string, on_screen: list<array{text: string, at: string}>, shots: list<array{prompt: string, seconds: int, kind: string}>, kind: string}  $script
+     * @param  array<string, mixed>  $script
      */
     private function storePackage(
         User $user,
@@ -352,7 +466,7 @@ class YouTubeEngineService
             'format' => $format,
             'status' => $status,
             'topic' => Str::limit($topic, 180, ''),
-            'title' => $script['title'],
+            'title' => $this->fitTitle((string) $script['title']),
             'script' => $script['spoken'],
             'description' => $script['description'],
             'score' => $score,
@@ -360,9 +474,27 @@ class YouTubeEngineService
             'queued_at' => $status === 'queued' ? now() : null,
             'package' => [
                 'kind' => $script['kind'],
+                'role' => $mode === 'short' ? 'source' : 'episode',
                 'hook' => $script['hook'],
+                'hooks' => $script['hooks'],
+                'hooks_written' => $script['hooks_written'],
+                'winning_formula' => $script['winning_formula'],
+                'formula_why' => $script['formula_why'],
+                'titles' => $script['titles'],
+                'titles_written' => $script['titles_written'],
+                'title_score' => $script['titles'][0]['score'] ?? null,
                 'thumbnail' => $script['thumbnail'],
+                'thumbnail_brief' => $script['thumbnail_brief'],
                 'on_screen' => $script['on_screen'],
+                'payoff' => $script['payoff'],
+                'ask' => $script['ask'],
+                'runtime_seconds' => $script['runtime_seconds'],
+                'queries' => $script['queries'],
+                'search_facing' => $script['search_facing'],
+                'tags' => $script['tags'],
+                'chapters' => $script['chapters'],
+                'chapters_valid' => $script['chapters_valid'],
+                'gate' => $script['gate'],
                 'shots' => $script['shots'],
                 'render' => [
                     'provider' => 'pending',
@@ -382,28 +514,47 @@ class YouTubeEngineService
 
     private function createSeries(User $user, AccountProfile $profile): YouTubeSeries
     {
-        $niche = $profile->resolvedNiche();
-        $audience = trim((string) $profile->audience) ?: 'the people this account is for';
+        $plan = $this->seriesPlanner->plan($profile);
 
         return YouTubeSeries::query()->create([
             'user_id' => $user->id,
-            'title' => Str::limit($niche.', one episode at a time', 120, ''),
-            'premise' => trim((string) $profile->description) ?: "A series about {$niche} for {$audience}.",
-            'characters' => [
-                ['name' => 'The host', 'role' => "Speaks in this account's voice about {$niche}."],
-                ['name' => 'The viewer', 'role' => "Stands in for {$audience}."],
-            ],
-            'outline' => [
-                ['number' => 1, 'title' => "Starting {$niche} in the open", 'beat' => 'The host begins with almost nothing and one clear aim.'],
-                ['number' => 2, 'title' => 'The first thing that breaks', 'beat' => 'The easy version fails, and the reason is specific.'],
-                ['number' => 3, 'title' => 'A smaller way through', 'beat' => 'They cut the plan down until it can be finished.'],
-                ['number' => 4, 'title' => 'Someone else tries it', 'beat' => 'The viewer copies the step and hits a different wall.'],
-                ['number' => 5, 'title' => 'What they keep', 'beat' => 'One habit stays. The rest is dropped on purpose.'],
-                ['number' => 6, 'title' => 'The result, and the next problem', 'beat' => 'The aim from episode one is met, and a larger aim appears.'],
-            ],
+            'title' => $plan['title'],
+            'premise' => $plan['premise'],
+            'characters' => $plan['characters'],
+            'outline' => $plan['outline'],
             'next_episode' => 1,
             'status' => 'active',
         ]);
+    }
+
+    private function lessonFor(?YouTubeVideo $last): ?string
+    {
+        $learning = $last?->package['model_learning'] ?? null;
+        if (! is_array($learning)) {
+            return null;
+        }
+        if (($learning['case'] ?? '') === 'hook_leak' && ($learning['change_opening'] ?? false) === true) {
+            return 'The last video lost people in the first 30 seconds. Rewrite the first fifteen seconds.';
+        }
+
+        return match ($learning['case'] ?? '') {
+            'cliff' => 'Keep the opening. Cut the moment people left.',
+            'slide' => 'Keep the opening. Cut the middle. Do not rewrite it.',
+            'packaging' => 'Keep the opening. Change the title and thumbnail.',
+            default => null,
+        };
+    }
+
+    private function fitTitle(string $title): string
+    {
+        $title = trim($title);
+        if (mb_strlen($title) <= 60) {
+            return $title;
+        }
+        $slice = mb_substr($title, 0, 60);
+        $space = mb_strrpos($slice, ' ');
+
+        return rtrim($space === false ? $slice : mb_substr($slice, 0, $space), " ,;:-");
     }
 
     private function setup(User $user): ?PlatformSetup

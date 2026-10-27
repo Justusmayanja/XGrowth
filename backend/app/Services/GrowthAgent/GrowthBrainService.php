@@ -144,7 +144,7 @@ class GrowthBrainService
                 'content_source' => $contentSource,
                 'prefilter_count' => count($trends),
             ],
-        ]);
+        ], countsAsDraft: false);
 
         Cache::put($this->cooldownKey($user->id), now()->timestamp, now()->addDay());
 

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\ConnectedAccount;
+use App\Models\Post;
 use App\Models\Trend;
 use App\Models\User;
 use App\Services\TrendEngine\TrendEngineService;
@@ -787,6 +788,74 @@ class XLiveFeaturesTest extends TestCase
             ->assertJsonPath('metrics.1.sub', 'Likes, replies, and reposts. X did not send view counts.')
             ->assertJsonPath('metrics.2.label', 'Likes')
             ->assertJsonPath('metrics.2.value', 4);
+    }
+
+    public function test_likes_stay_when_the_view_count_request_comes_back_empty(): void
+    {
+        [$user] = $this->connectedCook();
+
+        Http::fake(function ($request) {
+            $url = $request->url();
+            if (str_contains($url, '/users/me')) {
+                return Http::response([
+                    'data' => ['id' => '42', 'public_metrics' => ['followers_count' => 18]],
+                ]);
+            }
+            if (str_contains($url, '/tweets')) {
+                $fields = (string) ($request->data()['tweet.fields'] ?? '');
+                if (str_contains($fields, 'organic_metrics')) {
+                    return Http::response(['data' => []]);
+                }
+
+                return Http::response([
+                    'data' => [[
+                        'id' => '2',
+                        'text' => 'a cheap dinner for budget cooking',
+                        'author_id' => '42',
+                        'created_at' => now()->subHour()->toIso8601String(),
+                        'public_metrics' => ['like_count' => 9, 'retweet_count' => 1, 'reply_count' => 2],
+                    ]],
+                ]);
+            }
+
+            return Http::response(['data' => []]);
+        });
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x')
+            ->assertOk()
+            ->assertJsonPath('metrics.1.label', 'Reactions')
+            ->assertJsonPath('metrics.1.value', 12)
+            ->assertJsonPath('metrics.2.label', 'Likes')
+            ->assertJsonPath('metrics.2.value', 9);
+    }
+
+    public function test_war_drafts_are_hidden_when_the_account_is_not_about_that(): void
+    {
+        [$user] = $this->connectedCook();
+        Post::create([
+            'user_id' => $user->id,
+            'content' => 'Trump and Iran are at war tonight',
+            'content_type' => 'tweet',
+            'status' => 'draft',
+        ]);
+        Post::create([
+            'user_id' => $user->id,
+            'content' => 'A cheap dinner still tastes like a proper meal',
+            'content_type' => 'tweet',
+            'status' => 'draft',
+        ]);
+
+        Http::fake([
+            'https://api.twitter.com/*' => Http::response(['data' => []], 404),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x')
+            ->assertOk()
+            ->assertJsonPath('counts.drafts', 1)
+            ->assertJsonPath('drafts.0.content', 'A cheap dinner still tastes like a proper meal')
+            ->assertJsonCount(1, 'drafts');
     }
 
     public function test_topics_use_the_accounts_own_posts_when_the_timeline_does_not_fit(): void

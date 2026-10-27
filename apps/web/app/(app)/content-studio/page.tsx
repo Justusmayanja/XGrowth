@@ -101,9 +101,12 @@ export default function ContentStudioPage() {
   const webSearchDisabled =
     !usage?.web_search_enabled || (usage?.web_searches.remaining ?? 0) <= 0;
 
+  const reachedDraftLimit =
+    usage != null && usage.ai_generations.limit > 0 && usage.ai_generations.remaining <= 0;
+
   async function write(search: boolean) {
-    if (usage && usage.ai_generations.remaining <= 0) {
-      toast.error("No drafts left today. Try again tomorrow.");
+    if (reachedDraftLimit && usage) {
+      toast.error(`You've reached today's limit of ${usage.ai_generations.limit} drafts.`);
       return;
     }
     if (search && webSearchDisabled) {
@@ -211,7 +214,9 @@ export default function ContentStudioPage() {
         </p>
         {usage && (
           <p className="mt-2 text-sm text-muted-foreground">
-            Drafts left today: {usage.ai_generations.remaining}
+            {reachedDraftLimit
+              ? `You've reached today's limit of ${usage.ai_generations.limit} drafts.`
+              : `Drafts left today: ${usage.ai_generations.remaining}`}
             {usage.web_search_enabled && (
               <> · Web lookups left: {usage.web_searches.remaining}</>
             )}
@@ -331,8 +336,10 @@ export default function ContentStudioPage() {
                   {loading ? "Searching…" : "Search"}
                 </Button>
               </div>
-              {usage && usage.ai_generations.remaining <= 0 && (
-                <p className="text-xs text-muted-foreground">No drafts left today.</p>
+              {reachedDraftLimit && usage && (
+                <p className="text-xs text-muted-foreground">
+                  You've reached today's limit of {usage.ai_generations.limit} drafts. Automatic checks no longer use this allowance. Try again tomorrow.
+                </p>
               )}
               <p className="text-xs text-muted-foreground">
                 Search looks up what is happening in this account, then writes from the description and the people it is for.

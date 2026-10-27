@@ -81,9 +81,13 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::get('/content/posts', [ContentController::class, 'index']);
 
         Route::post('/youtube/run', [YouTubeController::class, 'run']);
+        Route::post('/youtube/listings', [YouTubeController::class, 'listings']);
         Route::post('/youtube/footage', [YouTubeController::class, 'footage']);
         Route::post('/youtube/videos/{video}/confirm', [YouTubeController::class, 'confirm']);
         Route::post('/youtube/videos/{video}/results', [YouTubeController::class, 'results']);
+        Route::post('/youtube/videos/{video}/transcript', [YouTubeController::class, 'transcript']);
+        Route::post('/youtube/videos/{video}/retention', [YouTubeController::class, 'retention']);
+        Route::post('/youtube/videos/{video}/comments', [YouTubeController::class, 'comments']);
 
         Route::get('/growth-agent/settings', [GrowthAgentController::class, 'settings']);
         Route::put('/growth-agent/settings', [GrowthAgentController::class, 'updateSettings']);

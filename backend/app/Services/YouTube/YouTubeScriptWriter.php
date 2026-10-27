@@ -7,7 +7,6 @@ use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use App\Services\AICore\AiUsageService;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use OpenAI\Laravel\Facades\OpenAI;
 use Throwable;
 
@@ -16,23 +15,25 @@ class YouTubeScriptWriter
     public function __construct(
         private readonly AiUsageService $usage,
         private readonly PlatformSettingsService $settings,
+        private readonly YouTubePackageWriter $packages,
+        private readonly YouTubeWords $words,
     ) {}
 
     /**
-     * @param  array{topic: string, query: string, kind: string, reason: string, score: float}  $idea
-     * @return array{title: string, hook: string, spoken: string, description: string, thumbnail: string, on_screen: list<array{text: string, at: string}>, shots: list<array{prompt: string, seconds: int, kind: string}>, kind: string}
+     * A long piece. Shorts are cut from its transcript later, not written from a niche template.
+     *
+     * @param  array{topic: string, query?: string, kind?: string, reason?: string, formula?: string|null}  $idea
+     * @return array<string, mixed>
      */
-    public function short(User $user, AccountProfile $profile, array $idea, string $format, ?string $lesson): array
+    public function piece(User $user, AccountProfile $profile, array $idea, string $format, ?string $lesson): array
     {
-        $fromModel = $this->fromModel($user, $profile, $idea, $format, $lesson, episode: null);
-
-        return $fromModel ?? $this->localShort($profile, $idea, $format, $lesson);
+        return $this->write($user, $profile, $idea, $format, $lesson, null);
     }
 
     /**
      * @param  array{number: int, title: string, beat: string}  $episode
      * @param  list<array{name: string, role: string}>  $characters
-     * @return array{title: string, hook: string, spoken: string, description: string, thumbnail: string, on_screen: list<array{text: string, at: string}>, shots: list<array{prompt: string, seconds: int, kind: string}>, kind: string}
+     * @return array<string, mixed>
      */
     public function episode(
         User $user,
@@ -40,8 +41,10 @@ class YouTubeScriptWriter
         string $premise,
         array $episode,
         array $characters,
+        string $format,
         ?string $lesson,
     ): array {
+        unset($characters);
         $idea = [
             'topic' => $episode['title'],
             'query' => $profile->resolvedNiche(),
@@ -49,19 +52,36 @@ class YouTubeScriptWriter
             'reason' => $episode['beat'],
             'score' => 70,
         ];
-        $fromModel = $this->fromModel($user, $profile, $idea, 'series', $lesson, [
-            'premise' => $premise,
-            'episode' => $episode,
-            'characters' => $characters,
-        ]);
 
-        return $fromModel ?? $this->localEpisode($profile, $premise, $episode, $characters, $lesson);
+        return $this->write($user, $profile, $idea, $format, $lesson, [
+            'number' => $episode['number'],
+            'title' => $episode['title'],
+            'beat' => $episode['beat'],
+            'premise' => $premise,
+        ]);
     }
 
     /**
-     * @param  array{topic: string, query: string, kind: string, reason: string, score: float}  $idea
-     * @param  array{premise: string, episode: array{number: int, title: string, beat: string}, characters: list<array{name: string, role: string}>}|null  $episode
-     * @return array{title: string, hook: string, spoken: string, description: string, thumbnail: string, on_screen: list<array{text: string, at: string}>, shots: list<array{prompt: string, seconds: int, kind: string}>, kind: string}|null
+     * @param  array{topic: string, query?: string, kind?: string, reason?: string}  $idea
+     * @param  array{number: int, title: string, beat: string, premise: string}|null  $episode
+     * @return array<string, mixed>
+     */
+    private function write(User $user, AccountProfile $profile, array $idea, string $format, ?string $lesson, ?array $episode): array
+    {
+        $goals = $profile->goalsFor('youtube');
+        $local = $this->packages->compose($profile, $goals, $idea, $format, $lesson, $episode);
+        $model = $this->fromModel($user, $profile, $idea, $format, $lesson, $episode);
+        if ($model === null) {
+            return $local;
+        }
+
+        return $this->overlay($local, $model, $profile, $idea);
+    }
+
+    /**
+     * @param  array<string, mixed>  $idea
+     * @param  array{number: int, title: string, beat: string, premise: string}|null  $episode
+     * @return array<string, mixed>|null
      */
     private function fromModel(User $user, AccountProfile $profile, array $idea, string $format, ?string $lesson, ?array $episode): ?array
     {
@@ -79,18 +99,27 @@ class YouTubeScriptWriter
             'idea' => $idea,
             'lesson' => $lesson,
             'episode' => $episode,
+            'rules' => [
+                'Write five titles at or under 60 characters and five hooks. Keep the shape even if a later step only shows two.',
+                'Do not invent a number, a result, or a source. Omit the figure.',
+                'The thumbnail is at most three words and does not repeat the title or the first on-screen line. Never "Episode N".',
+                'First 15 seconds: confirm the title, open a question, prove the payoff exists.',
+                'From 15 to 45 seconds: say what the video will do and start doing it. No intro, no subscribe pitch.',
+                'Mark every beat with [ON SCREEN: ...]. Deliver the payoff and say so. One ask at the end.',
+                'Description: three search queries in the title and the first two lines when this is for search. Otherwise say it is for people who already watch.',
+            ],
         ];
 
         try {
             $response = OpenAI::chat()->create([
                 'model' => $this->settings->getOpenAiModel(),
                 'messages' => [
-                    ['role' => 'system', 'content' => $this->systemPrompt($format)],
+                    ['role' => 'system', 'content' => $this->systemPrompt()],
                     ['role' => 'user', 'content' => json_encode($payload, JSON_THROW_ON_ERROR)],
                 ],
                 'response_format' => ['type' => 'json_object'],
                 'temperature' => 0.7,
-                'max_tokens' => 900,
+                'max_tokens' => 1800,
             ]);
         } catch (Throwable $e) {
             Log::warning('YouTube script fell back to the local writer', [
@@ -102,7 +131,7 @@ class YouTubeScriptWriter
         }
 
         $parsed = json_decode($response->choices[0]->message->content ?? '', true);
-        if (! is_array($parsed) || trim((string) ($parsed['spoken'] ?? '')) === '') {
+        if (! is_array($parsed)) {
             return null;
         }
 
@@ -116,179 +145,70 @@ class YouTubeScriptWriter
             'total_tokens' => (int) ($response->usage->totalTokens ?? ($inputTokens + $outputTokens)),
             'web_search_calls' => 0,
             'used_web_search' => false,
-            'metadata' => ['format' => $format, 'topic' => $idea['topic']],
+            'metadata' => ['format' => $format, 'topic' => $idea['topic'] ?? ''],
         ]);
 
-        return $this->normalize($parsed, $idea, $format);
+        return $parsed;
     }
 
-    private function systemPrompt(string $format): string
+    private function systemPrompt(): string
     {
-        $shape = $format === 'series'
-            ? 'Write one episode: cold open, three scenes, and a last line that makes the next episode necessary. About 400 words.'
-            : 'Write a YouTube Short of 15 to 25 seconds. Spoken lines only, no stage directions in the spoken field.';
-
-        return <<<PROMPT
-You write for one YouTube channel. Return JSON with title, hook, spoken, description, thumbnail, on_screen, shots.
-{$shape}
-The first two lines of description must make sense alone in search. No keyword lists.
-on_screen is a list of {text, at} with at like 0:00. Keep each line under 8 words.
-shots is a list of {prompt, seconds, kind}. kind is "clip" or "still". Text-on-screen formats use an empty shots list.
-Stay inside the account description. Do not invent a different niche.
+        return <<<'PROMPT'
+You are the voice of this one channel. Stay inside the account description. Return JSON with title, titles, hooks, spoken, description, thumbnail, thumbnail_brief, on_screen, shots, payoff, ask, queries, chapters, winning_formula.
+titles is five strings, each at most 60 characters, at most two all-caps words. A name the account already uses beats an adjective. If you do not have a number, omit it.
+hooks is five opening lines. Do not return one hook, and do not use a slice of the spoken script as the hook.
+spoken marks every beat with [ON SCREEN: ...]. The first 15 seconds confirm the title, open a question the viewer cannot close, and prove the payoff exists. From there to 45 seconds, say what the video will do and start doing it. No channel intro, no "before we get started", no subscribe pitch. Deliver the payoff and say that you are delivering it. One ask at the end.
+The thumbnail is at most three words, different from the title and from the first on-screen line. Never "Episode N".
+If the channel is for search, the title and the first two description lines contain the query words. Then a link only if one was supplied, then chapters, then what is covered, who it is for, and what it assumes. Chapters start at 0:00, at least three, each at least 10 seconds, titles of three to five words. If the channel is for the subscriber feed, say so.
+Tags, if you include them, are only spellings, tool names, and abbreviations, fifteen at most.
+Do not claim the viewer does not need an expensive version unless the description says that.
 PROMPT;
     }
 
     /**
-     * @param  array<string, mixed>  $parsed
-     * @param  array{topic: string, kind: string}  $idea
-     * @return array{title: string, hook: string, spoken: string, description: string, thumbnail: string, on_screen: list<array{text: string, at: string}>, shots: list<array{prompt: string, seconds: int, kind: string}>, kind: string}
+     * @param  array<string, mixed>  $local
+     * @param  array<string, mixed>  $model
+     * @param  array{topic?: string, reason?: string, query?: string}  $idea
+     * @return array<string, mixed>
      */
-    private function normalize(array $parsed, array $idea, string $format): array
+    private function overlay(array $local, array $model, AccountProfile $profile, array $idea): array
     {
-        $onScreen = [];
-        foreach (array_slice(is_array($parsed['on_screen'] ?? null) ? $parsed['on_screen'] : [], 0, 8) as $line) {
-            if (! is_array($line)) {
-                continue;
-            }
-            $text = trim((string) ($line['text'] ?? ''));
-            if ($text === '') {
-                continue;
-            }
-            $onScreen[] = ['text' => Str::limit($text, 80, ''), 'at' => (string) ($line['at'] ?? '0:00')];
+        $spoken = trim((string) ($model['spoken'] ?? ''));
+        $allowed = $profile->resolvedNiche().' '.$profile->description.' '.$profile->audience.' '.($idea['topic'] ?? '').' '.($idea['reason'] ?? '');
+        if ($this->spokenOk($spoken, $allowed)) {
+            $local['spoken'] = $spoken;
+            $local['runtime_words'] = $this->words->wordCount($spoken);
+            $local['runtime_seconds'] = (int) round($local['runtime_words'] / 150 * 60);
         }
 
-        $shots = [];
-        if ($format !== 'text_on_screen') {
-            foreach (array_slice(is_array($parsed['shots'] ?? null) ? $parsed['shots'] : [], 0, 6) as $shot) {
-                if (! is_array($shot)) {
-                    continue;
-                }
-                $prompt = trim((string) ($shot['prompt'] ?? ''));
-                if ($prompt === '') {
-                    continue;
-                }
-                $shots[] = [
-                    'prompt' => $prompt,
-                    'seconds' => max(4, min(8, (int) ($shot['seconds'] ?? 8))),
-                    'kind' => ($shot['kind'] ?? '') === 'still' ? 'still' : 'clip',
-                ];
-            }
-        }
-
-        return [
-            'title' => Str::limit(trim((string) ($parsed['title'] ?? $idea['topic'])), 90, ''),
-            'hook' => Str::limit(trim((string) ($parsed['hook'] ?? '')), 180, ''),
-            'spoken' => trim((string) $parsed['spoken']),
-            'description' => trim((string) ($parsed['description'] ?? '')),
-            'thumbnail' => Str::limit(trim((string) ($parsed['thumbnail'] ?? '')), 80, ''),
-            'on_screen' => $onScreen,
-            'shots' => $shots,
-            'kind' => $idea['kind'],
-        ];
+        return $local;
     }
 
-    /**
-     * @param  array{topic: string, query: string, kind: string, reason: string, score: float}  $idea
-     * @return array{title: string, hook: string, spoken: string, description: string, thumbnail: string, on_screen: list<array{text: string, at: string}>, shots: list<array{prompt: string, seconds: int, kind: string}>, kind: string}
-     */
-    private function localShort(AccountProfile $profile, array $idea, string $format, ?string $lesson): array
+    private function spokenOk(string $spoken, string $allowed): bool
     {
-        $niche = $profile->resolvedNiche();
-        $audience = trim((string) $profile->audience) ?: 'the people this is for';
-        $opening = $lesson
-            ? 'Last time the opening lost people, so this one starts on the result.'
-            : "This is for {$audience}.";
-
-        $spoken = match ($idea['kind']) {
-            'list' => "{$opening} Three steps in {$niche}. One: do the smallest useful version. Two: stop when it works. Three: repeat it once before you change it.",
-            'mistake' => "{$opening} The {$niche} mistake is starting with the tool instead of the result. Pick the result first. Then the rest is obvious.",
-            'myth' => "{$opening} The common line about {$niche} is wrong. You do not need the expensive version. You need one finished version.",
-            'question' => "{$opening} The question is how to start {$niche} without a whole weekend. The answer is one sitting and one outcome.",
-            'budget' => "{$opening} You can start {$niche} with what you already have. Spend time on the result, not on new gear.",
-            default => "{$opening} Here is a {$niche} result from one sitting. Watch it through, then do the same step tonight.",
-        };
-
-        $lines = match ($idea['kind']) {
-            'list' => ['Three steps', 'Smallest version', 'Stop when it works', 'Repeat it once'],
-            'mistake' => ['Wrong place to start', 'Pick the result', 'Then the rest'],
-            'myth' => ['That line is wrong', 'Skip the expensive version', 'Finish one'],
-            'question' => ['The real question', 'One sitting', 'One outcome'],
-            'budget' => ['Use what you have', 'Spend time, not money', 'Ship the result'],
-            default => ['One sitting', 'One result', 'Do it tonight'],
-        };
-
-        $onScreen = [];
-        foreach ($lines as $index => $line) {
-            $onScreen[] = ['text' => $line, 'at' => sprintf('0:%02d', $index * 4)];
+        if ($spoken === '' || ! str_contains($spoken, '[ON SCREEN:')) {
+            return false;
+        }
+        $lower = strtolower($spoken);
+        foreach (['before we get started', 'welcome back', 'you do not need the expensive version', "you don't need the expensive version"] as $banned) {
+            if (str_contains($lower, $banned)) {
+                return false;
+            }
+        }
+        $first = implode(' ', array_slice(preg_split('/\s+/', $spoken) ?: [], 0, 80));
+        if (preg_match('/\bsubscribe\b/i', $first) === 1) {
+            return false;
+        }
+        if (! str_contains($lower, 'this video is delivering') && ! str_contains($lower, 'that is the')) {
+            return false;
+        }
+        $allowedDigits = $this->words->digits($allowed);
+        foreach ($this->words->digits($spoken) as $digit) {
+            if (! in_array($digit, $allowedDigits, true)) {
+                return false;
+            }
         }
 
-        $shots = [];
-        if ($format !== 'text_on_screen') {
-            $visual = "Vertical 9:16. No logos, no on-screen text. A plain scene about {$niche}.";
-            $shots = [
-                ['prompt' => $visual.' Open on the result, not the setup.', 'seconds' => 8, 'kind' => 'clip'],
-                ['prompt' => $visual.' A closer view of the one step that matters.', 'seconds' => 8, 'kind' => 'clip'],
-            ];
-        }
-
-        return [
-            'title' => Str::limit($idea['topic'], 90, ''),
-            'hook' => Str::limit($spoken, 140, ''),
-            'spoken' => $spoken,
-            'description' => $idea['topic']."\n".$idea['reason']."\n\nMade for {$audience}.",
-            'thumbnail' => Str::limit($lines[0], 40, ''),
-            'on_screen' => $onScreen,
-            'shots' => $shots,
-            'kind' => $idea['kind'],
-        ];
-    }
-
-    /**
-     * @param  array{number: int, title: string, beat: string}  $episode
-     * @param  list<array{name: string, role: string}>  $characters
-     * @return array{title: string, hook: string, spoken: string, description: string, thumbnail: string, on_screen: list<array{text: string, at: string}>, shots: list<array{prompt: string, seconds: int, kind: string}>, kind: string}
-     */
-    private function localEpisode(AccountProfile $profile, string $premise, array $episode, array $characters, ?string $lesson): array
-    {
-        $niche = $profile->resolvedNiche();
-        $host = $characters[0]['name'] ?? 'The host';
-        $other = $characters[1]['name'] ?? 'A viewer';
-        $lessonLine = $lesson ? "{$lesson}\n\n" : '';
-        $number = $episode['number'];
-        $next = $number + 1;
-
-        $spoken = <<<TEXT
-{$lessonLine}EPISODE {$number}. {$episode['title']}
-
-COLD OPEN
-{$host} is in the middle of {$niche}. {$episode['beat']} The scene starts on the problem, before any explanation.
-
-SCENE TWO
-{$other} asks the question the audience would ask. {$host} answers with one concrete step from the account, not a list of tips. {$premise}
-
-SCENE THREE
-The step works, then a new problem shows up that this episode cannot finish. {$host} names it out loud.
-
-END OF EPISODE
-The last line points at episode {$next}. The story does not reset. What changed here is still true next time.
-TEXT;
-
-        return [
-            'title' => Str::limit("Episode {$number}: {$episode['title']}", 90, ''),
-            'hook' => $episode['beat'],
-            'spoken' => trim($spoken),
-            'description' => "Episode {$number}. {$episode['title']}\n{$episode['beat']}\n\nPart of a series about {$niche}.",
-            'thumbnail' => "Episode {$number}",
-            'on_screen' => [
-                ['text' => "Episode {$number}", 'at' => '0:00'],
-                ['text' => Str::limit($episode['title'], 60, ''), 'at' => '0:04'],
-            ],
-            'shots' => [
-                ['prompt' => "Still. {$host} dealing with {$niche}, no text, no logos.", 'seconds' => 8, 'kind' => 'still'],
-                ['prompt' => "Still. The one step from this episode, shown plainly.", 'seconds' => 8, 'kind' => 'still'],
-                ['prompt' => "Still. The unfinished problem that leads to episode {$next}.", 'seconds' => 8, 'kind' => 'still'],
-            ],
-            'kind' => 'episode',
-        ];
+        return true;
     }
 }
