@@ -62,6 +62,7 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
 
         Route::get('/account/profile', [AccountProfileController::class, 'show']);
         Route::post('/account/profile', [AccountProfileController::class, 'store']);
+        Route::put('/account/timezone', [AccountProfileController::class, 'timezone']);
         Route::get('/account/setup', [AccountSetupController::class, 'show']);
         Route::post('/account/setup/platforms', [AccountSetupController::class, 'platforms']);
         Route::post('/account/setup/about', [AccountSetupController::class, 'about']);

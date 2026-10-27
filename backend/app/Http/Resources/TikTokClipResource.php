@@ -42,6 +42,7 @@ class TikTokClipResource extends JsonResource
             'posted_at' => $this->posted_at?->utc()->toIso8601String(),
             'learned_at' => $this->learned_at?->utc()->toIso8601String(),
             'publish_note' => $package['publish']['note'] ?? null,
+            'platform_post_id' => $this->platform_post_id,
             'blockers' => $this->blockers($package),
         ];
     }
@@ -73,11 +74,14 @@ class TikTokClipResource extends JsonResource
             $blockers[] = TikTokCatalog::BLOCKER_VIDEO_FILE;
         }
 
-        $connected = ConnectedAccount::query()
-            ->where('user_id', $this->user_id)
-            ->where('platform', 'tiktok')
-            ->where('is_active', true)
-            ->exists();
+        $attribute = 'tiktok.connected.'.$this->user_id;
+        $connected = request()->attributes->has($attribute)
+            ? (bool) request()->attributes->get($attribute)
+            : ConnectedAccount::query()
+                ->where('user_id', $this->user_id)
+                ->where('platform', 'tiktok')
+                ->where('is_active', true)
+                ->exists();
         if (! $connected) {
             $blockers[] = TikTokCatalog::BLOCKER_TIKTOK_CONNECTION;
         }

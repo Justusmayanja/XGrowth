@@ -4,12 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\PlatformSetup;
+use App\Services\TikTok\TikTokEngineService;
 use App\Services\TrendEngine\TrendEngineService;
 use App\Services\XApi\XApiService;
 use App\Services\YouTube\YouTubeEngineService;
-use Throwable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Throwable;
 
 class DashboardController extends Controller
 {
@@ -17,6 +18,7 @@ class DashboardController extends Controller
         private readonly XApiService $x,
         private readonly TrendEngineService $trendEngine,
         private readonly YouTubeEngineService $youtube,
+        private readonly TikTokEngineService $tiktok,
     ) {}
 
     public function stats(Request $request): JsonResponse
@@ -179,7 +181,7 @@ class DashboardController extends Controller
             $settings['max_silence_minutes'] = (int) ($profile->max_silence_minutes ?? 60);
         }
 
-        return response()->json([
+        $payload = [
             'platform' => $platform,
             'chosen' => in_array($platform, $profile?->platformList() ?? [], true),
             'setup' => [
@@ -199,7 +201,13 @@ class DashboardController extends Controller
             'ideas_note' => $ideasNote,
             'pipeline' => $youtubeDesk['pipeline'],
             'series' => $youtubeDesk['series'],
-        ]);
+        ];
+
+        if ($platform === 'tiktok') {
+            $payload['tiktok'] = $this->tiktok->desk($user);
+        }
+
+        return response()->json($payload);
     }
 
     public function trends(Request $request): JsonResponse

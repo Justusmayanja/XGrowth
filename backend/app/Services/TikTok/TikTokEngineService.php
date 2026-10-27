@@ -3,6 +3,8 @@
 namespace App\Services\TikTok;
 
 use App\Exceptions\TikTokActionException;
+use App\Http\Resources\TikTokClipResource;
+use App\Models\ConnectedAccount;
 use App\Models\PlatformSetup;
 use App\Models\TikTokClip;
 use App\Models\User;
@@ -361,16 +363,232 @@ class TikTokEngineService
             );
         }
 
-        $cap = $this->settings->tiktokDailyClipCap();
+        $daily = $this->dailyCap($user, $clip);
+        if ($daily['reached']) {
+            throw new TikTokActionException(TikTokCatalog::ERROR_DAILY_CAP, TikTokCatalog::dailyCapMessage($daily['cap']));
+        }
+    }
+
+    /**
+     * Read-only desk. This must not call run(), confirm(), or write a clip.
+     *
+     * @return array<string, mixed>
+     */
+    public function desk(User $user): array
+    {
+        $profile = $user->accountProfile;
+        $setup = PlatformSetup::query()
+            ->where('user_id', $user->id)
+            ->where('platform', 'tiktok')
+            ->first();
+        $allowance = $this->allowance->status($user);
+        $daily = $this->dailyCap($user);
+        $zone = $this->times->resolve($profile?->timezone);
+
+        $connected = ConnectedAccount::query()
+            ->where('user_id', $user->id)
+            ->where('platform', 'tiktok')
+            ->where('is_active', true)
+            ->exists();
+        if (app()->bound('request')) {
+            request()->attributes->set('tiktok.connected.'.$user->id, $connected);
+        }
+
+        $clip = TikTokClip::query()->forUser($user)->blocking()->latest('id')->first();
         $recent = TikTokClip::query()
             ->forUser($user)
-            ->whereKeyNot($clip->id)
+            ->where('status', TikTokCatalog::LEARNED)
+            ->latest('id')
+            ->limit(5)
+            ->get();
+
+        $counts = TikTokClip::query()
+            ->forUser($user)
+            ->selectRaw('status, count(*) as aggregate')
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
+
+        $periodStart = $allowance['period_start'];
+        $periodEnd = $allowance['period_end'];
+        $written = TikTokClip::query()
+            ->forUser($user)
+            ->whereNull('discarded_at')
+            ->where('created_at', '>=', $periodStart)
+            ->where('created_at', '<', $periodEnd)
+            ->count();
+
+        $ranked = $this->demand->ranked($user);
+
+        return [
+            'clip' => $this->clipPayload($clip),
+            'recent' => $recent->map(fn (TikTokClip $row) => $this->clipPayload($row))->values()->all(),
+            'ideas' => array_map(fn (array $idea) => [
+                'kind' => $idea['kind'],
+                'kind_label' => TikTokCatalog::kindLabel($idea['kind']),
+                'topic' => $idea['topic'],
+                'angle' => $idea['angle'],
+                'reason' => $idea['reason'],
+            ], array_slice($ranked, 0, 5)),
+            'pipeline' => [
+                'ideas' => count($ranked),
+                'written' => $written,
+                'waiting' => (int) ($counts[TikTokCatalog::WAITING] ?? 0),
+                'confirmed' => (int) ($counts[TikTokCatalog::QUEUED] ?? 0),
+                'posted' => (int) ($counts[TikTokCatalog::POSTED] ?? 0),
+            ],
+            'allowance' => [
+                'limit' => $allowance['limit'],
+                'used' => $allowance['used'],
+                'remaining' => $allowance['remaining'],
+                'period_end' => $allowance['plan_found'] ? $allowance['period_end'] : null,
+                'plan_found' => $allowance['plan_found'],
+            ],
+            'daily_cap' => $daily,
+            'block' => $this->block($setup, $allowance, $clip !== null),
+            'timezone' => [
+                'value' => $zone['timezone'],
+                'assumed' => $zone['assumed'],
+            ],
+            'connection' => [
+                'connected' => $connected,
+            ],
+        ];
+    }
+
+    /**
+     * Confirms in the rolling 24 hours. Discarded confirms are excluded.
+     * available_at is when the oldest confirm still blocking a free slot ages out.
+     *
+     * @return array{cap: int, used: int, reached: bool, available_at: string|null}
+     */
+    public function dailyCap(User $user, ?TikTokClip $excluding = null): array
+    {
+        $cap = $this->settings->tiktokDailyClipCap();
+        $query = TikTokClip::query()
+            ->forUser($user)
             ->whereNull('discarded_at')
             ->whereNotNull('confirmed_at')
-            ->where('confirmed_at', '>=', now()->subHours(24))
-            ->count();
-        if ($recent >= $cap) {
-            throw new TikTokActionException(TikTokCatalog::ERROR_DAILY_CAP, TikTokCatalog::dailyCapMessage($cap));
+            ->where('confirmed_at', '>=', now()->subHours(24));
+        if ($excluding) {
+            $query->whereKeyNot($excluding->id);
         }
+
+        $used = (clone $query)->count();
+        $reached = $used >= $cap;
+        $availableAt = null;
+        if ($reached && $used > 0) {
+            $stamp = (clone $query)
+                ->orderBy('confirmed_at')
+                ->skip($used - $cap)
+                ->value('confirmed_at');
+            if ($stamp) {
+                $availableAt = CarbonImmutable::parse($stamp)->utc()->addHours(24)->toIso8601String();
+            }
+        }
+
+        return [
+            'cap' => $cap,
+            'used' => $used,
+            'reached' => $reached,
+            'available_at' => $availableAt,
+        ];
+    }
+
+    /**
+     * A waiting clip that assumed UTC can take the profile timezone.
+     * Queued clips and times the user picked stay as they are.
+     */
+    public function refreshAssumedTime(User $user): ?TikTokClip
+    {
+        $profile = $user->accountProfile;
+        $zone = is_string($profile?->timezone) ? trim($profile->timezone) : '';
+        if ($zone === '') {
+            return null;
+        }
+
+        $clip = TikTokClip::query()
+            ->forUser($user)
+            ->where('status', TikTokCatalog::WAITING)
+            ->latest('id')
+            ->first();
+        if (! $clip) {
+            return null;
+        }
+
+        $package = $clip->package;
+        if (! ($package['timezone_assumed'] ?? false) || ($package['rescheduled_by_user'] ?? false)) {
+            return null;
+        }
+
+        $when = $this->times->next($zone, now());
+        if ($when['assumed']) {
+            return null;
+        }
+
+        $package['timezone'] = $when['timezone'];
+        $package['timezone_assumed'] = false;
+        $clip->suggested_for = $when['at'];
+        $clip->package = $package;
+        $clip->save();
+
+        return $clip->fresh();
+    }
+
+    /**
+     * @param  array{limit: int, used: int, remaining: int, period_start: string, period_end: string, plan_found: bool}  $allowance
+     * @return array{reason: string, message: string, action: string|null, renews_at: string|null}|null
+     */
+    private function block(?PlatformSetup $setup, array $allowance, bool $hasClip): ?array
+    {
+        if ($hasClip) {
+            return null;
+        }
+
+        if (! $setup || $setup->completed_at === null) {
+            return [
+                'reason' => TikTokCatalog::SETUP_INCOMPLETE,
+                'message' => TikTokCatalog::skipMessage(TikTokCatalog::SETUP_INCOMPLETE),
+                'action' => 'finish_setup',
+                'renews_at' => null,
+            ];
+        }
+
+        if (! $allowance['plan_found']) {
+            return [
+                'reason' => TikTokCatalog::NO_PLAN,
+                'message' => TikTokCatalog::skipMessage(TikTokCatalog::NO_PLAN),
+                'action' => 'billing',
+                'renews_at' => null,
+            ];
+        }
+
+        $now = CarbonImmutable::now('UTC');
+        $start = CarbonImmutable::parse($allowance['period_start']);
+        $end = CarbonImmutable::parse($allowance['period_end']);
+        $inside = $now->greaterThanOrEqualTo($start) && $now->lessThan($end);
+        if ($allowance['remaining'] > 0 && $inside) {
+            return null;
+        }
+
+        return [
+            'reason' => TikTokCatalog::ALLOWANCE_SPENT,
+            'message' => TikTokCatalog::skipMessage(TikTokCatalog::ALLOWANCE_SPENT),
+            'action' => 'wait',
+            'renews_at' => $allowance['period_end'],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function clipPayload(?TikTokClip $clip): ?array
+    {
+        if (! $clip) {
+            return null;
+        }
+
+        $payload = TikTokClipResource::make($clip)->resolve(request());
+
+        return is_array($payload) ? $payload : null;
     }
 }

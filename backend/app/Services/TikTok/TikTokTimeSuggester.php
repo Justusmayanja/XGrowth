@@ -41,6 +41,16 @@ class TikTokTimeSuggester
     }
 
     /**
+     * @return array{timezone: string, assumed: bool}
+     */
+    public function resolve(?string $timezone): array
+    {
+        [$zone, $assumed] = $this->zone($timezone);
+
+        return ['timezone' => $zone, 'assumed' => $assumed];
+    }
+
+    /**
      * @return array{0: string, 1: bool}
      */
     private function zone(?string $timezone): array

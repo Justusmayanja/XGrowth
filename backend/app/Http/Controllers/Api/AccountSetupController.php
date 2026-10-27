@@ -10,14 +10,18 @@ use App\Models\User;
 use App\Services\AICore\AICoreService;
 use App\Services\Billing\TrialService;
 use App\Services\GrowthAgent\GrowthAgentService;
+use App\Services\GrowthAgent\GrowthBrainService;
+use App\Services\TikTok\TikTokEngineService;
 use App\Services\YouTube\YouTubeEngineService;
 use App\Support\SetupCatalog;
 use App\Support\YouTubeCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
+use Throwable;
 
 class AccountSetupController extends Controller
 {
@@ -171,11 +175,15 @@ class AccountSetupController extends Controller
         $profile->update($updates);
 
         if ($platform === 'x') {
-            app(\App\Services\GrowthAgent\GrowthBrainService::class)->forgetScheduledCooldown($user->id);
+            app(GrowthBrainService::class)->forgetScheduledCooldown($user->id);
         }
 
         if ($platform === 'youtube') {
             app(YouTubeEngineService::class)->run($user->fresh());
+        }
+
+        if ($platform === 'tiktok') {
+            $this->startTikTok($user->fresh(), $request);
         }
 
         if ($firstCompletion) {
@@ -231,6 +239,52 @@ class AccountSetupController extends Controller
      * @param  list<string>  $platforms
      * @return list<array{niche: string, angle: string}>
      */
+    /**
+     * A skipped or failing clip must not change the setup response.
+     */
+    private function startTikTok(User $user, Request $request): void
+    {
+        $profile = $user->accountProfile;
+        if ($profile && $this->acceptableTimezone($request->input('timezone'))) {
+            $profile->update(['timezone' => trim((string) $request->input('timezone'))]);
+            $user = $user->fresh();
+        }
+
+        $engine = app(TikTokEngineService::class);
+
+        try {
+            $engine->refreshAssumedTime($user);
+        } catch (Throwable $e) {
+            Log::warning('TikTok time could not follow the new timezone', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        try {
+            $engine->run($user);
+        } catch (Throwable $e) {
+            Log::warning('TikTok engine could not start after setup', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function acceptableTimezone(mixed $timezone): bool
+    {
+        if (! is_string($timezone)) {
+            return false;
+        }
+
+        $timezone = trim($timezone);
+        if ($timezone === '' || strlen($timezone) > 64) {
+            return false;
+        }
+
+        return validator(['timezone' => $timezone], ['timezone' => ['timezone:all']])->passes();
+    }
+
     private function basicNicheIdeas(string $interests, string $weeklyTime, string $presence, array $platforms): array
     {
         $topics = array_values(array_filter(array_map(

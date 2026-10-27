@@ -11,6 +11,7 @@ import { ConnectedAccountCard } from "@/components/settings/ConnectedAccountCard
 import { NotificationSettingsCard } from "@/components/settings/NotificationSettingsCard";
 import { PrivacySettingsCard } from "@/components/settings/PrivacySettingsCard";
 import { ProfileForm } from "@/components/settings/ProfileForm";
+import { TimezoneCard } from "@/components/settings/TimezoneCard";
 import { SafetySummaryCard } from "@/components/settings/SafetySummaryCard";
 import { PlatformSetupCard } from "@/components/setup/PlatformSetupCard";
 import { toast } from "sonner";
@@ -89,6 +90,8 @@ export default function SettingsPage() {
       <PlatformSetupCard />
 
       <ProfileForm />
+
+      <TimezoneCard />
 
       <ConnectedAccountCard
         status={xStatus}

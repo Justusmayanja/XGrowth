@@ -1,5 +1,41 @@
 const REQUEST_TIMEOUT_MS = 8000;
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly fields: Record<string, string>;
+
+  constructor(message: string, status: number, code: string | null = null, fields: Record<string, string> = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.fields = fields;
+  }
+}
+
+export function readApiError(response: Response, data: unknown): ApiError {
+  const body = (data ?? {}) as {
+    message?: string;
+    error?: { code?: string; message?: string };
+    errors?: Record<string, string[] | string>;
+  };
+  const fields: Record<string, string> = {};
+  if (body.errors && typeof body.errors === "object") {
+    for (const [key, messages] of Object.entries(body.errors)) {
+      const first = Array.isArray(messages) ? messages.find(Boolean) : messages;
+      if (first) fields[key] = String(first);
+    }
+  }
+  const message =
+    body.error?.message ||
+    Object.values(fields)[0] ||
+    body.message ||
+    `Request failed (${response.status})`;
+
+  return new ApiError(message, response.status, body.error?.code ?? null, fields);
+}
+
 function resolveApiBase(): string {
   if (typeof window !== "undefined") {
     // Same-origin proxy via next.config rewrites — avoids CORS and hanging cross-origin calls
@@ -65,22 +101,18 @@ export async function api<T = unknown>(
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    const errors = (data as { errors?: Record<string, string[]> }).errors;
-    const firstFieldError = errors ? Object.values(errors).flat().find(Boolean) : undefined;
-    const message =
-      firstFieldError ||
-      (data as { message?: string }).message ||
-      `Request failed (${response.status})`;
-
     if (response.status === 401 && token) {
       clearToken();
     }
 
     if (response.status === 403 && path.startsWith("/admin")) {
-      throw new Error("Admin access required. Run: php artisan xpulse:make-admin your@email.com");
+      throw new ApiError(
+        "Admin access required. Run: php artisan xpulse:make-admin your@email.com",
+        403,
+      );
     }
 
-    throw new Error(message);
+    throw readApiError(response, data);
   }
 
   return data as T;
