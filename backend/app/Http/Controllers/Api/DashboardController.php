@@ -106,8 +106,15 @@ class DashboardController extends Controller
             }
         });
 
-        $drafts = (clone $posts)->where('status', 'draft')->latest()->limit(5)
+        $purpose = trim((string) ($profile?->description ?? '').' '.(string) ($profile?->audience ?? '').' '.(string) ($profile?->resolvedNiche() ?? ''));
+        $drafts = (clone $posts)->where('status', 'draft')->latest()->limit(12)
             ->get(['id', 'content', 'content_type', 'created_at']);
+        if ($platform === 'x') {
+            $drafts = $drafts
+                ->reject(fn ($draft) => $this->x->isOutsideTheAccount((string) $draft->content, $purpose))
+                ->take(5)
+                ->values();
+        }
 
         $preview = $platform !== 'x' && $connected === null;
         $live = $platform === 'x' ? $this->liveActivity($user) : null;
@@ -124,7 +131,7 @@ class DashboardController extends Controller
                 ['label' => 'Watch hours', 'value' => $preview ? 40 + ($seed % 900) : 0, 'sub' => 'Last 28 days'],
                 ['label' => 'Views', 'value' => $preview ? 2400 + ($seed % 50000) : 0, 'sub' => 'Last 28 days'],
             ],
-            default => $live ? [
+            default => $live && ($live['metrics_loaded'] ?? false) ? [
                 ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Live from X'],
                 ($live['views_known'] ?? false)
                     ? ['label' => 'Impressions', 'value' => $live['impressions'], 'sub' => $this->impressionBasis($live).$this->sinceYesterday($live['impressions_change'] ?? null)]
@@ -132,11 +139,15 @@ class DashboardController extends Controller
                 ($live['views_known'] ?? false)
                     ? ['label' => 'Likes', 'value' => (int) ($live['likes'] ?? 0), 'sub' => 'From these posts.'.$this->sinceYesterday($live['likes_change'] ?? null)]
                     : ['label' => 'Likes', 'value' => (int) ($live['likes'] ?? 0), 'sub' => ((int) ($live['replies'] ?? 0)).' replies · '.((int) ($live['reposts'] ?? 0)).' reposts'.$this->sinceYesterday($live['likes_change'] ?? null)],
+            ] : ($live ? [
+                ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Live from X'],
+                ['label' => 'Reactions', 'value' => null, 'sub' => 'Could not load likes from X'],
+                ['label' => 'Likes', 'value' => null, 'sub' => 'Could not load likes from X'],
             ] : [
                 ['label' => 'Followers', 'value' => null, 'sub' => $connected ? 'Could not load from X' : 'Connect X'],
                 ['label' => 'Impressions', 'value' => null, 'sub' => $connected ? 'Could not load from X' : 'Connect X'],
                 ['label' => 'Engagement', 'value' => null, 'sub' => $connected ? 'Could not load from X' : 'Connect X', 'suffix' => '%'],
-            ],
+            ]),
         };
 
         $ideas = [];
@@ -149,6 +160,9 @@ class DashboardController extends Controller
                     $name = trim((string) ($topic['name'] ?? ''));
                     $draft = trim((string) ($topic['draft'] ?? ''));
                     if ($name === '' || ! $this->x->isEnglishPhrase($name)) {
+                        continue;
+                    }
+                    if ($this->x->isOutsideTheAccount($name.' '.$draft, $purpose)) {
                         continue;
                     }
                     if ($draft !== '' && ! $this->x->isEnglishPhrase($draft)) {
@@ -164,7 +178,14 @@ class DashboardController extends Controller
             }
         }
 
-        $youtubeDesk = ['ideas' => [], 'pipeline' => [], 'series' => null];
+        $youtubeDesk = [
+            'ideas' => [],
+            'pipeline' => [],
+            'series' => null,
+            'week' => [],
+            'niche' => null,
+            'audit' => null,
+        ];
         if ($platform === 'youtube' && $profile && $setup?->completed_at) {
             $youtubeDesk = $this->youtube->desk($user);
             $ideas = $youtubeDesk['ideas'];
@@ -193,7 +214,11 @@ class DashboardController extends Controller
             'preview' => $preview,
             'metrics' => $metrics,
             'counts' => [
-                'drafts' => (clone $posts)->where('status', 'draft')->count(),
+                'drafts' => $platform === 'x'
+                    ? (clone $posts)->where('status', 'draft')->pluck('content')
+                        ->reject(fn ($content) => $this->x->isOutsideTheAccount((string) $content, $purpose))
+                        ->count()
+                    : (clone $posts)->where('status', 'draft')->count(),
                 'posted' => (clone $posts)->where('status', 'posted')->count(),
             ],
             'drafts' => $drafts,
@@ -201,6 +226,9 @@ class DashboardController extends Controller
             'ideas_note' => $ideasNote,
             'pipeline' => $youtubeDesk['pipeline'],
             'series' => $youtubeDesk['series'],
+            'week' => $youtubeDesk['week'],
+            'niche' => $youtubeDesk['niche'],
+            'audit' => $youtubeDesk['audit'],
         ];
 
         if ($platform === 'tiktok') {

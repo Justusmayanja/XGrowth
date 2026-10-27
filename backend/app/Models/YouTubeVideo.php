@@ -74,10 +74,26 @@ class YouTubeVideo extends Model
             'episode_number' => $this->episode_number,
             'source_name' => $this->source_name,
             'views' => $this->views,
-            'average_view_percent' => $this->average_view_percent,
-            'learning_note' => $this->learning_note,
-            'package' => $this->package,
+            'package' => $this->deskPackage(),
             'created_at' => $this->created_at?->toIso8601String(),
         ];
+    }
+
+    /** @return array<string, mixed>|null */
+    private function deskPackage(): ?array
+    {
+        $package = $this->package;
+        if (! is_array($package)) {
+            return null;
+        }
+
+        $transcript = trim((string) ($package['transcript'] ?? ''));
+        unset($package['transcript'], $package['model_learning']);
+        $package['has_transcript'] = $transcript !== '';
+        if ($transcript === '') {
+            unset($package['edit'], $package['shorts']);
+        }
+
+        return $package;
     }
 }

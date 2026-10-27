@@ -224,7 +224,7 @@ class XApiService
     public function accountActivity(ConnectedAccount $account, ?string $niche = null): array
     {
         $nicheKey = substr(md5(mb_strtolower(trim((string) $niche))), 0, 12);
-        $cacheKey = 'x-activity:v6:'.$account->id.':'.$nicheKey;
+        $cacheKey = 'x-activity:v7:'.$account->id.':'.$nicheKey;
         $cached = Cache::get($cacheKey);
         if (is_array($cached) && isset($cached['followers'], $cached['tweets'], $cached['views_known'])) {
             return $cached;
@@ -258,7 +258,9 @@ class XApiService
             $profileClicks += $row['profile_clicks'];
         }
 
-        $viewsKnown = $chosen !== [] && $loaded['complete'] && $loaded['views_known'] && $this->rowsKnowViews($chosen);
+        $likesKnown = $chosen === [] || $this->rowsKnowLikes($chosen);
+        $metricsLoaded = $loaded['complete'] && $likesKnown;
+        $viewsKnown = $metricsLoaded && $chosen !== [] && $loaded['views_known'] && $this->rowsKnowViews($chosen);
         $payload = [
             'followers' => (int) ($user['public_metrics']['followers_count'] ?? 0),
             'impressions' => $impressions,
@@ -269,13 +271,13 @@ class XApiService
             'engagement_rate' => $viewsKnown && $impressions > 0 ? round(($engagements / $impressions) * 100, 1) : 0,
             'profile_clicks' => $profileClicks,
             'views_known' => $viewsKnown,
+            'metrics_loaded' => $metricsLoaded,
             'ranked_for_niche' => false,
             'tweets' => $chosen,
         ];
 
-        $payload = $this->rememberTotals($account, $payload);
-
-        if ($loaded['complete']) {
+        if ($metricsLoaded) {
+            $payload = $this->rememberTotals($account, $payload);
             Cache::put($cacheKey, $payload, now()->addMinutes(10));
         }
 
@@ -662,17 +664,34 @@ class XApiService
      */
     private function ownPostsAndComments(string $token, string $userId): array
     {
+        $public = $this->tweetPage($token, $userId, false);
         $owned = $this->tweetPage($token, $userId, true);
-        if ($owned !== null && $owned !== []) {
-            return ['rows' => $owned, 'complete' => true, 'views_known' => $this->rowsKnowViews($owned)];
+
+        if ($public === null && $owned === null) {
+            return ['rows' => [], 'complete' => false, 'views_known' => false];
         }
 
-        $public = $this->tweetPage($token, $userId, false);
+        $rows = $public ?? $owned ?? [];
+        if (is_array($public) && is_array($owned)) {
+            $byId = [];
+            foreach ($owned as $row) {
+                $byId[$row['id']] = $row;
+            }
+            foreach ($rows as $i => $row) {
+                $extra = $byId[$row['id']] ?? null;
+                if (! is_array($extra) || ! ($extra['views_known'] ?? false) || (int) $extra['impressions'] <= 0) {
+                    continue;
+                }
+                $rows[$i]['impressions'] = (int) $extra['impressions'];
+                $rows[$i]['views_known'] = true;
+                $rows[$i]['profile_clicks'] = max((int) ($row['profile_clicks'] ?? 0), (int) ($extra['profile_clicks'] ?? 0));
+            }
+        }
 
         return [
-            'rows' => $public ?? [],
-            'complete' => $public !== null,
-            'views_known' => $public !== null && $this->rowsKnowViews($public ?? []),
+            'rows' => $rows,
+            'complete' => true,
+            'views_known' => $this->rowsKnowViews($rows),
         ];
     }
 
@@ -808,6 +827,7 @@ class XApiService
             'replies' => (int) ($public['reply_count'] ?? $organic['reply_count'] ?? 0),
             'profile_clicks' => (int) ($organic['user_profile_clicks'] ?? $private['user_profile_clicks'] ?? 0),
             'views_known' => $organicViews !== null || $privateViews !== null || ($publicViews ?? 0) > 0,
+            'likes_known' => $public !== [] || $organic !== [],
             'created_at' => (string) ($row['created_at'] ?? ''),
         ];
     }
@@ -819,6 +839,20 @@ class XApiService
     {
         foreach ($rows as $row) {
             if ($row['views_known'] ?? false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     */
+    private function rowsKnowLikes(array $rows): bool
+    {
+        foreach ($rows as $row) {
+            if ($row['likes_known'] ?? false) {
                 return true;
             }
         }
@@ -973,7 +1007,7 @@ class XApiService
             return [];
         }
 
-        $cacheKey = 'x-home-feed:v3:'.$account->id.':'.md5(mb_strtolower(trim($niche).'|'.$purpose));
+        $cacheKey = 'x-home-feed:v4:'.$account->id.':'.md5(mb_strtolower(trim($niche).'|'.$purpose));
         $cached = Cache::get($cacheKey);
         if (is_array($cached)) {
             return $cached;
@@ -1375,6 +1409,11 @@ class XApiService
             fn (string $word) => mb_convert_case($word, MB_CASE_TITLE, 'UTF-8'),
             array_slice($found, 0, 2),
         ));
+    }
+
+    public function isOutsideTheAccount(string $text, string $purpose): bool
+    {
+        return $this->mentionsBlockedNews($text) && ! $this->mentionsBlockedNews($purpose);
     }
 
     private function mentionsBlockedNews(string $text): bool

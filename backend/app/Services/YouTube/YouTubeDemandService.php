@@ -4,154 +4,133 @@ namespace App\Services\YouTube;
 
 use App\Models\AccountProfile;
 use App\Models\User;
-use App\Models\YouTubeVideo;
+use App\Models\YouTubeResearch;
 
+/**
+ * Ideas come from videos that beat their own channel's median, and from
+ * questions the comments keep asking. A past average-view percent is not a score.
+ */
 class YouTubeDemandService
 {
+    public function __construct(private readonly YouTubeViralRanker $ranker) {}
+
     /**
-     * Ideas already moving inside this niche. The list is local until YouTube search is connected.
-     * One list is shared by every account in the niche for the day, via the caller.
-     *
-     * @return list<array{topic: string, query: string, kind: string, reason: string, score: float}>
+     * @param  list<array{channel: string, title: string, views: int, url?: string, duration?: int}>  $videos
      */
-    public function ranked(AccountProfile $profile, string $format, User $user, int $limit = 6): array
+    public function storeListings(User $user, array $videos): YouTubeResearch
     {
-        $niche = $this->niche($profile);
-        $audience = $this->audience($profile);
-        $recent = YouTubeVideo::query()
-            ->where('user_id', $user->id)
-            ->where('mode', 'short')
-            ->latest('id')
-            ->limit(8)
-            ->pluck('topic')
-            ->filter()
-            ->all();
+        $research = YouTubeResearch::query()->firstOrNew(['user_id' => $user->id]);
+        $research->listings = array_values($videos);
+        $research->save();
 
-        $learned = YouTubeVideo::query()
-            ->where('user_id', $user->id)
-            ->where('mode', 'short')
-            ->whereNotNull('learned_at')
-            ->latest('id')
-            ->limit(8)
-            ->get(['package', 'average_view_percent']);
+        return $research;
+    }
 
-        $strong = [];
-        $weak = [];
-        foreach ($learned as $video) {
-            $kind = $video->package['kind'] ?? null;
-            if (! is_string($kind) || $kind === '') {
+    /**
+     * @param  list<array{question: string, count: int}>  $topics
+     */
+    public function storeTopics(User $user, array $topics): void
+    {
+        if ($topics === []) {
+            return;
+        }
+        $research = YouTubeResearch::query()->firstOrNew(['user_id' => $user->id]);
+        $existing = is_array($research->topics) ? $research->topics : [];
+        foreach ($topics as $topic) {
+            $question = trim((string) ($topic['question'] ?? ''));
+            if ($question === '') {
                 continue;
             }
-            $percent = $video->average_view_percent;
-            if ($percent !== null && $percent >= 50) {
-                $strong[] = $kind;
-            } elseif ($percent !== null && $percent < 30) {
-                $weak[] = $kind;
+            $found = false;
+            foreach ($existing as &$row) {
+                if (strcasecmp((string) ($row['question'] ?? ''), $question) === 0) {
+                    $row['count'] = max((int) ($row['count'] ?? 0), (int) ($topic['count'] ?? 0));
+                    $found = true;
+                    break;
+                }
+            }
+            unset($row);
+            if (! $found) {
+                $existing[] = ['question' => $question, 'count' => (int) ($topic['count'] ?? 2)];
             }
         }
-
-        $ideas = $this->ideas($niche, $audience);
-        $fresh = array_values(array_filter($ideas, fn (array $idea) => ! in_array($idea['topic'], $recent, true)));
-        if ($fresh !== []) {
-            $ideas = $fresh;
-        }
-
-        $goals = $profile->goalsFor('youtube');
-
-        foreach ($ideas as &$idea) {
-            $score = 50.0;
-            if ($format === 'list_facts' && $idea['kind'] === 'list') {
-                $score += 18;
-            }
-            if ($format === 'text_on_screen' && in_array($idea['kind'], ['mistake', 'myth'], true)) {
-                $score += 8;
-            }
-            if ($format === 'scene' && $idea['kind'] === 'result') {
-                $score += 8;
-            }
-            if ($format === 'faceless_voiceover' && $idea['kind'] === 'question') {
-                $score += 8;
-            }
-            if (in_array('search', $goals, true)) {
-                $score += 10;
-            }
-            if (in_array($idea['kind'], $strong, true)) {
-                $score += 20;
-            }
-            if (in_array($idea['kind'], $weak, true)) {
-                $score -= 30;
-            }
-            $idea['score'] = max(0, min(100, $score));
-        }
-        unset($idea);
-
-        usort($ideas, fn (array $a, array $b) => $b['score'] <=> $a['score']);
-
-        return array_slice($ideas, 0, $limit);
-    }
-
-    private function niche(AccountProfile $profile): string
-    {
-        $niche = trim($profile->resolvedNiche());
-
-        return $niche !== '' ? $niche : 'this subject';
-    }
-
-    private function audience(AccountProfile $profile): string
-    {
-        $audience = trim((string) $profile->audience);
-
-        return $audience !== '' ? $audience : 'the people this account is for';
+        $research->topics = $existing;
+        $research->save();
     }
 
     /**
-     * @return list<array{topic: string, query: string, kind: string, reason: string, score: float}>
+     * @return array{working: list<array<string, mixed>>, shared: string, makeable: list<array<string, mixed>>, skipped: list<array{channel: string, count: int}>, note: string, week: list<array<string, mixed>>}
      */
-    private function ideas(string $niche, string $audience): array
+    public function research(AccountProfile $profile, User $user): array
     {
-        return [
-            [
-                'topic' => "The {$niche} mistake that keeps getting repeated",
-                'query' => "{$niche} mistake",
-                'kind' => 'mistake',
-                'reason' => "People already argue about this mistake in {$niche}.",
-                'score' => 0,
-            ],
-            [
-                'topic' => "A {$niche} result in one sitting",
-                'query' => "{$niche} for beginners",
-                'kind' => 'result',
-                'reason' => "A finished result is what gets saved and rewatched in {$niche}.",
-                'score' => 0,
-            ],
-            [
-                'topic' => "What people get wrong about {$niche}",
-                'query' => "{$niche} explained",
-                'kind' => 'myth',
-                'reason' => "This is the kind of correction {$audience} stops for.",
-                'score' => 0,
-            ],
-            [
-                'topic' => "Three {$niche} steps that finish the job",
-                'query' => "{$niche} steps",
-                'kind' => 'list',
-                'reason' => "A short list matches how people search for {$niche}.",
-                'score' => 0,
-            ],
-            [
-                'topic' => "The {$niche} question people actually ask",
-                'query' => "{$niche} question",
+        $stored = YouTubeResearch::query()->where('user_id', $user->id)->first();
+        $listings = is_array($stored?->listings) ? $stored->listings : [];
+        $ranked = $this->ranker->rank($listings);
+        $top = array_slice($ranked['outliers'], 0, 5);
+        $makeable = $this->ranker->makeable($top, $profile);
+
+        $week = [];
+        foreach ($makeable as $video) {
+            $week[] = [
+                'topic' => (string) $video['idea'],
+                'query' => $profile->resolvedNiche(),
+                'kind' => (string) ($video['formula'] ?? 'viral'),
+                'reason' => 'It beat '.$video['channel']."'s median by ".$video['multiple'].'x. The title reads as '.$video['formula'].'. This channel can make that shape with '.$video['have'].'. The formula describes the title, not the cause.',
+                'score' => min(100, round(((float) $video['multiple']) * 25, 1)),
+                'source' => 'viral',
+                'formula' => $video['formula'],
+                'multiple' => $video['multiple'],
+            ];
+        }
+
+        foreach (is_array($stored?->topics) ? $stored->topics : [] as $topic) {
+            $question = trim((string) ($topic['question'] ?? ''));
+            $count = (int) ($topic['count'] ?? 0);
+            if ($question === '' || $count < 2) {
+                continue;
+            }
+            $week[] = [
+                'topic' => $question,
+                'query' => $profile->resolvedNiche(),
                 'kind' => 'question',
-                'reason' => "It is the question {$audience} would type.",
-                'score' => 0,
-            ],
-            [
-                'topic' => "Start {$niche} without spending much",
-                'query' => "{$niche} on a budget",
-                'kind' => 'budget',
-                'reason' => "Budget versions of {$niche} keep getting watched.",
-                'score' => 0,
-            ],
+                'reason' => 'Asked '.$count.' times in the comments, and it stays inside the account description.',
+                'score' => min(100, $count * 20),
+                'source' => 'comment',
+                'formula' => 'The Question',
+                'multiple' => null,
+            ];
+        }
+
+        usort($week, fn (array $a, array $b) => $b['score'] <=> $a['score']);
+        $week = array_slice($week, 0, 3);
+
+        return [
+            'working' => $top,
+            'shared' => $ranked['shared'],
+            'makeable' => array_map(fn (array $video) => [
+                'title' => $video['title'],
+                'multiple' => $video['multiple'],
+                'formula' => $video['formula'],
+                'channel' => $video['channel'],
+                'idea' => $video['idea'],
+                'have' => $video['have'],
+                'voice' => $video['voice'],
+            ], $makeable),
+            'skipped' => $ranked['skipped'],
+            'note' => $listings === []
+                ? 'Public listings are not in yet. Nothing here is scored as research until a channel has at least four public videos.'
+                : $ranked['note'],
+            'week' => $week,
         ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function ranked(AccountProfile $profile, string $format, User $user, int $limit = 3): array
+    {
+        unset($format);
+
+        return array_slice($this->research($profile, $user)['week'], 0, $limit);
     }
 }

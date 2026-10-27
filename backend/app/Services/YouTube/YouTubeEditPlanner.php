@@ -19,7 +19,7 @@ class YouTubeEditPlanner
         $title = $captions[0]['text'] ?? ('Edit of '.pathinfo($filename, PATHINFO_FILENAME));
 
         return [
-            'title' => Str::limit($title, 90, ''),
+            'title' => Str::limit($title, 60, ''),
             'description' => "Edited from footage about {$niche}.\nCaptions, a few pushes, and a cleaner picture.\n\n".$profile->audience,
             'captions' => $captions,
             'caption_style' => 'Two or three words at a time. The word being said is highlighted.',

@@ -25,9 +25,43 @@ import {
 
 type Metric = { label: string; value: number | null; sub: string; suffix?: string };
 
+type ScoredTitle = { title: string; chars: number; score: number; issues: [string, string][] };
+type ScoredHook = { text: string; score: number; band: string; formula: string };
+type YouTubeChapter = { label: string; title: string; seconds: number };
+type YouTubeShort = {
+  start: string;
+  end: string;
+  first_line: string;
+  opening: { text: string; score: number; formula: string };
+  on_screen: string;
+  loop: string;
+  crop: string;
+};
+
 type YouTubePackage = {
   hook?: string;
+  hooks?: ScoredHook[];
+  winning_formula?: string;
+  formula_why?: string;
+  titles?: ScoredTitle[];
   thumbnail?: string;
+  thumbnail_brief?: { expression?: string; framing?: string; words?: string; background?: string };
+  payoff?: string;
+  ask?: string;
+  runtime_seconds?: number;
+  queries?: string[];
+  search_facing?: boolean;
+  tags?: string[];
+  chapters?: YouTubeChapter[];
+  chapters_valid?: boolean;
+  gate?: string;
+  has_transcript?: boolean;
+  shorts?: YouTubeShort[];
+  comments?: {
+    counts: { questions: number; corrections: number; praise: number; bait: number };
+    replies: { pile: string; comment: string; reply: string }[];
+    pin: { comment: string; why: string } | null;
+  };
   on_screen?: { text: string; at: string }[];
   shots?: { prompt: string; seconds: number; kind: string }[];
   render?: { ready?: boolean; note?: string; kind?: string };
@@ -57,10 +91,19 @@ type YouTubeItem = {
   episode_number: number | null;
   source_name: string | null;
   views: number;
-  average_view_percent: number | null;
-  learning_note: string | null;
   package: YouTubePackage | null;
 };
+
+type NicheResearch = {
+  working: { channel: string; title: string; multiple: number; formula: string; views: number; median: number }[];
+  shared: string;
+  makeable: { title: string; multiple: number; formula: string; idea: string; have: string; voice: string }[];
+  skipped: { channel: string; count: number }[];
+  note: string;
+};
+
+type WeekPiece = { topic: string; reason: string; source?: string };
+type ChannelAudit = { fix: string; working: string[]; not_yet: string };
 
 type YouTubeSeriesCard = {
   title: string;
@@ -95,13 +138,16 @@ type Desk = {
   ideas: { name: string; suggestion?: string }[];
   pipeline?: YouTubeItem[];
   series?: YouTubeSeriesCard | null;
+  week?: WeekPiece[];
+  niche?: NicheResearch | null;
+  audit?: ChannelAudit | null;
   tiktok?: TikTokDesk;
 };
 
 const LEDE: Record<Platform, string> = {
   x: "It watches your niche and posts when a moment is strong. There is no schedule.",
   tiktok: "It finds ideas that suit the brand, writes them, makes the clip, and suggests a time. You say yes.",
-  youtube: "It searches the niche, writes the script or the edit, and posts when the file and the channel connection are both ready.",
+  youtube: "It reads what is working in the niche, writes this week's piece, and waits on you to ship it or change it.",
 };
 
 const FORMAT: Record<Platform, string> = {
@@ -415,12 +461,15 @@ function XDeskView({ desk, chosen, goals }: { desk: Desk; chosen: Platform[]; go
 function YouTubeBody({ desk, onChange }: { desk: Desk; onChange: () => Promise<void> }) {
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [views, setViews] = useState("");
-  const [percent, setPercent] = useState("");
+  const [transcript, setTranscript] = useState("");
+  const [retention, setRetention] = useState("");
+  const [comments, setComments] = useState("");
+  const [listings, setListings] = useState("");
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const mode = desk.setup.settings.video_mode;
   const pipeline = desk.pipeline ?? [];
+  const front = pipeline[0];
 
   async function upload(event: FormEvent) {
     event.preventDefault();
@@ -458,22 +507,42 @@ function YouTubeBody({ desk, onChange }: { desk: Desk; onChange: () => Promise<v
     }
   }
 
-  async function saveResults(id: number) {
-    setBusy(`results-${id}`);
+  async function saveListings(event: FormEvent) {
+    event.preventDefault();
+    const videos = listings
+      .split(/\n/)
+      .map((line) => line.split("|").map((part) => part.trim()))
+      .filter((parts) => parts.length >= 3 && parts[0] && parts[1] && parts[2] !== "")
+      .map(([channel, title, views]) => ({ channel, title, views: Number(views) }));
+    if (videos.length === 0 || videos.some((video) => !Number.isFinite(video.views))) {
+      setMessage("Each line needs a channel, a title, and a view count, separated by |.");
+      return;
+    }
+    setBusy("listings");
     setMessage("");
     try {
-      await api(`/youtube/videos/${id}/results`, {
-        method: "POST",
-        body: JSON.stringify({
-          views: Number(views),
-          average_view_percent: Number(percent),
-        }),
-      });
-      setViews("");
-      setPercent("");
+      await api("/youtube/listings", { method: "POST", body: JSON.stringify({ videos }) });
+      setListings("");
       await onChange();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Could not save the results.");
+      setMessage(err instanceof Error ? err.message : "Could not read those listings.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function send(id: number, path: string, body: Record<string, string>, busyKey: string, saved: string) {
+    setBusy(busyKey);
+    setMessage("");
+    try {
+      await api(`/youtube/videos/${id}/${path}`, { method: "POST", body: JSON.stringify(body) });
+      setMessage(saved);
+      if (path === "transcript") setTranscript("");
+      if (path === "retention") setRetention("");
+      if (path === "comments") setComments("");
+      await onChange();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not save that.");
     } finally {
       setBusy("");
     }
@@ -485,7 +554,7 @@ function YouTubeBody({ desk, onChange }: { desk: Desk; onChange: () => Promise<v
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Bring your own footage</CardTitle>
-            <CardDescription>The edit plan is written from the file: captions, zooms, color, and sound.</CardDescription>
+            <CardDescription>The edit stays off this page until a transcript of the footage is added.</CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-3" onSubmit={upload}>
@@ -510,6 +579,72 @@ function YouTubeBody({ desk, onChange }: { desk: Desk; onChange: () => Promise<v
         </Card>
       )}
 
+      <Section title="What is working in the niche" description={desk.niche?.note || "Videos that beat their own channel's median."}>
+        {(desk.niche?.working.length ?? 0) === 0 ? (
+          <p className="text-sm text-muted-foreground">Public listings are not in yet. A channel needs four videos before a median means anything.</p>
+        ) : (
+          <ul className="space-y-3">
+            {desk.niche?.working.map((video) => (
+              <li key={`${video.channel}-${video.title}`}>
+                <p className="font-medium">{video.multiple}× · {video.title}</p>
+                <p className="text-sm text-muted-foreground">{video.formula} · {video.channel}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+        {desk.niche?.shared && <p className="mt-3 text-sm">{desk.niche.shared}</p>}
+        {(desk.niche?.makeable.length ?? 0) > 0 && (
+          <ul className="mt-3 space-y-2">
+            {desk.niche?.makeable.map((item) => (
+              <li key={item.title} className="text-sm text-muted-foreground">
+                This channel can make a version this week, in a {item.voice} voice, with {item.have}: {item.idea}
+              </li>
+            ))}
+          </ul>
+        )}
+        {(desk.niche?.skipped.length ?? 0) > 0 && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Skipped {desk.niche?.skipped.map((channel) => `${channel.channel} (${channel.count})`).join(", ")}. Fewer than four videos is not a median.
+          </p>
+        )}
+        <form className="mt-4 space-y-2" onSubmit={saveListings}>
+          <label className="block text-sm">
+            Public listings, one video per line: channel | title | views
+            <Textarea className="mt-1" rows={3} value={listings} onChange={(event) => setListings(event.target.value)} />
+          </label>
+          <Button type="submit" size="sm" variant="outline" disabled={busy === "listings"}>
+            {busy === "listings" ? "Reading…" : "Rank these listings"}
+          </Button>
+        </form>
+      </Section>
+
+      <Section title="This week" description="Three pieces at most, from the videos this channel can actually make and from questions the comments repeat.">
+        {(desk.week?.length ?? 0) === 0 ? (
+          <p className="text-sm text-muted-foreground">Nothing to write yet. The list fills from public listings and from questions asked more than once.</p>
+        ) : (
+          <ol className="space-y-3">
+            {desk.week?.map((piece, index) => (
+              <li key={piece.topic}>
+                <p className="font-medium">{index + 1}. {piece.topic}</p>
+                <p className="text-sm text-muted-foreground">{piece.reason}</p>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Section>
+
+      {desk.audit?.fix && (
+        <Section title="This week's fix" description="One change. The rest can wait.">
+          <p className="text-sm">{desk.audit.fix}</p>
+          <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
+            {(desk.audit.working.length ? desk.audit.working : ["Nothing recorded yet that should be protected."]).map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          <p className="mt-3 text-sm">{desk.audit.not_yet}</p>
+        </Section>
+      )}
+
       {desk.series && (
         <Section title={desk.series.title} description={desk.series.premise}>
           <p className="text-sm text-muted-foreground">
@@ -528,107 +663,137 @@ function YouTubeBody({ desk, onChange }: { desk: Desk; onChange: () => Promise<v
         </Section>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Section title={mode === "series" ? "The season" : "Ideas likely to catch on"} description="Picked for this account. The engine writes the top one.">
-          {desk.ideas.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {mode === "footage" ? "Footage edits do not search for a topic." : "Topics for this account show here."}
-            </p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {desk.ideas.map((idea) => (
-                <li key={idea.name} className="py-3 first:pt-0 last:pb-0">
-                  <p className="font-medium">{idea.name}</p>
-                  {idea.suggestion && <p className="mt-0.5 text-sm text-muted-foreground">{idea.suggestion}</p>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
-
-        <Section title="Scripts and edits" description="Written here. The video file is added when the render or editor is connected.">
-          {pipeline.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {mode === "footage" ? "Upload a video to write the first edit plan." : "The first script is written when YouTube setup finishes."}
-            </p>
-          ) : (
-            <ul className="space-y-5">
-              {pipeline.map((item) => (
-                <li key={item.id} className="space-y-2 border-b border-border pb-5 last:border-0 last:pb-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium">{item.title}</p>
-                    <Badge variant="outline" className="font-normal">{item.status_label}</Badge>
+      {front ? (
+        <Section title="The piece in front" description={front.package?.formula_why || "Scored title, two hooks, the script, and the description."}>
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-medium">{front.title}</p>
+              <Badge variant="outline" className="font-normal">{front.status_label}</Badge>
+            </div>
+            {front.package?.titles && front.package.titles.length > 0 && (
+              <div className="space-y-2">
+                {front.package.titles.slice(0, 2).map((title) => (
+                  <div key={title.title}>
+                    <p className="text-sm">{title.title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {title.score}/100 · {title.chars} characters
+                      {title.issues[0] ? ` · ${title.issues.map((issue) => issue[1]).join(" ")}` : ""}
+                    </p>
                   </div>
-                  {item.format_label && <p className="text-xs text-muted-foreground">{item.format_label}</p>}
-                  {item.script && (
-                    <p className="max-h-64 overflow-y-auto whitespace-pre-wrap text-sm text-muted-foreground">{item.script}</p>
-                  )}
-                  {item.package?.render?.note && <p className="text-xs text-muted-foreground">{item.package.render.note}</p>}
-                  {item.package?.publish?.note && <p className="text-xs text-muted-foreground">{item.package.publish.note}</p>}
-                  {item.package?.shots && item.package.shots.length > 0 && (
-                    <ul className="space-y-1 text-sm text-muted-foreground">
-                      {item.package.shots.map((shot, index) => (
-                        <li key={`${item.id}-shot-${index}`}>{shot.seconds}s · {shot.prompt}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {item.package?.edit && (
-                    <div className="space-y-1 text-sm text-muted-foreground">
-                      <p>{item.package.edit.caption_style}</p>
-                      <p>{item.package.edit.caption_note}</p>
-                      {item.package.edit.zooms?.map((zoom) => (
-                        <p key={zoom.reason}>Zoom to {zoom.scale}× · {zoom.reason}</p>
-                      ))}
-                      <p>
-                        Color {item.package.edit.color?.preset}, audio {item.package.edit.audio?.loudness_lufs} LUFS, trim silences over {item.package.edit.silence?.trim_over_seconds}s.
-                      </p>
-                    </div>
-                  )}
-                  {item.learning_note && <p className="text-sm">{item.learning_note}</p>}
-                  {item.status === "waiting" && (
-                    <Button size="sm" variant="secondary" disabled={busy === `confirm-${item.id}`} onClick={() => confirm(item.id)}>
-                      {busy === `confirm-${item.id}` ? "Queuing…" : "Yes, post this"}
-                    </Button>
-                  )}
-                  {(item.status === "waiting" || item.status === "queued") && (
-                    <form
-                      className="flex flex-wrap items-end gap-2"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void saveResults(item.id);
-                      }}
-                    >
-                      <label className="text-xs text-muted-foreground">
-                        Views
-                        <input
-                          className="mt-1 block w-24 rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                          inputMode="numeric"
-                          value={views}
-                          onChange={(event) => setViews(event.target.value)}
-                          required
-                        />
-                      </label>
-                      <label className="text-xs text-muted-foreground">
-                        % watched
-                        <input
-                          className="mt-1 block w-24 rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                          inputMode="decimal"
-                          value={percent}
-                          onChange={(event) => setPercent(event.target.value)}
-                          required
-                        />
-                      </label>
-                      <Button type="submit" size="sm" variant="outline" disabled={busy === `results-${item.id}`}>
-                        {busy === `results-${item.id}` ? "Saving…" : "Save results"}
-                      </Button>
-                    </form>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+                ))}
+              </div>
+            )}
+            {front.package?.thumbnail_brief && (
+              <div className="text-sm text-muted-foreground">
+                <p>Thumbnail: {front.package.thumbnail_brief.words}</p>
+                <p>{front.package.thumbnail_brief.expression}</p>
+                <p>{front.package.thumbnail_brief.framing}</p>
+                <p>{front.package.thumbnail_brief.background}</p>
+              </div>
+            )}
+            {front.package?.hooks && front.package.hooks.length > 0 && (
+              <div className="space-y-2">
+                {front.package.hooks.map((hook) => (
+                  <div key={hook.text}>
+                    <p className="text-sm">{hook.text}</p>
+                    <p className="text-xs text-muted-foreground">{hook.score}/100 · {hook.formula} · {hook.band}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {front.package?.runtime_seconds != null && (
+              <p className="text-xs text-muted-foreground">
+                {front.package.runtime_seconds >= 90
+                  ? `About ${Math.max(1, Math.round(front.package.runtime_seconds / 60))} minutes at 150 words a minute.`
+                  : `About ${front.package.runtime_seconds} seconds at 150 words a minute.`}
+              </p>
+            )}
+            {front.script && (
+              <p className="max-h-72 overflow-y-auto whitespace-pre-wrap text-sm text-muted-foreground">{front.script}</p>
+            )}
+            {front.description && (
+              <p className="max-h-64 overflow-y-auto whitespace-pre-wrap text-sm text-muted-foreground">{front.description}</p>
+            )}
+            {front.package?.chapters && front.package.chapters.length > 0 && (
+              <ul className="space-y-1 text-sm">
+                {front.package.chapters.map((chapter) => (
+                  <li key={chapter.label}>{chapter.label} {chapter.title}</li>
+                ))}
+              </ul>
+            )}
+            {front.package?.search_facing === false && (
+              <p className="text-sm text-muted-foreground">This one is for the people who already watch. The work is in the title and the thumbnail.</p>
+            )}
+            {front.package?.has_transcript && front.package.shorts && front.package.shorts.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Shorts cut from this video</p>
+                {front.package.shorts.map((clip) => (
+                  <div key={`${clip.start}-${clip.first_line}`} className="text-sm text-muted-foreground">
+                    <p>{clip.start}–{clip.end} · {clip.first_line}</p>
+                    <p>New first line ({clip.opening.score}): {clip.opening.text}</p>
+                    <p>On screen: {clip.on_screen}</p>
+                    <p>{clip.loop}</p>
+                    <p>{clip.crop}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {front.package?.has_transcript && front.package.edit && (
+              <div className="space-y-1 text-sm text-muted-foreground">
+                <p>{front.package.edit.caption_style}</p>
+                <p>{front.package.edit.caption_note}</p>
+                {front.package.edit.zooms?.map((zoom) => (
+                  <p key={zoom.reason}>Zoom to {zoom.scale}× · {zoom.reason}</p>
+                ))}
+              </div>
+            )}
+            {front.package?.comments && (
+              <div className="space-y-2 text-sm">
+                <p>
+                  {front.package.comments.counts.questions} questions, {front.package.comments.counts.corrections} corrections, {front.package.comments.counts.praise} praise, {front.package.comments.counts.bait} bait.
+                </p>
+                {front.package.comments.pin && <p>Pin: {front.package.comments.pin.comment} {front.package.comments.pin.why}</p>}
+                {front.package.comments.replies.map((reply) => (
+                  <p key={reply.comment} className="text-muted-foreground">{reply.reply}</p>
+                ))}
+              </div>
+            )}
+            {front.package?.gate && <p className="text-sm font-medium">{front.package.gate}</p>}
+            {front.status === "waiting" && (
+              <Button size="sm" variant="secondary" disabled={busy === `confirm-${front.id}`} onClick={() => confirm(front.id)}>
+                {busy === `confirm-${front.id}` ? "Shipping…" : "Ship it"}
+              </Button>
+            )}
+            <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); void send(front.id, "transcript", { transcript }, "transcript", "Shorts are ready."); }}>
+              <label className="block text-sm">
+                Transcript of the finished video
+                <Textarea className="mt-1" rows={3} value={transcript} onChange={(event) => setTranscript(event.target.value)} />
+              </label>
+              <Button type="submit" size="sm" variant="outline" disabled={busy === "transcript" || transcript.trim() === ""}>Add the transcript</Button>
+            </form>
+            <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); void send(front.id, "retention", { csv: retention }, "retention", "Saved for the next video."); }}>
+              <label className="block text-sm">
+                Audience retention export from YouTube Studio
+                <Textarea className="mt-1" rows={3} value={retention} onChange={(event) => setRetention(event.target.value)} />
+              </label>
+              <Button type="submit" size="sm" variant="outline" disabled={busy === "retention" || retention.trim() === ""}>Save the export</Button>
+            </form>
+            <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); void send(front.id, "comments", { comments }, "comments", "Replies are ready."); }}>
+              <label className="block text-sm">
+                Comments, one per line
+                <Textarea className="mt-1" rows={3} value={comments} onChange={(event) => setComments(event.target.value)} />
+              </label>
+              <Button type="submit" size="sm" variant="outline" disabled={busy === "comments" || comments.trim() === ""}>Sort and reply</Button>
+            </form>
+          </div>
         </Section>
-      </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {mode === "footage"
+            ? "Upload footage, then add its transcript. The edit and any Shorts show after that."
+            : "The piece in front is written when this week's list has something the channel can make."}
+        </p>
+      )}
       {message && <p className="text-sm text-muted-foreground">{message}</p>}
     </div>
   );
