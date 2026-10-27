@@ -4,6 +4,7 @@ namespace App\Services\XApi;
 
 use App\Models\ConnectedAccount;
 use App\Models\User;
+use App\Services\ApiSpend\ApiSpendService;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
@@ -12,6 +13,8 @@ use RuntimeException;
 
 class XApiService
 {
+    public function __construct(private readonly ApiSpendService $budget) {}
+
     public const SCOPES = 'tweet.read tweet.write users.read like.read offline.access';
 
     /** X bills about $0.005 per post and $0.010 per user. Amounts are stored in thousandths of a dollar. */
@@ -19,7 +22,7 @@ class XApiService
 
     private const USER_MILLS = 10;
 
-    /** Leaves room for a couple of model calls inside a $0.40 day. */
+    /** Reads stop on their own so a heavy look cannot use the whole $0.46 day. */
     private const DAILY_READ_MILLS = 360;
 
     public function configured(): bool
@@ -169,6 +172,22 @@ class XApiService
             throw new RuntimeException('That draft is empty.');
         }
 
+        $reply = $type === 'reply';
+        if ($reply && ! $this->budget->canReply((int) $account->user_id)) {
+            throw new RuntimeException('Today\'s replies are already out. The next one waits until tomorrow.');
+        }
+        if (! $reply && ! $this->budget->canPost((int) $account->user_id, count($parts))) {
+            throw new RuntimeException('Today\'s posts are already out. The next one waits until tomorrow.');
+        }
+
+        $mills = 0;
+        foreach ($parts as $part) {
+            $mills += preg_match('/https?:\/\//i', $part) === 1
+                ? ApiSpendService::LINK_POST_MILLS
+                : ApiSpendService::POST_MILLS;
+        }
+        $this->budget->assertCanSpend((int) $account->user_id, $mills);
+
         $token = $this->accessToken($account);
         $first = null;
         $replyTo = null;
@@ -186,6 +205,15 @@ class XApiService
 
             $replyTo = (string) $response->json('data.id');
             $first ??= $replyTo;
+            $partMills = preg_match('/https?:\/\//i', $part) === 1
+                ? ApiSpendService::LINK_POST_MILLS
+                : ApiSpendService::POST_MILLS;
+            $this->budget->spend((int) $account->user_id, $partMills);
+            if ($reply) {
+                $this->budget->recordReply((int) $account->user_id);
+            } else {
+                $this->budget->recordPost((int) $account->user_id);
+            }
         }
 
         return (string) $first;
@@ -193,6 +221,11 @@ class XApiService
 
     public function likeTweet(ConnectedAccount $account, string $tweetId): void
     {
+        if (! $this->budget->canLike((int) $account->user_id)) {
+            throw new RuntimeException('Today\'s likes are already out. The next one waits until tomorrow.');
+        }
+        $this->budget->assertCanSpend((int) $account->user_id, ApiSpendService::LIKE_MILLS);
+
         $token = $this->accessToken($account);
         $userId = (string) ($account->platform_account_id ?: $this->authenticatedUserId($token));
         $response = Http::withToken($token)->post('https://api.twitter.com/2/users/'.$userId.'/likes', [
@@ -202,6 +235,70 @@ class XApiService
         if ($response->failed()) {
             throw new RuntimeException($this->apiError($response));
         }
+
+        $this->budget->spend((int) $account->user_id, ApiSpendService::LIKE_MILLS);
+        $this->budget->recordLike((int) $account->user_id);
+    }
+
+    public function repostTweet(ConnectedAccount $account, string $tweetId): void
+    {
+        if (! $this->budget->canRepost((int) $account->user_id)) {
+            throw new RuntimeException('Today\'s repost is already out. The next one waits until tomorrow.');
+        }
+        $this->budget->assertCanSpend((int) $account->user_id, ApiSpendService::REPOST_MILLS);
+
+        $token = $this->accessToken($account);
+        $userId = (string) ($account->platform_account_id ?: $this->authenticatedUserId($token));
+        $response = Http::withToken($token)->post('https://api.twitter.com/2/users/'.$userId.'/retweets', [
+            'tweet_id' => $tweetId,
+        ]);
+
+        if ($response->status() === 403) {
+            $this->closeWrite($account, ApiSpendService::REPOST_MILLS, 'repost');
+            throw new RuntimeException('X did not accept that repost. Reposts wait until tomorrow.');
+        }
+
+        if ($response->failed()) {
+            throw new RuntimeException($this->apiError($response));
+        }
+
+        $this->budget->spend((int) $account->user_id, ApiSpendService::REPOST_MILLS);
+        $this->budget->recordRepost((int) $account->user_id);
+    }
+
+    public function quoteTweet(ConnectedAccount $account, string $tweetId, string $text): string
+    {
+        $text = trim((string) preg_replace('/https?:\/\/\S+/i', '', $text));
+        $text = trim((string) preg_replace('/\s+/', ' ', $text));
+        if ($text === '') {
+            throw new RuntimeException('That quote caption is empty.');
+        }
+        if (! $this->budget->canQuote((int) $account->user_id)) {
+            throw new RuntimeException('Today\'s quote is already out. The next one waits until tomorrow.');
+        }
+        if (Cache::has($this->writeClosedKey((int) $account->user_id, 'quote'))) {
+            throw new RuntimeException('X did not accept a quote today. Quotes wait until tomorrow.');
+        }
+        $this->budget->assertCanSpend((int) $account->user_id, ApiSpendService::QUOTE_MILLS);
+
+        $response = Http::withToken($this->accessToken($account))->post('https://api.twitter.com/2/tweets', [
+            'text' => mb_substr($text, 0, 270),
+            'quote_tweet_id' => $tweetId,
+        ]);
+
+        if ($response->status() === 403) {
+            $this->closeWrite($account, ApiSpendService::QUOTE_MILLS, 'quote');
+            throw new RuntimeException('X did not accept that quote. Quotes wait until tomorrow.');
+        }
+
+        if ($response->failed()) {
+            throw new RuntimeException($this->apiError($response));
+        }
+
+        $this->budget->spend((int) $account->user_id, ApiSpendService::QUOTE_MILLS);
+        $this->budget->recordQuote((int) $account->user_id);
+
+        return (string) $response->json('data.id');
     }
 
     public function replyToTweet(ConnectedAccount $account, string $tweetId, string $text): string
@@ -210,6 +307,13 @@ class XApiService
         if ($text === '') {
             throw new RuntimeException('That reply is empty.');
         }
+        if (! $this->budget->canReply((int) $account->user_id)) {
+            throw new RuntimeException('Today\'s replies are already out. The next one waits until tomorrow.');
+        }
+        $mills = preg_match('/https?:\/\//i', $text) === 1
+            ? ApiSpendService::LINK_POST_MILLS
+            : ApiSpendService::POST_MILLS;
+        $this->budget->assertCanSpend((int) $account->user_id, $mills);
 
         $response = Http::withToken($this->accessToken($account))->post('https://api.twitter.com/2/tweets', [
             'text' => mb_substr($text, 0, 270),
@@ -219,6 +323,9 @@ class XApiService
         if ($response->failed()) {
             throw new RuntimeException($this->apiError($response));
         }
+
+        $this->budget->spend((int) $account->user_id, $mills);
+        $this->budget->recordReply((int) $account->user_id);
 
         return (string) $response->json('data.id');
     }
@@ -237,8 +344,8 @@ class XApiService
             return $cached;
         }
 
-        if (! $this->canAffordReads($account->id, 10, 1)) {
-            throw new RuntimeException('The daily X read budget for this account is used. Figures return tomorrow.');
+        if (! $this->canAffordReads($account, 10, 1)) {
+            throw new RuntimeException($this->readRefusal($account, 10, 1));
         }
 
         $token = $this->accessToken($account);
@@ -292,7 +399,7 @@ class XApiService
             $payload = $this->rememberTotals($account, $payload);
         }
 
-        $this->chargeReads($account->id, $loaded['complete'] ? 10 : 0, 1);
+        $this->chargeReads($account, $loaded['complete'] ? 10 : 0, 1);
         Cache::put($cacheKey, $payload, now()->addDays(7));
 
         return $payload;
@@ -522,7 +629,7 @@ class XApiService
      */
     public function mentions(ConnectedAccount $account): array
     {
-        if (! $this->canAffordReads($account->id, 5, 5)) {
+        if (! $this->canAffordReads($account, 5, 5)) {
             return [];
         }
 
@@ -539,7 +646,7 @@ class XApiService
             throw new RuntimeException($this->apiError($response));
         }
 
-        $this->chargeReads($account->id, 5, 5);
+        $this->chargeReads($account, 5, 5);
 
         return $this->normalizeTweets($response->json() ?? [], 'mention');
     }
@@ -886,7 +993,7 @@ class XApiService
             return $this->topicsWithin($cached['topics'], $watch);
         }
 
-        if (! $this->canAffordReads($account->id, 5, 5)) {
+        if (! $this->canAffordReads($account, 5, 5)) {
             return [];
         }
 
@@ -912,7 +1019,7 @@ class XApiService
             return [];
         }
 
-        $this->chargeReads($account->id, 5, 5);
+        $this->chargeReads($account, 5, 5);
 
         $users = collect($response->json('includes.users') ?? [])->keyBy('id');
         $candidates = [];
@@ -1024,18 +1131,50 @@ class XApiService
         return $fresh;
     }
 
-    private function canAffordReads(int $accountId, int $posts, int $users): bool
+    private function canAffordReads(ConnectedAccount $account, int $posts, int $users): bool
     {
-        return $this->spentMills($accountId) + $this->readMills($posts, $users) <= self::DAILY_READ_MILLS;
+        $mills = $this->readMills($posts, $users);
+
+        return $this->spentMills($account->id) + $mills <= self::DAILY_READ_MILLS
+            && $this->budget->canSpend((int) $account->user_id, $mills);
     }
 
-    private function chargeReads(int $accountId, int $posts, int $users): void
+    private function readRefusal(ConnectedAccount $account, int $posts, int $users): string
     {
+        $mills = $this->readMills($posts, $users);
+        $blocked = $this->budget->refusal((int) $account->user_id, $mills);
+        if ($blocked !== null) {
+            return $blocked;
+        }
+
+        return 'The daily X read budget for this account is used. Figures return tomorrow.';
+    }
+
+    private function closeWrite(ConnectedAccount $account, int $mills, string $action): void
+    {
+        $this->budget->spend((int) $account->user_id, $mills);
+        if ($action === 'quote') {
+            $this->budget->recordQuote((int) $account->user_id);
+        } else {
+            $this->budget->recordRepost((int) $account->user_id);
+        }
+        Cache::put($this->writeClosedKey((int) $account->user_id, $action), 1, now()->endOfDay());
+    }
+
+    private function writeClosedKey(int $userId, string $action): string
+    {
+        return 'x-write-closed:v1:'.$userId.':'.$action.':'.now()->toDateString();
+    }
+
+    private function chargeReads(ConnectedAccount $account, int $posts, int $users): void
+    {
+        $mills = $this->readMills($posts, $users);
         Cache::put(
-            $this->readSpendKey($accountId),
-            $this->spentMills($accountId) + $this->readMills($posts, $users),
+            $this->readSpendKey($account->id),
+            $this->spentMills($account->id) + $mills,
             now()->endOfDay()->addHour(),
         );
+        $this->budget->spend((int) $account->user_id, $mills);
     }
 
     private function spentMills(int $accountId): int

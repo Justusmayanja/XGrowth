@@ -11,6 +11,7 @@ use App\Models\Post;
 use App\Models\Trend;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
+use App\Services\ApiSpend\ApiSpendService;
 use App\Services\GrowthAgent\GrowthAgentService;
 use App\Services\GrowthAgent\GrowthBrainService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -727,6 +728,87 @@ class AutopublishTest extends TestCase
         $this->assertSame(1, Post::where('user_id', $user->id)->where('content_type', 'reply')->count());
     }
 
+    public function test_a_related_post_is_reposted_and_another_is_quoted(): void
+    {
+        $this->useRulesEngine();
+        config(['openai.api_key' => 'test-key']);
+        $user = $this->user(level: 3);
+        $this->connectX($user);
+        $user->posts()->create([
+            'content' => 'Posted two hours ago.',
+            'content_type' => 'tweet',
+            'status' => 'posted',
+            'posted_at' => now()->subHours(2),
+        ]);
+        Http::fake([
+            'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => 'quote-1']], 201),
+            'https://api.twitter.com/2/users/*/retweets' => Http::response(['data' => ['retweeted' => true]]),
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response([
+                'data' => [
+                    $this->loudTweet('tweet-repost', 'United looked flat in that second half', 90, 90),
+                    $this->loudTweet('tweet-quote', 'United still have a game on Thursday', 70, 80),
+                ],
+                'includes' => [
+                    'users' => [[
+                        'id' => 'author-1',
+                        'username' => 'beatwriter',
+                        'public_metrics' => ['followers_count' => 800],
+                    ]],
+                ],
+            ]),
+        ]);
+        OpenAI::fake([
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['drafts' => [[
+                        'content' => 'Thursday is the one that actually matters. https://example.com',
+                        'tone' => 'funny',
+                    ]]])],
+                ]],
+            ]),
+        ]);
+
+        $engine = app(GrowthAgentService::class);
+        $engine->evaluateOpportunities($user->id);
+
+        $reposts = $this->recordedRetweets();
+        $quotes = $this->recordedQuotes();
+        $this->assertCount(1, $reposts);
+        $this->assertSame('tweet-repost', $reposts->first()[0]->data()['tweet_id']);
+        $this->assertCount(1, $quotes);
+        $this->assertSame('tweet-quote', $quotes->first()[0]->data()['quote_tweet_id']);
+        $this->assertStringNotContainsString('http', (string) $quotes->first()[0]->data()['text']);
+        $this->assertSame(1, Post::where('user_id', $user->id)->where('content_type', 'quote')->count());
+
+        $engine->evaluateOpportunities($user->id);
+        $this->assertCount(1, $this->recordedRetweets());
+        $this->assertCount(1, $this->recordedQuotes());
+    }
+
+    public function test_a_full_day_does_not_repost_or_quote(): void
+    {
+        $this->useRulesEngine();
+        config(['openai.api_key' => 'test-key']);
+        $user = $this->user(level: 3, email: 'capped@example.com');
+        $this->connectX($user);
+        Cache::put(app(ApiSpendService::class)->dailySpendKey($user->id), ApiSpendService::DAILY_CAP_MILLS, now()->addHour());
+        Http::fake([
+            'https://api.twitter.com/2/tweets' => Http::response(['data' => ['id' => 'quote-2']], 201),
+            'https://api.twitter.com/2/users/*/retweets' => Http::response(['data' => ['retweeted' => true]]),
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response([
+                'data' => [
+                    $this->loudTweet('tweet-repost', 'United looked flat in that second half', 90, 90),
+                ],
+            ]),
+        ]);
+        OpenAI::fake();
+
+        app(GrowthAgentService::class)->evaluateOpportunities($user->id);
+
+        Http::assertNothingSent();
+        OpenAI::assertNothingSent();
+    }
+
     private function user(int $level, bool $autoPost = true, string $email = 'cook@example.com'): User
     {
         $user = User::factory()->create(['email' => $email]);
@@ -779,6 +861,39 @@ class AutopublishTest extends TestCase
     /**
      * @return array<string, mixed>
      */
+    /**
+     * @return array<string, mixed>
+     */
+    private function loudTweet(string $id, string $text, int $likes, int $minutesAgo): array
+    {
+        return [
+            'id' => $id,
+            'text' => $text,
+            'author_id' => 'author-1',
+            'created_at' => now()->subMinutes($minutesAgo)->utc()->toIso8601String(),
+            'public_metrics' => [
+                'like_count' => $likes,
+                'reply_count' => 10,
+                'impression_count' => 1000,
+            ],
+        ];
+    }
+
+    private function recordedRetweets(): \Illuminate\Support\Collection
+    {
+        return Http::recorded()->filter(
+            fn (array $pair) => str_contains($pair[0]->url(), '/retweets')
+        );
+    }
+
+    private function recordedQuotes(): \Illuminate\Support\Collection
+    {
+        return Http::recorded()->filter(
+            fn (array $pair) => $pair[0]->url() === 'https://api.twitter.com/2/tweets'
+                && isset($pair[0]->data()['quote_tweet_id'])
+        );
+    }
+
     private function nicheTweet(string $text, string $username, int $followers, int $minutesAgo, ?string $id = null): array
     {
         return [

@@ -8,6 +8,7 @@ use App\Models\Post;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use App\Services\AICore\AICoreService;
+use App\Services\ApiSpend\ApiSpendService;
 use App\Services\TrendEngine\OpportunityScorerService;
 use App\Services\TrendEngine\TrendEngineService;
 use App\Services\XApi\XApiService;
@@ -27,6 +28,7 @@ class GrowthAgentService
         private readonly PlatformSettingsService $settings,
         private readonly XApiService $xApi,
         private readonly TrendEngineService $trends,
+        private readonly ApiSpendService $budget,
     ) {}
 
     private bool $draftedThisRun = false;
@@ -280,6 +282,7 @@ class GrowthAgentService
 
         if (! $this->postedThisRun) {
             $this->maybeEngage($user, $profile);
+            $this->maybeShare($user, $profile);
         }
 
         return $decision;
@@ -850,7 +853,7 @@ class GrowthAgentService
         }
 
         $liked = null;
-        if ($profile->auto_engage_enabled && $this->canEngageNow($user, 'like', 6, 40)) {
+        if ($profile->auto_engage_enabled && $this->canEngageNow($user, 'like', 2, 40)) {
             foreach ($candidates as $candidate) {
                 if (! $this->wantsAction($user, $candidate['id'], 'like', 4)) {
                     continue;
@@ -875,7 +878,7 @@ class GrowthAgentService
             }
         }
 
-        if (! $profile->auto_reply_enabled || ! $this->canEngageNow($user, 'reply', 3, 80)) {
+        if (! $profile->auto_reply_enabled || ! $this->budget->canReply($user->id) || ! $this->canEngageNow($user, 'reply', 3, 80)) {
             return;
         }
 
@@ -926,7 +929,126 @@ class GrowthAgentService
     }
 
     /**
-     * @return list<array{id: string, text: string}>
+     * A related post on the home timeline can be reposted, and a second one can be quoted.
+     * Both wait until this account has been quiet for 50 minutes, and both stop when the day or the month is used.
+     */
+    private function maybeShare(User $user, AccountProfile $profile): void
+    {
+        if (! $this->canUnattendedPost($profile)) {
+            return;
+        }
+
+        $sincePost = $this->postedMinutesAgo($user);
+        if ($sincePost !== 9999 && $sincePost <= 50) {
+            return;
+        }
+
+        $account = $user->connectedAccounts()->where('platform', 'x')->where('is_active', true)->first();
+        if (! $account) {
+            return;
+        }
+
+        $floor = $this->settings->getInt('rules_engage_threshold', 68);
+        $candidates = array_values(array_filter(
+            $this->engagementCandidates(),
+            fn (array $candidate) => $candidate['score'] >= $floor
+                && ! $this->alreadyTouched($user, 'repost', $candidate['id'])
+                && ! $this->alreadyTouched($user, 'quote', $candidate['id'])
+        ));
+        if ($candidates === []) {
+            return;
+        }
+
+        $reposted = null;
+        $quoteTarget = $candidates[0];
+        if (count($candidates) > 1 && $this->budget->canRepost($user->id) && $this->budget->canSpend($user->id, ApiSpendService::REPOST_MILLS)) {
+            $reposted = $this->sendRepost($user, $account, $candidates[0]);
+            $quoteTarget = $candidates[1];
+        }
+
+        if ($reposted !== null && $quoteTarget['id'] === $reposted) {
+            return;
+        }
+
+        $quoteCost = ApiSpendService::QUOTE_MILLS + ApiSpendService::TWEET_RESERVE_MILLS;
+        if (! $this->aiCore->isConfigured() || ! $this->budget->canQuote($user->id) || ! $this->budget->canSpend($user->id, $quoteCost)) {
+            if ($reposted === null && $this->budget->canRepost($user->id) && $this->budget->canSpend($user->id, ApiSpendService::REPOST_MILLS)) {
+                $this->sendRepost($user, $account, $candidates[0]);
+            }
+
+            return;
+        }
+
+        $this->sendQuote($user, $profile, $account, $quoteTarget);
+    }
+
+    /**
+     * @param  array{id: string, text: string}  $candidate
+     */
+    private function sendRepost(User $user, \App\Models\ConnectedAccount $account, array $candidate): ?string
+    {
+        try {
+            $this->xApi->repostTweet($account, $candidate['id']);
+            $this->rememberTouch($user, 'repost', $candidate['id']);
+            $this->logDecision($user, 'ENGAGE', 'reposted', null, 'Reposted one related post.', [
+                'tweet_id' => $candidate['id'],
+            ]);
+
+            return $candidate['id'];
+        } catch (Throwable $e) {
+            Log::info('Repost was skipped', ['user_id' => $user->id, 'error' => $e->getMessage()]);
+            $this->rememberTouch($user, 'repost', $candidate['id']);
+
+            return null;
+        }
+    }
+
+    /**
+     * @param  array{id: string, text: string}  $candidate
+     */
+    private function sendQuote(User $user, AccountProfile $profile, \App\Models\ConnectedAccount $account, array $candidate): void
+    {
+        if ($this->alreadyTouched($user, 'quote', $candidate['id'])) {
+            return;
+        }
+
+        try {
+            $drafts = $this->aiCore->generateReplyDrafts([
+                'user' => $user,
+                'context' => 'One caption that sits above this post. One sentence, in this account\'s voice. No hashtags, no link, and do not repeat their sentence.',
+                'tone' => $profile->primaryTone(),
+                'niche' => $profile->resolvedNiche(),
+                'post_content' => $candidate['text'],
+                'human' => true,
+                'use_web_search' => false,
+            ]);
+            $text = trim((string) ($drafts[0]['content'] ?? ''));
+            if ($text === '') {
+                $this->rememberTouch($user, 'quote', $candidate['id']);
+
+                return;
+            }
+            $platformId = $this->xApi->quoteTweet($account, $candidate['id'], $text);
+            $user->posts()->create([
+                'content' => $text,
+                'content_type' => 'quote',
+                'status' => 'posted',
+                'platform_post_id' => $platformId,
+                'connected_account_id' => $account->id,
+                'posted_at' => now(),
+            ]);
+            $this->rememberTouch($user, 'quote', $candidate['id']);
+            $this->logDecision($user, 'ENGAGE', 'quoted', null, 'Quoted one related post with a caption.', [
+                'tweet_id' => $candidate['id'],
+            ]);
+        } catch (Throwable $e) {
+            Log::info('Quote was skipped', ['user_id' => $user->id, 'error' => $e->getMessage()]);
+            $this->rememberTouch($user, 'quote', $candidate['id']);
+        }
+    }
+
+    /**
+     * @return list<array{id: string, text: string, score: float}>
      */
     private function engagementCandidates(): array
     {
@@ -946,7 +1068,11 @@ class GrowthAgentService
             if ($text === '') {
                 continue;
             }
-            $rows[] = ['id' => $id, 'text' => mb_substr($text, 0, 240)];
+            $rows[] = [
+                'id' => $id,
+                'text' => mb_substr($text, 0, 240),
+                'score' => (float) ($row['opportunity_score'] ?? 0),
+            ];
         }
 
         return $rows;
@@ -1041,8 +1167,12 @@ class GrowthAgentService
             return null;
         }
 
+        if (! $this->budget->canPost($user->id) || ! $this->budget->canSpend($user->id, ApiSpendService::POST_MILLS)) {
+            return null;
+        }
+
         $draftsKey = 'growth-drafts:v1:'.$user->id.':'.now()->toDateString();
-        if ((int) Cache::get($draftsKey, 0) >= 2) {
+        if ((int) Cache::get($draftsKey, 0) >= $this->budget->dailyPostTarget($user->id)) {
             return null;
         }
 

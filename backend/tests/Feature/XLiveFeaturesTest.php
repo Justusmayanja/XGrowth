@@ -3,11 +3,13 @@
 namespace Tests\Feature;
 
 use App\Models\ConnectedAccount;
+use App\Services\ApiSpend\ApiSpendService;
 use App\Models\Post;
 use App\Models\Trend;
 use App\Models\User;
 use App\Services\TrendEngine\TrendEngineService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use RuntimeException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use OpenAI\Laravel\Facades\OpenAI;
@@ -1012,6 +1014,75 @@ class XLiveFeaturesTest extends TestCase
             ->assertJsonPath('metrics.2.label', 'Likes')
             ->assertJsonPath('metrics.2.value', 14)
             ->assertJsonPath('metrics.2.sub', 'Results for the last seven days');
+    }
+
+    public function test_posts_rotate_between_four_and_six_then_stop(): void
+    {
+        $user = User::factory()->create();
+        $budget = app(ApiSpendService::class);
+        $target = $budget->dailyPostTarget($user->id);
+
+        $this->assertContains($target, [4, 5, 6]);
+        for ($i = 0; $i < $target; $i++) {
+            $this->assertTrue($budget->canPost($user->id));
+            $budget->recordPost($user->id);
+        }
+        $this->assertFalse($budget->canPost($user->id));
+        for ($i = 0; $i < 3; $i++) {
+            $this->assertTrue($budget->canReply($user->id));
+            $budget->recordReply($user->id);
+        }
+        $this->assertFalse($budget->canReply($user->id));
+        $budget->recordLike($user->id);
+        $budget->recordLike($user->id);
+        $this->assertFalse($budget->canLike($user->id));
+        $this->assertTrue($budget->canRepost($user->id));
+        $budget->recordRepost($user->id);
+        $this->assertFalse($budget->canRepost($user->id));
+        $this->assertTrue($budget->canQuote($user->id));
+        $budget->recordQuote($user->id);
+        $this->assertFalse($budget->canQuote($user->id));
+    }
+
+    public function test_a_full_day_stops_until_tomorrow(): void
+    {
+        $user = User::factory()->create();
+        $budget = app(ApiSpendService::class);
+        Cache::put($budget->dailySpendKey($user->id), ApiSpendService::DAILY_CAP_MILLS, now()->addHour());
+
+        $this->assertFalse($budget->canSpend($user->id, 1));
+        try {
+            $budget->assertCanSpend($user->id, 1);
+            $this->fail('A full day should stop the next call.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('tomorrow', $e->getMessage());
+        }
+    }
+
+    public function test_a_spent_monthly_budget_does_not_call_x(): void
+    {
+        [$user] = $this->connectedCook();
+        Cache::put(app(ApiSpendService::class)->spendKey($user->id), 14000, now()->addDay());
+        Http::fake();
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x')
+            ->assertOk();
+
+        Http::assertNothingSent();
+    }
+
+    public function test_a_spent_daily_budget_does_not_call_x(): void
+    {
+        [$user] = $this->connectedCook();
+        Cache::put(app(ApiSpendService::class)->dailySpendKey($user->id), ApiSpendService::DAILY_CAP_MILLS, now()->addHour());
+        Http::fake();
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x')
+            ->assertOk();
+
+        Http::assertNothingSent();
     }
 
     public function test_a_spent_read_budget_does_not_call_x(): void
