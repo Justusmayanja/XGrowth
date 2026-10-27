@@ -415,6 +415,14 @@ export function OnboardingWizard() {
       body.video_mode = setup.video_mode;
       if (setup.video_mode !== "footage") body.format = setup.format;
     }
+    if (platform === "tiktok") {
+      try {
+        const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (zone) body.timezone = zone;
+      } catch {
+        // An invalid or missing timezone must not block setup.
+      }
+    }
 
     const state = await api<SetupState>(`/account/setup/platforms/${platform}`, {
       method: "POST",

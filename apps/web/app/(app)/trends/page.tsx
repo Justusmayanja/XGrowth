@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingMark } from "@/components/LoadingMark";
 import { api } from "@/lib/api";
+import { TikTokIdeas } from "@/components/dashboard/tiktok/TikTokIdeas";
 import { usePlatform } from "@/lib/platform";
 
 type Post = {
@@ -17,6 +18,11 @@ type Post = {
 
 export default function TrendsPage() {
   const platform = usePlatform();
+  if (platform === "tiktok") return <TikTokIdeas />;
+  return <TopicTrends platform={platform} />;
+}
+
+function TopicTrends({ platform }: { platform: ReturnType<typeof usePlatform> }) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
@@ -25,6 +31,7 @@ export default function TrendsPage() {
   const [posting, setPosting] = useState(false);
 
   useEffect(() => {
+    if (platform === "tiktok") return;
     setLoading(true);
     const load =
       platform === "x"

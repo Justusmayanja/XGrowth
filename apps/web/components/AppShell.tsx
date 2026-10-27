@@ -62,7 +62,7 @@ const NAV: Record<Platform, NavGroup[]> = {
       links: [
         { href: "/dashboard/tiktok", label: "Today", icon: Sun },
         { href: "/content-studio", label: "New clip", icon: Clapperboard },
-        { href: "/drafts", label: "Waiting for you", icon: Clock },
+        { href: "/dashboard/tiktok#clip", label: "Waiting for you", icon: Clock },
       ],
     },
     {

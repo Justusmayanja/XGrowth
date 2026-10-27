@@ -32,6 +32,9 @@ type CustomerDetail = {
   admin_notes?: string | null;
   account_status: "managed" | "needs_onboarding" | "needs_x_connection";
   x_username?: string | null;
+  tiktok_connected?: boolean;
+  tiktok_needs_reconnect?: boolean;
+  tiktok_display_name?: string | null;
   posts_count: number;
   decisions_count: number;
   account_profile?: {
@@ -189,6 +192,13 @@ export default function AdminCustomerDetailPage() {
             {customer.x_username && (
               <Badge variant="outline">@{customer.x_username}</Badge>
             )}
+            <Badge variant="outline">
+              {customer.tiktok_needs_reconnect
+                ? "TikTok needs reconnect"
+                : customer.tiktok_connected
+                  ? `TikTok ${customer.tiktok_display_name ?? "connected"}`
+                  : "TikTok not connected"}
+            </Badge>
           </div>
         </div>
         <Button variant="outline" size="sm" onClick={load} disabled={loading}>
