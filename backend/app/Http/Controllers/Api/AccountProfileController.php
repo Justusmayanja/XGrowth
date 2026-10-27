@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AccountProfile;
 use App\Models\PlatformSetup;
 use App\Services\GrowthAgent\GrowthAgentService;
+use App\Services\TikTok\TikTokEngineService;
 use App\Support\SetupCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -84,6 +85,30 @@ class AccountProfileController extends Controller
         }
 
         return response()->json(['profile' => $profile]);
+    }
+
+    public function timezone(Request $request, TikTokEngineService $engine): JsonResponse
+    {
+        $validated = $request->validate([
+            'timezone' => ['required', 'string', 'max:64', 'timezone:all'],
+        ]);
+
+        $profile = $request->user()->accountProfile;
+        if (! $profile) {
+            throw ValidationException::withMessages([
+                'timezone' => ['Finish setting up your account first.'],
+            ]);
+        }
+
+        $profile->update(['timezone' => $validated['timezone']]);
+        $engine->refreshAssumedTime($request->user()->fresh());
+
+        return response()->json([
+            'data' => [
+                'timezone' => $validated['timezone'],
+                'assumed' => false,
+            ],
+        ]);
     }
 
     /**

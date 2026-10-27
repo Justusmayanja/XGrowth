@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use App\Support\SetupCatalog;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -21,6 +21,7 @@ class AccountProfile extends Model
         'description',
         'tone',
         'audience',
+        'timezone',
         'mode',
         'automation_level',
         'max_silence_minutes',

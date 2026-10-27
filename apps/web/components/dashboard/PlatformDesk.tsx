@@ -10,7 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, apiForm, getToken } from "@/lib/api";
+import { TikTokBody } from "@/components/dashboard/tiktok/TikTokBody";
 import { contentFormatLabel } from "@/lib/content-formats";
+import type { TikTokDesk } from "@/lib/tiktok";
 import {
   formatMultiLabels,
   PLATFORM_GOALS,
@@ -139,6 +141,7 @@ type Desk = {
   week?: WeekPiece[];
   niche?: NicheResearch | null;
   audit?: ChannelAudit | null;
+  tiktok?: TikTokDesk;
 };
 
 const LEDE: Record<Platform, string> = {
@@ -451,65 +454,6 @@ function XDeskView({ desk, chosen, goals }: { desk: Desk; chosen: Platform[]; go
       </div>
 
       <XBody desk={desk} />
-    </div>
-  );
-}
-
-function Learned({ desk }: { desk: Desk }) {
-  return (
-    <Section title="What landed" description="It notices what worked and leans into it next time.">
-      <p className="text-sm text-muted-foreground">
-        {desk.counts.posted === 0
-          ? `This fills in after the first ${platformName(desk.platform)} posts go out.`
-          : `${desk.counts.posted} posted so far. Results are in the Results page.`}
-      </p>
-    </Section>
-  );
-}
-
-function Pipeline({ steps }: { steps: { label: string; value: number | string; hint: string }[] }) {
-  return (
-    <Card>
-      <CardContent className="grid gap-0 p-0 sm:grid-cols-4">
-        {steps.map((step, index) => (
-          <div
-            key={step.label}
-            className={`p-5 ${index > 0 ? "border-t border-border sm:border-l sm:border-t-0" : ""}`}
-          >
-            <p className="text-xs text-muted-foreground">
-              {index + 1}. {step.label}
-            </p>
-            <p className="mt-2 font-mono text-2xl tabular-nums">{step.value}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{step.hint}</p>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
-
-function TikTokBody({ desk }: { desk: Desk }) {
-  return (
-    <div className="space-y-6">
-      <Pipeline
-        steps={[
-          { label: "Ideas found", value: desk.ideas.length, hint: "Suited to your brand" },
-          { label: "Written", value: desk.counts.drafts, hint: "Hooks and captions" },
-          { label: "Waiting for you", value: desk.counts.drafts, hint: "Each with a suggested time" },
-          { label: "Posted", value: desk.counts.posted, hint: "After your yes" },
-        ]}
-      />
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Section title="Ideas that suit you" description="Picked for the brand you described.">
-          <IdeaList desk={desk} verb="Write a clip" />
-        </Section>
-        <div className="space-y-6">
-          <Section title="Waiting for your yes" description="Nothing goes out on TikTok until you confirm.">
-            <DraftList desk={desk} empty="No clips waiting. Pick an idea to start one." />
-          </Section>
-          <Learned desk={desk} />
-        </div>
-      </div>
     </div>
   );
 }
@@ -974,6 +918,10 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
         </CardContent>
       </Card>
 
+      {platform === "tiktok" && desk.preview && (
+        <p className="text-sm text-muted-foreground">These numbers are a preview until your TikTok is connected.</p>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-3">
         {desk.metrics.map((metric) => (
           <Card key={metric.label}>
@@ -995,7 +943,7 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
         ))}
       </div>
 
-      {platform === "tiktok" && <TikTokBody desk={desk} />}
+      {platform === "tiktok" && desk.tiktok && <TikTokBody tiktok={desk.tiktok} onReload={load} />}
       {platform === "youtube" && <YouTubeBody desk={desk} onChange={load} />}
     </div>
   );

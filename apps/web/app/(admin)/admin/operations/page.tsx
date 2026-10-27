@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { LoadingMark } from "@/components/LoadingMark";
 import { api } from "@/lib/api";
 import { PlanPricingCard } from "@/components/admin/PlanPricingCard";
+import { TikTokOperations } from "@/components/admin/TikTokOperations";
 
 type OperationsInfo = {
   environment: string;
@@ -253,6 +254,8 @@ export default function AdminOperationsPage() {
           </Card>
         </div>
       )}
+
+      <TikTokOperations />
 
       <PlanPricingCard />
     </div>

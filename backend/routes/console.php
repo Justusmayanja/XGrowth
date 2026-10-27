@@ -3,11 +3,14 @@
 use App\Jobs\FetchGlobalTrendsJob;
 use App\Jobs\SafetyResetJob;
 use App\Models\User;
+use App\Services\Admin\AdminDemoDataService;
 use App\Services\Admin\PlatformSettingsService;
 use App\Services\Billing\BillingLifecycle;
 use App\Services\Billing\TrialService;
 use App\Services\GrowthAgent\GrowthAgentService;
 use App\Services\GrowthAgent\SafetyEngineService;
+use App\Services\TikTok\TikTokEngineService;
+use App\Services\TikTok\TikTokOAuthService;
 use App\Services\TrendEngine\TrendEngineService;
 use App\Services\YouTube\YouTubeEngineService;
 use Illuminate\Foundation\Inspiring;
@@ -34,7 +37,7 @@ Artisan::command('xpulse:reset-safety', function () {
 })->purpose('Clean up expired daily rate-limit budget rows');
 
 Artisan::command('xpulse:seed-demo {--force : Re-seed demo users even if they already exist}', function () {
-    $result = app(\App\Services\Admin\AdminDemoDataService::class)->seed($this->option('force'));
+    $result = app(AdminDemoDataService::class)->seed($this->option('force'));
     $this->info("Seeded {$result['users']} user(s), {$result['trends']} trend(s), {$result['posts']} post(s), {$result['decisions']} decision(s).");
 })->purpose('Seed demo users, posts, and decisions for admin development');
 
@@ -98,6 +101,60 @@ Artisan::command('youtube:run', function () {
 Schedule::call(fn () => app(YouTubeEngineService::class)->runAll())
     ->hourly()
     ->name('youtube-engine')
+    ->withoutOverlapping(15);
+
+Artisan::command('tiktok:run {--user=}', function () {
+    $engine = app(TikTokEngineService::class);
+    $userId = $this->option('user');
+
+    if ($userId !== null && $userId !== '') {
+        $user = User::query()->find($userId);
+        if (! $user) {
+            $this->error('No user with that id.');
+
+            return 1;
+        }
+
+        try {
+            $result = $engine->run($user);
+        } catch (Throwable $e) {
+            $this->error('Failed: '.$e::class);
+
+            return 1;
+        }
+
+        $summary = [
+            'created' => ($result['outcome'] ?? '') === 'created' ? 1 : 0,
+            'skipped' => isset($result['reason']) ? [$result['reason'] => 1] : [],
+            'failed' => 0,
+        ];
+    } else {
+        $summary = $engine->runAll();
+    }
+
+    $rows = [['created', (string) $summary['created']]];
+    foreach ($summary['skipped'] as $reason => $count) {
+        $rows[] = ['skipped: '.$reason, (string) $count];
+    }
+    $rows[] = ['failed', (string) $summary['failed']];
+    $this->table(['Outcome', 'Count'], $rows);
+
+    return 0;
+})->purpose('Prepare the next TikTok clip for eligible accounts');
+
+Schedule::call(fn () => app(TikTokEngineService::class)->runAll())
+    ->hourly()
+    ->name('tiktok-engine')
+    ->withoutOverlapping(15);
+
+Artisan::command('tiktok:refresh-tokens', function () {
+    $summary = app(TikTokOAuthService::class)->refreshExpiring();
+    $this->info("Refreshed {$summary['refreshed']} TikTok token(s). Failed {$summary['failed']}.");
+})->purpose('Refresh TikTok access tokens that expire within a day');
+
+Schedule::call(fn () => app(TikTokOAuthService::class)->refreshExpiring())
+    ->daily()
+    ->name('tiktok-token-refresh')
     ->withoutOverlapping(15);
 
 // Run in the scheduler process. A queued job never posts when no queue worker is running.

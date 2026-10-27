@@ -3,16 +3,18 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\AccountProfile;
 use App\Models\AiDecision;
 use App\Models\ConnectedAccount;
 use App\Models\Post;
+use App\Models\TikTokClip;
 use App\Models\Trend;
 use App\Models\User;
 use App\Services\Admin\AdminDemoDataService;
 use App\Services\GrowthAgent\GrowthAgentService;
 use App\Services\GrowthAgent\SafetyEngineService;
+use App\Services\TikTok\TikTokEngineService;
 use App\Services\TrendEngine\TrendEngineService;
+use App\Support\TikTokCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -192,6 +194,11 @@ class AdminController extends Controller
             ->groupBy('decision')
             ->pluck('count', 'decision');
 
+        $tiktok = ConnectedAccount::query()
+            ->where('user_id', $user->id)
+            ->where('platform', 'tiktok')
+            ->first(['is_active', 'username']);
+
         return response()->json([
             'customer' => [
                 ...$this->formatCustomer($user),
@@ -201,6 +208,9 @@ class AdminController extends Controller
                 'blocked_by' => $user->blockedBy
                     ? ['id' => $user->blockedBy->id, 'name' => $user->blockedBy->name, 'email' => $user->blockedBy->email]
                     : null,
+                'tiktok_connected' => (bool) $tiktok?->is_active,
+                'tiktok_needs_reconnect' => $tiktok !== null && ! $tiktok->is_active,
+                'tiktok_display_name' => $tiktok?->username,
                 'recent_posts' => $recentPosts,
                 'recent_decisions' => $recentDecisions,
                 'post_stats' => $postStats,
@@ -408,6 +418,88 @@ class AdminController extends Controller
         return response()->json([
             'message' => "Removed {$deleted} expired safety budget row(s).",
             'deleted' => $deleted,
+        ]);
+    }
+
+    public function tiktok(): JsonResponse
+    {
+        $counts = TikTokClip::query()
+            ->selectRaw('status, count(*) as aggregate')
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
+        $byStatus = [];
+        foreach (TikTokCatalog::statuses() as $status) {
+            $byStatus[$status] = (int) ($counts[$status] ?? 0);
+        }
+
+        $attention = TikTokClip::query()
+            ->with('user:id,email')
+            ->where(function ($query) {
+                $query->where(function ($waiting) {
+                    $waiting->where('status', TikTokCatalog::WAITING)
+                        ->where('created_at', '<=', now()->subDays(7));
+                })->orWhere(function ($queued) {
+                    $queued->where('status', TikTokCatalog::QUEUED)
+                        ->whereNotNull('queued_at')
+                        ->where('queued_at', '<=', now()->subDays(14));
+                });
+            })
+            ->orderBy('id')
+            ->limit(50)
+            ->get()
+            ->map(function (TikTokClip $clip) {
+                $since = $clip->status === TikTokCatalog::QUEUED ? $clip->queued_at : $clip->created_at;
+
+                return [
+                    'id' => $clip->id,
+                    'user_id' => $clip->user_id,
+                    'email' => $clip->user?->email,
+                    'status' => $clip->status,
+                    'age_days' => $since ? (int) abs($since->diffInDays(now())) : 0,
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'counts' => $byStatus,
+            'created_24h' => TikTokClip::query()->where('created_at', '>=', now()->subDay())->count(),
+            'created_7d' => TikTokClip::query()->where('created_at', '>=', now()->subDays(7))->count(),
+            'attention' => $attention,
+        ]);
+    }
+
+    public function tiktokDiagnose(Request $request, TikTokEngineService $engine): JsonResponse
+    {
+        $lookup = strtolower(trim((string) $request->query('user', '')));
+        if ($lookup === '') {
+            return response()->json([
+                'error' => ['code' => 'validation', 'message' => 'Enter a user id or email.'],
+            ], 422);
+        }
+
+        $user = ctype_digit($lookup)
+            ? User::query()->find((int) $lookup)
+            : User::query()->whereRaw('lower(email) = ?', [$lookup])->first();
+        if (! $user) {
+            return response()->json([
+                'error' => ['code' => 'validation', 'message' => 'No account matches that lookup.'],
+            ], 422);
+        }
+
+        return response()->json([
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'diagnose' => $engine->diagnose($user),
+        ]);
+    }
+
+    public function tiktokRun(TikTokEngineService $engine): JsonResponse
+    {
+        $summary = $engine->runAll();
+
+        return response()->json([
+            'message' => 'TikTok engine finished.',
+            'summary' => $summary,
         ]);
     }
 
