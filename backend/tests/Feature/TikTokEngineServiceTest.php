@@ -16,10 +16,12 @@ use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Tests\GivesTikTokAllowance;
 use Tests\TestCase;
 
 class TikTokEngineServiceTest extends TestCase
 {
+    use GivesTikTokAllowance;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -222,6 +224,7 @@ class TikTokEngineServiceTest extends TestCase
             'settings' => ['publish' => 'confirm'],
             'completed_at' => now(),
         ]);
+        $this->giveTikTokAllowance($user);
 
         return $user->fresh('accountProfile');
     }

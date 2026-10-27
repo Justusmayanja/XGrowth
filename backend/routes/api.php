@@ -1,26 +1,28 @@
 <?php
 
-use App\Http\Controllers\Api\AdminController;
-use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AccountProfileController;
-use App\Http\Controllers\Api\AccountSetupController;
 use App\Http\Controllers\Api\AccountSettingsController;
+use App\Http\Controllers\Api\AccountSetupController;
+use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AiRuleController;
 use App\Http\Controllers\Api\AiUsageController;
+use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BillingController;
+use App\Http\Controllers\Api\BillingWebhookController;
 use App\Http\Controllers\Api\ConnectedAccountController;
 use App\Http\Controllers\Api\ContentController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EngagementController;
 use App\Http\Controllers\Api\GrowthAgentController;
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\PlatformSettingsController;
 use App\Http\Controllers\Api\SafetyController;
 use App\Http\Controllers\Api\SocialAuthController;
-use App\Http\Controllers\Api\BillingController;
-use App\Http\Controllers\Api\BillingWebhookController;
 use App\Http\Controllers\Api\SubscriptionPlanController;
+use App\Http\Controllers\Api\TikTokController;
 use App\Http\Controllers\Api\YouTubeController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 
 Route::get('/health', fn () => response()->json([
     'status' => 'ok',
@@ -38,7 +40,7 @@ Route::post('/billing/webhooks/flutterwave', [BillingWebhookController::class, '
 Route::prefix('auth')->group(function () {
     Route::post('/email/send', [AuthController::class, 'sendCode'])->middleware('throttle:8,1');
     Route::post('/email/verify', [AuthController::class, 'verifyCode'])->middleware('throttle:20,1');
-    Route::get('/x/callback', function (\Illuminate\Http\Request $request) {
+    Route::get('/x/callback', function (Request $request) {
         return app(SocialAuthController::class)->callback($request, 'x');
     });
 });
@@ -47,7 +49,7 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
 
-    Route::get('/admin/access', fn (\Illuminate\Http\Request $request) => response()->json([
+    Route::get('/admin/access', fn (Request $request) => response()->json([
         'is_admin' => (bool) $request->user()->is_admin,
     ]));
 
@@ -79,6 +81,12 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::put('/content/drafts/{post}', [ContentController::class, 'updateDraft']);
         Route::delete('/content/drafts/{post}', [ContentController::class, 'destroy']);
         Route::get('/content/posts', [ContentController::class, 'index']);
+
+        Route::post('/tiktok/run', [TikTokController::class, 'run'])->middleware('throttle:6,1');
+        Route::post('/tiktok/clips/{clip}/confirm', [TikTokController::class, 'confirm']);
+        Route::post('/tiktok/clips/{clip}/results', [TikTokController::class, 'results']);
+        Route::post('/tiktok/clips/{clip}/discard', [TikTokController::class, 'discard']);
+        Route::post('/tiktok/clips/{clip}/reschedule', [TikTokController::class, 'reschedule']);
 
         Route::post('/youtube/run', [YouTubeController::class, 'run']);
         Route::post('/youtube/footage', [YouTubeController::class, 'footage']);

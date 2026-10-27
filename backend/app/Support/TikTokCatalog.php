@@ -42,6 +42,32 @@ class TikTokCatalog
 
     public const OPEN_CLIP = 'open_clip';
 
+    public const ALLOWANCE_SPENT = 'allowance_spent';
+
+    public const NO_PLAN = 'no_plan';
+
+    public const ERROR_INVALID_STATE = 'invalid_state';
+
+    public const ERROR_ALLOWANCE_SPENT = 'allowance_spent';
+
+    public const ERROR_DAILY_CAP = 'daily_cap_reached';
+
+    public const ERROR_INVALID_TIME = 'invalid_time';
+
+    public const ERROR_ALREADY_LEARNED = 'already_learned';
+
+    public const ERROR_NO_PLAN = 'no_plan';
+
+    public const ERROR_VALIDATION = 'validation';
+
+    public const BLOCKER_VIDEO_FILE = 'video_file';
+
+    public const BLOCKER_TIKTOK_CONNECTION = 'tiktok_connection';
+
+    public const MAX_RESCHEDULE_DAYS = 14;
+
+    public const CONFIRM_NOTE = "Confirmed. We'll post once your video file is ready and your TikTok is connected.";
+
     public const SOURCE_MODEL = 'model';
 
     public const SOURCE_FALLBACK = 'fallback';
@@ -209,5 +235,64 @@ class TikTokCatalog
             self::TIP => ['hook_speed' => 0.4, 'reason_to_stay' => 0.7, 'link_fit' => 0.9],
             self::MYTH_BUST => ['hook_speed' => 0.75, 'reason_to_stay' => 0.35, 'link_fit' => 0.3],
         ];
+    }
+
+    /**
+     * Bands are a first cut, shared with YouTube. They are not a claim about the For You algorithm.
+     */
+    public static function learningNote(string $ideaKind, float $completionPercent, int $views, int $follows): string
+    {
+        $kind = self::kindLabel($ideaKind);
+        [$band, $next] = match (true) {
+            $completionPercent >= self::HELD_AT_OR_ABOVE => ['held', 'Lean into this kind of idea next.'],
+            $completionPercent < self::LEFT_EARLY_BELOW => ['left early', 'Try a faster hook or a different kind next.'],
+            default => ['just recorded', 'Keep this shape and watch the next result.'],
+        };
+        $percent = rtrim(rtrim(number_format($completionPercent, 2, '.', ''), '0'), '.');
+
+        return "This {$kind} clip {$band}. {$views} views, {$follows} follows, {$percent}% completion. {$next}";
+    }
+
+    public static function kindLabel(string $kind): string
+    {
+        return match ($kind) {
+            self::MYTH_BUST => 'myth bust',
+            self::OBSERVATION, self::STORY, self::QUESTION, self::OPINION, self::TIP => $kind,
+            default => 'clip',
+        };
+    }
+
+    public static function skipMessage(string $reason): string
+    {
+        return match ($reason) {
+            self::BUSY => 'A clip is already being prepared. Try again in a moment.',
+            self::BLOCKED => 'This account is blocked.',
+            self::NOT_ONBOARDED => 'Finish setting up your account first.',
+            self::SETUP_INCOMPLETE => 'Finish the TikTok setup first.',
+            self::OPEN_CLIP => 'Finish or skip your current clip first.',
+            self::ALLOWANCE_SPENT => 'You have used every clip for this month.',
+            self::NO_PLAN => 'TikTok is not on this account.',
+            default => 'No clip was prepared.',
+        };
+    }
+
+    public static function allowanceSpentMessage(int $limit, string $renewsOn): string
+    {
+        return "You've used all {$limit} clips for this month. Your allowance renews on {$renewsOn}.";
+    }
+
+    public static function dailyCapMessage(int $cap): string
+    {
+        return "You've reached today's limit of {$cap} clips. Try again tomorrow.";
+    }
+
+    public static function noPlanMessage(): string
+    {
+        return 'TikTok is not on this account.';
+    }
+
+    public static function invalidTimeMessage(): string
+    {
+        return 'Pick a time at least '.self::MIN_LEAD_MINUTES.' minutes from now and no more than '.self::MAX_RESCHEDULE_DAYS.' days out.';
     }
 }

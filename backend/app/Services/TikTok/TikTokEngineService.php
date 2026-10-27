@@ -2,10 +2,15 @@
 
 namespace App\Services\TikTok;
 
+use App\Exceptions\TikTokActionException;
 use App\Models\PlatformSetup;
 use App\Models\TikTokClip;
 use App\Models\User;
+use App\Services\Admin\PlatformSettingsService;
 use App\Support\TikTokCatalog;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +23,8 @@ class TikTokEngineService
         private readonly TikTokDemandService $demand,
         private readonly TikTokScriptWriter $scripts,
         private readonly TikTokTimeSuggester $times,
+        private readonly TikTokAllowanceService $allowance,
+        private readonly PlatformSettingsService $settings,
     ) {}
 
     /**
@@ -38,12 +45,21 @@ class TikTokEngineService
     }
 
     /**
-     * Phase 3 replaces this with the monthly clips allowance.
-     * It stays true until that check exists, so this phase never spends or blocks on billing.
+     * Allowance is a count of confirmed clips, not a stored balance.
+     * null means the user can have another clip. Otherwise the value is the skip reason.
      */
-    protected function withinAllowance(User $user): bool
+    private function allowanceBlock(User $user): ?string
     {
-        return true;
+        $status = $this->allowance->status($user);
+        if (! $status['plan_found']) {
+            return TikTokCatalog::NO_PLAN;
+        }
+
+        if (! $this->allowance->canQueue($user)) {
+            return TikTokCatalog::ALLOWANCE_SPENT;
+        }
+
+        return null;
     }
 
     /**
@@ -72,8 +88,9 @@ class TikTokEngineService
             return $this->skip($user, TikTokCatalog::OPEN_CLIP);
         }
 
-        if (! $this->withinAllowance($user)) {
-            throw new \LogicException('TikTok monthly allowance is enforced in Phase 3.');
+        $allowanceBlock = $this->allowanceBlock($user);
+        if ($allowanceBlock !== null) {
+            return $this->skip($user, $allowanceBlock);
         }
 
         $ideas = $this->demand->ranked($user);
@@ -170,5 +187,190 @@ class TikTokEngineService
         ]);
 
         return ['outcome' => TikTokCatalog::SKIPPED, 'reason' => $reason];
+    }
+
+    public function confirm(User $user, TikTokClip $clip): TikTokClip
+    {
+        $this->owned($user, $clip);
+
+        return DB::transaction(function () use ($user, $clip) {
+            $fresh = $this->lock($clip);
+            if ($fresh->status === TikTokCatalog::QUEUED) {
+                return $fresh;
+            }
+            if ($fresh->status !== TikTokCatalog::WAITING) {
+                throw new TikTokActionException(
+                    TikTokCatalog::ERROR_INVALID_STATE,
+                    'This clip is not waiting for a yes. Skip it, or wait for the next one.',
+                );
+            }
+
+            // Allowance first, then the rolling daily cap. The clip itself is not counted.
+            $this->assertCanConfirm($user, $fresh);
+
+            $queued = $fresh->transitionTo(TikTokCatalog::QUEUED);
+            $package = $queued->package;
+            $package['publish'] = array_merge(TikTokCatalog::defaultPublish(), [
+                'note' => TikTokCatalog::CONFIRM_NOTE,
+                'confirmed_by' => $user->id,
+            ]);
+            $queued->package = $package;
+            $queued->save();
+
+            return $queued->fresh();
+        });
+    }
+
+    /**
+     * @param  array{views: int, completion_percent: float|int, follows: int}  $data
+     * @return array{clip: TikTokClip, next: array{outcome: string, clip?: TikTokClip, reason?: string}|null}
+     */
+    public function recordResults(User $user, TikTokClip $clip, array $data): array
+    {
+        $this->owned($user, $clip);
+
+        $saved = DB::transaction(function () use ($clip, $data) {
+            $fresh = $this->lock($clip);
+            if ($fresh->status === TikTokCatalog::LEARNED) {
+                throw new TikTokActionException(
+                    TikTokCatalog::ERROR_ALREADY_LEARNED,
+                    'Results are already saved for this clip.',
+                );
+            }
+            if (! in_array($fresh->status, [TikTokCatalog::WAITING, TikTokCatalog::QUEUED, TikTokCatalog::POSTED], true)) {
+                throw new TikTokActionException(
+                    TikTokCatalog::ERROR_INVALID_STATE,
+                    'Results can be saved once a clip is waiting, confirmed, or posted.',
+                );
+            }
+
+            $fresh->views = (int) $data['views'];
+            $fresh->completion_percent = $data['completion_percent'];
+            $fresh->follows = (int) $data['follows'];
+            $kind = $fresh->package['idea_kind'] ?? TikTokCatalog::OBSERVATION;
+            $fresh->learning_note = TikTokCatalog::learningNote(
+                is_string($kind) ? $kind : TikTokCatalog::OBSERVATION,
+                (float) $data['completion_percent'],
+                (int) $data['views'],
+                (int) $data['follows'],
+            );
+            $fresh->save();
+
+            return $fresh->transitionTo(TikTokCatalog::LEARNED);
+        });
+
+        // Outside the transaction so a failed next clip cannot undo the results.
+        try {
+            $next = $this->run($user);
+        } catch (Throwable $e) {
+            Log::warning('TikTok engine could not prepare the next clip', [
+                'user_id' => $user->id,
+                'clip_id' => $saved->id,
+                'error' => $e->getMessage(),
+            ]);
+            $next = null;
+        }
+
+        return ['clip' => $saved->fresh(), 'next' => $next];
+    }
+
+    /**
+     * Discarding a queued clip frees its monthly allowance, because the allowance
+     * is a count of clips that are still queued and not discarded.
+     */
+    public function discard(User $user, TikTokClip $clip): TikTokClip
+    {
+        $this->owned($user, $clip);
+
+        return DB::transaction(function () use ($clip) {
+            $fresh = $this->lock($clip);
+            if ($fresh->status === TikTokCatalog::DISCARDED) {
+                return $fresh;
+            }
+            if (! in_array($fresh->status, [TikTokCatalog::DRAFTED, TikTokCatalog::WAITING, TikTokCatalog::QUEUED], true)) {
+                throw new TikTokActionException(
+                    TikTokCatalog::ERROR_INVALID_STATE,
+                    'This clip can no longer be skipped.',
+                );
+            }
+
+            return $fresh->transitionTo(TikTokCatalog::DISCARDED);
+        });
+    }
+
+    public function reschedule(User $user, TikTokClip $clip, CarbonInterface $at): TikTokClip
+    {
+        $this->owned($user, $clip);
+        $atUtc = CarbonImmutable::parse($at)->utc();
+        $earliest = CarbonImmutable::now()->utc()->addMinutes(TikTokCatalog::MIN_LEAD_MINUTES);
+        $latest = CarbonImmutable::now()->utc()->addDays(TikTokCatalog::MAX_RESCHEDULE_DAYS);
+        if ($atUtc->lessThan($earliest) || $atUtc->greaterThan($latest)) {
+            throw new TikTokActionException(TikTokCatalog::ERROR_INVALID_TIME, TikTokCatalog::invalidTimeMessage());
+        }
+
+        return DB::transaction(function () use ($clip, $atUtc) {
+            $fresh = $this->lock($clip);
+            if ($fresh->status !== TikTokCatalog::WAITING) {
+                throw new TikTokActionException(
+                    TikTokCatalog::ERROR_INVALID_STATE,
+                    'Only a clip that is waiting for your yes can change time.',
+                );
+            }
+
+            $package = $fresh->package;
+            $package['rescheduled_by_user'] = true;
+            $fresh->suggested_for = $atUtc;
+            $fresh->package = $package;
+            $fresh->save();
+
+            return $fresh->fresh();
+        });
+    }
+
+    private function owned(User $user, TikTokClip $clip): void
+    {
+        if ((int) $clip->user_id !== (int) $user->id) {
+            throw (new ModelNotFoundException)->setModel(TikTokClip::class, [$clip->id]);
+        }
+    }
+
+    private function lock(TikTokClip $clip): TikTokClip
+    {
+        $fresh = TikTokClip::query()->whereKey($clip->id)->lockForUpdate()->first();
+        if (! $fresh) {
+            throw (new ModelNotFoundException)->setModel(TikTokClip::class, [$clip->id]);
+        }
+
+        return $fresh;
+    }
+
+    /**
+     * The daily cap counts confirms in the last 24 hours. A discard removes that
+     * confirm from the count. This is not the X rate-limit budget.
+     */
+    private function assertCanConfirm(User $user, TikTokClip $clip): void
+    {
+        $status = $this->allowance->status($user, $clip);
+        if (! $status['plan_found']) {
+            throw new TikTokActionException(TikTokCatalog::ERROR_NO_PLAN, TikTokCatalog::noPlanMessage());
+        }
+        if (! $this->allowance->canQueue($user, $clip)) {
+            throw new TikTokActionException(
+                TikTokCatalog::ERROR_ALLOWANCE_SPENT,
+                TikTokCatalog::allowanceSpentMessage($status['limit'], substr($status['period_end'], 0, 10)),
+            );
+        }
+
+        $cap = $this->settings->tiktokDailyClipCap();
+        $recent = TikTokClip::query()
+            ->forUser($user)
+            ->whereKeyNot($clip->id)
+            ->whereNull('discarded_at')
+            ->whereNotNull('confirmed_at')
+            ->where('confirmed_at', '>=', now()->subHours(24))
+            ->count();
+        if ($recent >= $cap) {
+            throw new TikTokActionException(TikTokCatalog::ERROR_DAILY_CAP, TikTokCatalog::dailyCapMessage($cap));
+        }
     }
 }

@@ -132,6 +132,13 @@ class PlatformSettingsService
             'description' => 'Max likes per user per day.',
             'default' => '100',
         ],
+        'tiktok_daily_clip_cap' => [
+            'group' => 'safety',
+            'type' => 'integer',
+            'label' => 'TikTok clips confirmed per day',
+            'description' => 'Max TikTok confirms in a rolling 24 hours. This stops a burst of confirms from spending the monthly clip allowance in an hour. It is separate from the X post limit.',
+            'default' => '3',
+        ],
         'trial_days' => [
             'group' => 'billing',
             'type' => 'integer',
@@ -209,6 +216,14 @@ class PlatformSettingsService
     public function trialDays(): int
     {
         return max(1, min(365, $this->getInt('trial_days', 7)));
+    }
+
+    /**
+     * Rolling 24-hour confirm cap for TikTok. Not the X safety budget and not the monthly clip allowance.
+     */
+    public function tiktokDailyClipCap(): int
+    {
+        return max(1, min(50, $this->getInt('tiktok_daily_clip_cap', 3)));
     }
 
     public function trendContentMaxPercent(): int
@@ -338,7 +353,9 @@ class PlatformSettingsService
 
         return match ($type) {
             'boolean' => in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'on'], true) ? '1' : '0',
-            'integer' => (string) (int) $value,
+            'integer' => $key === 'tiktok_daily_clip_cap'
+                ? (string) max(1, min(50, (int) $value))
+                : (string) (int) $value,
             default => trim($value),
         };
     }
