@@ -56,7 +56,7 @@ function desk(overrides: Partial<TikTokDesk> = {}): TikTokDesk {
     daily_cap: { cap: 3, used: 0, reached: false, available_at: null },
     block: null,
     timezone: { value: "Africa/Kampala", assumed: false },
-    connection: { connected: false },
+    connection: { connected: false, display_name: null, needs_reconnect: false, configured: false },
     ...overrides,
   };
 }
@@ -130,11 +130,76 @@ export const tiktokStateFixtures: TikTokStateFixture[] = [
     }),
   },
   {
+    name: "Waiting, suggested time passed",
+    tiktok: desk({
+      clip: clip({
+        suggested_for: "2020-01-01T16:30:00+00:00",
+        script_lines: [
+          "You are salting the water too late.",
+          "The water should taste like the sea first.",
+          "Then the pasta goes in.",
+          "Taste it once more.",
+          "That is the whole clip.",
+        ],
+      }),
+      pipeline: { ideas: 6, written: 1, waiting: 1, confirmed: 0, posted: 0 },
+    }),
+  },
+  {
     name: "Waiting, daily cap reached",
     tiktok: desk({
       clip: clip(),
       pipeline: { ideas: 6, written: 2, waiting: 1, confirmed: 1, posted: 0 },
       daily_cap: { cap: 3, used: 3, reached: true, available_at: "2026-10-28T09:00:00+00:00" },
+    }),
+  },
+  {
+    name: "Queued, TikTok not configured",
+    tiktok: desk({
+      clip: clip({
+        status: "queued",
+        status_label: "Confirmed, not posted yet",
+        confirmed_at: "2026-10-27T12:00:00+00:00",
+        queued_at: "2026-10-27T12:00:00+00:00",
+      }),
+      connection: { connected: false, display_name: null, needs_reconnect: false, configured: false },
+    }),
+  },
+  {
+    name: "Queued, TikTok not connected",
+    tiktok: desk({
+      clip: clip({
+        status: "queued",
+        status_label: "Confirmed, not posted yet",
+        confirmed_at: "2026-10-27T12:00:00+00:00",
+        queued_at: "2026-10-27T12:00:00+00:00",
+      }),
+      connection: { connected: false, display_name: null, needs_reconnect: false, configured: true },
+    }),
+  },
+  {
+    name: "Queued, connected, no video file",
+    tiktok: desk({
+      clip: clip({
+        status: "queued",
+        status_label: "Confirmed, not posted yet",
+        confirmed_at: "2026-10-27T12:00:00+00:00",
+        queued_at: "2026-10-27T12:00:00+00:00",
+        blockers: ["video_file"],
+      }),
+      connection: { connected: true, display_name: "Kitchen", needs_reconnect: false, configured: true },
+    }),
+  },
+  {
+    name: "Queued, needs reconnect",
+    tiktok: desk({
+      clip: clip({
+        status: "queued",
+        status_label: "Confirmed, not posted yet",
+        confirmed_at: "2026-10-27T12:00:00+00:00",
+        queued_at: "2026-10-27T12:00:00+00:00",
+      }),
+      connection: { connected: false, display_name: "Kitchen", needs_reconnect: true, configured: true },
     }),
   },
   {

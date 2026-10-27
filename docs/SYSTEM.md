@@ -32,7 +32,7 @@ The same account description must not produce the same sentence on every network
 | Medium | Text: post, thread, poll, quote | Short clip plus a caption | Short, episode, or an edit of footage the user filmed |
 | When it publishes | No calendar. If posting is on, it sends when a moment scores high enough to travel | It suggests a time, then waits. Nothing goes out until the user confirms | User chooses at setup: post on its own, or wait for a yes |
 | What “automation” means | Opportunity scoring and, at higher levels, unattended posting | Make the clip and offer a time. Confirmation stays on, including paid tiers | Make or edit the video, then follow the publish setting |
-| Live connection | X OAuth works | Connection is not built. Settings says it waits on TikTok | Connection is not built. Upload waits on the channel connection and a video file |
+| Live connection | X OAuth works | Login Kit linking is built and stays off until the TikTok keys exist. Render and upload are not built | Connection is not built. Upload waits on the channel connection and a video file |
 | Engine in code | `GrowthAgentService`, every 5 minutes | None | `YouTubeEngineService`, hourly and once when setup completes |
 | Desk | `/dashboard/x` | `/dashboard/tiktok` | `/dashboard/youtube` |
 
@@ -175,21 +175,22 @@ backend/
   app/Services/GrowthAgent/        X decision loop and safety budgets
   app/Services/TrendEngine/        Shared trend catalog and opportunity scores
   app/Services/AICore/             Model calls, prompts, usage limits
-  app/Services/YouTube/            The video engine TikTok does not have yet
+  app/Services/YouTube/            Shorts, series, footage plans, confirm, learning
+  app/Services/TikTok/             Clip engine, ideas, scripts, allowance, desk
   app/Services/XApi/               X OAuth publish and account activity
   app/Services/Billing/            Quotes, trials, Paddle, Flutterwave
   app/Services/Auth/               Email codes
   app/Support/SetupCatalog.php     Platforms, goals, content-type mapping
   app/Support/YouTubeCatalog.php   Modes, formats, status labels
   routes/api.php
-  routes/console.php               Scheduler and xpulse:* / youtube:run commands
+  routes/console.php               Scheduler and xpulse:* / youtube:run / tiktok:run commands
   config/billing.php               Shelf prices and allowances
 
 docs/                              Specs. This file is the one that matches the code.
 docker-compose.yml                 postgres:16 and redis:7
 ```
 
-There is no `app/Services/TikTok/`. There is no `tiktok_clips` table. There is no `tiktok:run` command.
+`app/Services/TikTok/` prepares clips, ranks ideas, writes scripts, counts the monthly allowance, and links a TikTok account when `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, and `TIKTOK_REDIRECT_URI` are set. Clips live in `tiktok_clips`. `php artisan tiktok:run` runs hourly as `tiktok-engine`. `php artisan tiktok:refresh-tokens` runs daily. Render and upload are still absent: `render.ready` and `uploaded` stay false, and confirm only queues.
 
 ## 5. Auth and who can call what
 
@@ -202,6 +203,7 @@ Sign-in is an email code, not a password form as the main path.
 | POST | `/api/auth/logout` | Auth |
 | GET | `/api/auth/me` | Auth |
 | GET | `/api/auth/x/callback` | X OAuth return. Public, because the provider redirects here |
+| GET | `/api/auth/tiktok/callback` | TikTok OAuth return. Public. Always redirects to Settings |
 
 `users` carries `is_admin`, `is_blocked`, and `subscription_plan` (default `free`). Middleware `not_blocked` wraps the authenticated group. `customer` wraps the product routes. `admin` wraps `/api/admin/*`.
 
@@ -322,12 +324,12 @@ Trials are layered on subscriptions (`TrialService`). Picking platforms during s
 - **Connected** is the active `connected_accounts` username, or null.
 - **Preview** is true for TikTok and YouTube when nothing is connected. Preview metrics are deterministic placeholders from `crc32(userId + platform + niche)`, not live data. X metrics come from `XApiService::accountActivity` when X is connected.
 - **Counts and drafts** come from `posts`, filtered by content-type prefix. TikTok drafts are `content_type LIKE 'tiktok%'`.
-- **Ideas** are filled only for a connected X account (trend topics) and for a completed YouTube setup (`YouTubeEngineService::desk()`). The TikTok branch does not call a service, so `ideas` is empty and the pipeline steps “Ideas found” and “Written” both collapse onto draft counts.
-- **Pipeline and series** are YouTube-only.
+- **Ideas** are filled for a connected X account (trend topics), a completed YouTube setup (`YouTubeEngineService::desk()`), and a TikTok desk (`TikTokEngineService::desk()`, top ideas with no numeric score).
+- **Pipeline** on TikTok counts ideas, clips written this allowance period, waiting, confirmed, and posted. YouTube still has its own pipeline and series. The top-level dashboard pipeline stays the YouTube array.
 
-`TikTokBody` in `PlatformDesk.tsx` shows four steps: Ideas found, Written, Waiting for you, Posted. The waiting section says “Nothing goes out on TikTok until you confirm.” The idea button says “Write a clip” and links to Compose with `format=tiktok_caption`. There is no confirm button on a TikTok draft. The YouTube desk has “Yes, post this,” which calls `POST /api/youtube/videos/{id}/confirm`.
+`PlatformDesk` renders `TikTokBody` when the TikTok payload is present. The current clip is the hero: hook, script, caption, on-screen text, shots, and sound. Confirm is “Yes, go ahead for {time}” (or “Yes, go ahead” when the suggested time has passed). A queued clip is labeled “Confirmed, not posted yet” and lists the missing video file and TikTok connection. Nothing is rendered or uploaded.
 
-`/trends` and `/analytics` are still largely the X topic and growth screens. The TikTok sidebar renames them, but they are not a TikTok idea ranker or a TikTok results log.
+On TikTok, `/trends` loads `GET /api/tiktok/ideas` and `/analytics` loads learned clips from `GET /api/tiktok/clips`. X and YouTube keep their existing topic and growth screens. Sidebar labels are unchanged.
 
 ## 9. Content generation
 
@@ -393,9 +395,23 @@ Product boundaries that apply to TikTok work:
 - Do not automate likes, follows, comments, duets, or stitches to manufacture reach.
 - Do not scrape TikTok for a full-platform index. Observe the niche the user named, the way X observes a niche and YouTube ranks a local idea list until search is connected.
 - Do not send DMs.
-- A blocked user (`is_blocked`) is excluded from YouTube `runAll` and from the X evaluator. A TikTok runner must do the same.
+- A blocked user (`is_blocked`) is excluded from YouTube `runAll`, the X evaluator, and TikTok `runAll`. Customer TikTok routes also pass `not_blocked`.
 - Admin AI rules apply to every model call, including clip scripts.
-- Failed publishes must leave the clip unsent and say why. YouTube already records that the file and the connection are still missing instead of pretending the upload happened.
+- Failed publishes must leave the clip unsent and say why. YouTube and TikTok record that the file and the connection are still missing instead of pretending the upload happened.
+
+Where the TikTok boundaries are enforced:
+
+| Boundary | Code |
+|---|---|
+| Confirm before anything can post | `TikTokEngineService::confirm` is the only path to `queued`. `run()` stores `waiting`. `TikTokLoopTest`, `TikTokHardeningTest`. |
+| Allowance counted, not stored | `TikTokAllowanceService` counts `queued_at` on clips that are not discarded. `TikTokLoopTest`, `TikTokHardeningTest`. |
+| Daily confirm cap | `PlatformSettingsService::tiktokDailyClipCap`, checked in `confirm`. `TikTokDeskTest`. |
+| Blocked accounts | `EnsureNotBlocked` on the customer routes. `runAll` queries `is_blocked = false`. `TikTokHardeningTest`. |
+| No likes, follows, comments, or DMs | No TikTok route or job sends them. |
+| No TikTok scrape | `TikTokDemandService` ranks a local list from the account niche and goals. |
+| No upload on confirm | `package.render.ready` and `uploaded` stay false. The queued checklist names `video_file` and `tiktok_connection`. |
+| Account text stays data | `TikTokScriptWriterTest` keeps “ignore previous instructions” inside the account block, out of the system prompt. |
+| Another user’s clips stay hidden | Clip routes use `forUser`. `TikTokScheduleTest` checks ideas and learned history. |
 
 ## 13. Scheduler, jobs, and commands
 
@@ -405,6 +421,7 @@ Defined in `backend/routes/console.php`.
 |---|---|
 | Every 5 minutes | `GrowthAgentService::evaluateAllUsers()` |
 | Hourly | `YouTubeEngineService::runAll()` |
+| Hourly | `TikTokEngineService::runAll()`, name `tiktok-engine`, `withoutOverlapping(15)` |
 | Hourly | Expire trials, billing sweep |
 | Daily at configured times | Refresh the X trend catalog |
 | Daily 00:05 | Delete expired safety budget rows |
@@ -419,10 +436,11 @@ Defined in `backend/routes/console.php`.
 | `php artisan xpulse:expire-trials` | End due trials |
 | `php artisan xpulse:billing-sweep` | End lapsed plans, flag unconfirmed renewals |
 | `php artisan youtube:run` | YouTube engine for every eligible account |
+| `php artisan tiktok:run {--user=}` | TikTok engine for every eligible account, or one user |
 
 Jobs in `backend/app/Jobs/`: `FetchGlobalTrendsJob`, `SafetyResetJob`, `EvaluateGrowthOpportunitiesJob`, `EvaluateAllGrowthOpportunitiesJob`. The scheduled growth pass does not use those evaluate jobs.
 
-There is no TikTok command and no TikTok schedule entry.
+`tiktok:run` prints created, skipped-by-reason, and failed. One account throwing does not stop the loop. `diagnose($user)` answers the same guards and writes nothing. Admin Operations reads clip counts and can call `runAll`.
 
 ## 14. Admin
 
@@ -476,15 +494,15 @@ drafted → waiting → queued → posted → learned
 - `posted` means TikTok accepted the upload.
 - `learned` means results were stored and the next run may start. Do not start a second clip while one is still `waiting` or `queued`, matching YouTube’s open-item guard.
 
-`AccountSetupController` already completes TikTok without calling an engine. After the engine exists, completing TikTok setup should call `TikTokEngineService::run($user)`, and `routes/console.php` should schedule `runAll()` on its own name, for example `tiktok-engine`, with `withoutOverlapping`. A manual `tiktok:run` command should match `youtube:run`.
+Completing TikTok setup calls `TikTokEngineService::run($user)`. `routes/console.php` schedules `runAll()` as `tiktok-engine` with `withoutOverlapping(15)`. `php artisan tiktok:run` accepts an optional `--user`.
 
-Desk wiring:
+Desk wiring that exists:
 
-- `DashboardController::platform('tiktok')` should fill `ideas` and a pipeline from the TikTok engine, the way YouTube fills `pipeline` and `series`.
-- `TikTokBody` should list waiting clips with the suggested time and a confirm action, the way `YouTubeBody` calls `/youtube/videos/{id}/confirm`.
-- Confirm is `POST /api/tiktok/clips/{clip}/confirm`. It must not upload before the file and the connection exist, and it must not upload at all before this call.
-- Results are `POST /api/tiktok/clips/{clip}/results`, then `run()` again so the next idea can use the learning note.
-- Preview metrics stay placeholders until `connected_accounts.platform = tiktok` is real.
+- `DashboardController::platform('tiktok')` adds a read-only `tiktok` object from `TikTokEngineService::desk()`. That call does not run the engine.
+- `TikTokBody` shows the current waiting clip, the suggested time, and confirm.
+- Confirm is `POST /api/tiktok/clips/{clip}/confirm`. It queues. It does not upload, and it does not mark the file or the connection ready.
+- Results are `POST /api/tiktok/clips/{clip}/results`, then `run()` so the next idea can use the learning note.
+- Preview metrics stay placeholders until `connected_accounts.platform = tiktok` is real. The desk only reads that row.
 
 Generation:
 
@@ -495,7 +513,7 @@ Generation:
 
 Connect:
 
-- A TikTok OAuth connect beside `ConnectedAccountController`’s X methods. Until the provider is approved, the settings card should keep saying the connection waits, and confirm should queue without pretending the upload succeeded.
+- TikTok linking lives beside the X methods on `ConnectedAccountController`. Without keys, Settings keeps the “waits on TikTok” wording. Confirm still queues and does not upload. `docs/TIKTOK_CONNECT_SETUP.md` is the checklist for when TikTok approves the app.
 
 Learning:
 
@@ -511,7 +529,7 @@ Already present:
 
 | Method | Path | TikTok relevance |
 |---|---|---|
-| GET | `/api/dashboard/platform/tiktok` | Today desk. Ideas empty. Draft counts from `tiktok_*` posts |
+| GET | `/api/dashboard/platform/tiktok` | Today desk, including the read-only `tiktok` object |
 | POST | `/api/account/setup/platforms` | User can choose `tiktok` |
 | POST | `/api/account/setup/platforms/tiktok` | Saves goals and `publish: confirm` |
 | POST | `/api/content/generate` | Can emit `tiktok_caption` |
@@ -519,22 +537,34 @@ Already present:
 | POST | `/api/content/drafts/{post}/publish` | Refuses TikTok |
 | GET | `/api/billing/catalog` | TikTok tiers and the “waits for your yes” summary |
 
-Not present, and the module needs them:
+Present for the clip loop:
 
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/api/tiktok/run` | Run the engine for the current user |
-| POST | `/api/tiktok/clips/{clip}/confirm` | User says yes |
+| GET | `/api/tiktok/ideas` | Top 10 ideas, no numeric scores |
+| GET | `/api/tiktok/clips` | Paginated history. `status=learned` is What landed |
+| POST | `/api/tiktok/clips/{clip}/confirm` | User says yes. Queues only |
 | POST | `/api/tiktok/clips/{clip}/results` | Store performance and learn |
-| GET | `/api/connected-accounts/tiktok/status` | OAuth, when the provider exists |
-| DELETE | `/api/connected-accounts/tiktok` | Disconnect |
+| POST | `/api/tiktok/clips/{clip}/discard` | Skip the clip and free its slot |
+| POST | `/api/tiktok/clips/{clip}/reschedule` | User picks a new time |
+| PUT | `/api/account/timezone` | Save a timezone and refresh an assumed waiting time |
+| GET | `/api/admin/tiktok` | Counts, recent creates, clips that need attention |
+| GET | `/api/admin/tiktok/diagnose` | Read-only reason a user would not get a clip |
+| POST | `/api/admin/tiktok/run` | `runAll` and the summary |
+| POST | `/api/connected-accounts/tiktok/connect` | Start Login Kit. 503 until the keys exist |
+| GET | `/api/connected-accounts/tiktok/status` | Configured, connected, display name, needs-reconnect |
+| DELETE | `/api/connected-accounts/tiktok` | Revoke, best effort, then delete the row |
+| GET | `/api/auth/tiktok/callback` | TikTok redirects here. The browser is sent to Settings |
+
+Still absent: render, upload, and posting scopes (`video.upload`, `video.publish`).
 
 ## 18. Docs that will mislead you
 
 | File | Trust it for |
 |---|---|
 | `docs/SYSTEM.md` | This picture. Prefer it when it conflicts with the others. |
-| `docs/DEVELOPMENT_PLAN.md` | Early X build order and route list. Phase 6 “TikTok not started / YouTube not started” is stale. YouTube’s engine and the TikTok desk landed after that checklist. |
+| `docs/DEVELOPMENT_PLAN.md` | Early X build order and route list. Phase 6 “TikTok not started / YouTube not started” is stale. YouTube’s engine and the TikTok engine, desk, and schedule landed after that checklist. A one-line note in that file says the TikTok row is stale. |
 | `docs/PROJECT_FINDINGS.md` | Original X growth-agent idea, safety principles, and the observe loop. Its “do not build TikTok until X is proven” is a sequencing note, not the current product. |
 | `docs/PROJECT_SPEC.md` | An older X-only spec, including a Chrome extension that this repo does not ship. |
 | `docs/SOURCE_CONVERSATION.md` | Raw product conversation. Useful for why TikTok waits and YouTube can post. Noisy. |
@@ -554,8 +584,7 @@ Shipped enough to use:
 
 TikTok specifically:
 
-- The contract is fixed in the UI, setup, and prices.
-- The desk renders and tells the user they must confirm.
-- Captions can be generated and saved as drafts.
-- There is no idea ranker, no clip record, no suggested time stored anywhere, no confirm endpoint, no render, no TikTok OAuth, no upload, and no learning loop.
-- Dashboard numbers are previews until a TikTok account is connected.
+- Setup, the hourly engine, `tiktok_clips`, confirm, reschedule, discard, results, allowance, and the daily cap are in place.
+- The desk, Ideas, and What landed read that loop. Numbers on What landed are what the user typed.
+- Confirm queues a clip and says the video file and the TikTok connection are still missing.
+- Login Kit linking is built and inert until the TikTok keys are set. A linked account clears the connection blocker only. Render and upload are not built. `render.ready` and `uploaded` stay false. Dashboard preview numbers stay placeholders; this phase does not read TikTok stats.

@@ -115,7 +115,7 @@ class TikTokEngineService
         } catch (Throwable $e) {
             Log::warning('TikTok script fell back to the local writer', [
                 'user_id' => $user->id,
-                'error' => $e->getMessage(),
+                'error' => $e::class,
             ]);
             $script = $this->scripts->fallback($user, $profile, $idea, $learningNote);
         }
@@ -159,7 +159,7 @@ class TikTokEngineService
         } catch (QueryException $e) {
             Log::error('TikTok engine failed to store a clip', [
                 'user_id' => $user->id,
-                'error' => $e->getMessage(),
+                'error' => $e::class,
             ]);
 
             throw $e;
@@ -189,6 +189,101 @@ class TikTokEngineService
         ]);
 
         return ['outcome' => TikTokCatalog::SKIPPED, 'reason' => $reason];
+    }
+
+    /**
+     * Eligible accounts only. One failure is logged and the loop continues.
+     * run() still applies the open-clip and allowance guards before any model call.
+     *
+     * @return array{created: int, skipped: array<string, int>, failed: int}
+     */
+    public function runAll(): array
+    {
+        $summary = ['created' => 0, 'skipped' => [], 'failed' => 0];
+
+        User::query()
+            ->where('is_blocked', false)
+            ->whereHas('accountProfile', fn ($query) => $query->where('onboarding_completed', true))
+            ->whereHas('platformSetups', fn ($query) => $query
+                ->where('platform', 'tiktok')
+                ->whereNotNull('completed_at'))
+            ->orderBy('id')
+            ->chunkById(50, function ($users) use (&$summary) {
+                foreach ($users as $user) {
+                    try {
+                        $result = $this->run($user);
+                    } catch (Throwable $e) {
+                        Log::warning('TikTok engine failed for one account', [
+                            'user_id' => $user->id,
+                            'error' => $e::class,
+                        ]);
+                        $summary['failed']++;
+
+                        continue;
+                    }
+
+                    if (($result['outcome'] ?? '') === TikTokCatalog::CREATED) {
+                        $summary['created']++;
+
+                        continue;
+                    }
+
+                    $reason = (string) ($result['reason'] ?? 'unknown');
+                    $summary['skipped'][$reason] = ($summary['skipped'][$reason] ?? 0) + 1;
+                }
+            });
+
+        ksort($summary['skipped']);
+
+        return $summary;
+    }
+
+    /**
+     * Why a new clip would not be made. Read-only: no model call and no writes.
+     *
+     * @return array{can_run: bool, reason: string|null, message: string|null}
+     */
+    public function diagnose(User $user): array
+    {
+        if ($user->is_blocked) {
+            return $this->diagnosis(TikTokCatalog::BLOCKED);
+        }
+
+        $profile = $user->accountProfile;
+        if (! $profile || ! $profile->onboarding_completed) {
+            return $this->diagnosis(TikTokCatalog::NOT_ONBOARDED);
+        }
+
+        $setup = PlatformSetup::query()
+            ->where('user_id', $user->id)
+            ->where('platform', 'tiktok')
+            ->first();
+        if (! $setup || $setup->completed_at === null) {
+            return $this->diagnosis(TikTokCatalog::SETUP_INCOMPLETE);
+        }
+
+        if (TikTokClip::query()->forUser($user)->blocking()->exists()) {
+            return $this->diagnosis(TikTokCatalog::OPEN_CLIP);
+        }
+
+        $allowanceBlock = $this->allowanceBlock($user);
+        if ($allowanceBlock !== null) {
+            return $this->diagnosis($allowanceBlock);
+        }
+
+        return ['can_run' => true, 'reason' => null, 'message' => null];
+    }
+
+    /**
+     * @return array{can_run: bool, reason: string, message: string}
+     */
+    private function diagnosis(string $reason): array
+    {
+        return [
+            'can_run' => false,
+            'reason' => $reason,
+            'message' => TikTokCatalog::skipMessage($reason),
+        ];
     }
 
     public function confirm(User $user, TikTokClip $clip): TikTokClip
@@ -268,7 +363,7 @@ class TikTokEngineService
             Log::warning('TikTok engine could not prepare the next clip', [
                 'user_id' => $user->id,
                 'clip_id' => $saved->id,
-                'error' => $e->getMessage(),
+                'error' => $e::class,
             ]);
             $next = null;
         }
@@ -385,11 +480,11 @@ class TikTokEngineService
         $daily = $this->dailyCap($user);
         $zone = $this->times->resolve($profile?->timezone);
 
-        $connected = ConnectedAccount::query()
+        $link = ConnectedAccount::query()
             ->where('user_id', $user->id)
             ->where('platform', 'tiktok')
-            ->where('is_active', true)
-            ->exists();
+            ->first();
+        $connected = $link?->is_active === true;
         if (app()->bound('request')) {
             request()->attributes->set('tiktok.connected.'.$user->id, $connected);
         }
@@ -451,6 +546,9 @@ class TikTokEngineService
             ],
             'connection' => [
                 'connected' => $connected,
+                'display_name' => $link?->username,
+                'needs_reconnect' => $link !== null && ! $link->is_active,
+                'configured' => app(TikTokOAuthService::class)->isConfigured(),
             ],
         ];
     }

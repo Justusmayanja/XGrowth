@@ -9,6 +9,7 @@ use App\Http\Requests\TikTok\StoreTikTokResultsRequest;
 use App\Http\Resources\TikTokClipResource;
 use App\Models\TikTokClip;
 use App\Services\TikTok\TikTokAllowanceService;
+use App\Services\TikTok\TikTokDemandService;
 use App\Services\TikTok\TikTokEngineService;
 use App\Support\TikTokCatalog;
 use Carbon\CarbonImmutable;
@@ -21,6 +22,54 @@ class TikTokController extends Controller
         private readonly TikTokEngineService $engine,
         private readonly TikTokAllowanceService $allowance,
     ) {}
+
+    public function ideas(Request $request, TikTokDemandService $demand): JsonResponse
+    {
+        $ideas = array_slice($demand->ranked($request->user()), 0, 10);
+
+        return response()->json([
+            'data' => array_map(fn (array $idea) => [
+                'kind' => $idea['kind'],
+                'kind_label' => TikTokCatalog::kindLabel($idea['kind']),
+                'topic' => $idea['topic'],
+                'angle' => $idea['angle'],
+                'reason' => $idea['reason'],
+            ], $ideas),
+        ]);
+    }
+
+    public function index(Request $request): JsonResponse
+    {
+        $status = $request->query('status');
+        if (is_string($status) && $status !== '' && ! in_array($status, TikTokCatalog::statuses(), true)) {
+            return response()->json([
+                'error' => [
+                    'code' => TikTokCatalog::ERROR_VALIDATION,
+                    'message' => 'That status is not a clip status.',
+                ],
+            ], 422);
+        }
+
+        $query = TikTokClip::query()->forUser($request->user())->latest('id');
+        if (is_string($status) && $status !== '') {
+            $query->where('status', $status);
+        } else {
+            $query->where('status', '!=', TikTokCatalog::DISCARDED);
+        }
+
+        $page = $query->paginate(10)->withQueryString();
+        $learned = TikTokClip::query()->forUser($request->user())->where('status', TikTokCatalog::LEARNED);
+        $learnedCount = (clone $learned)->count();
+
+        return TikTokClipResource::collection($page)->additional([
+            'summary' => [
+                'learned' => $learnedCount,
+                'average_completion' => $learnedCount === 0 ? null : round((float) (clone $learned)->avg('completion_percent'), 1),
+                'views' => (int) (clone $learned)->sum('views'),
+                'follows' => (int) (clone $learned)->sum('follows'),
+            ],
+        ])->response();
+    }
 
     public function run(Request $request): JsonResponse
     {

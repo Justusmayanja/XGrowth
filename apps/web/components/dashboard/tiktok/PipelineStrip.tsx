@@ -1,31 +1,35 @@
-import { Card, CardContent } from "@/components/ui/card";
 import type { TikTokDesk } from "@/lib/tiktok";
 
 const STEPS = [
-  { key: "ideas", label: "Ideas found", hint: "Suited to your brand" },
-  { key: "written", label: "Written", hint: "Hooks and captions" },
-  { key: "waiting", label: "Waiting for you", hint: "Each with a suggested time" },
-  { key: "confirmed", label: "Confirmed", hint: "Yes, and not posted yet" },
-  { key: "posted", label: "Posted", hint: "After the file and the connection" },
+  { key: "ideas", label: "Ideas" },
+  { key: "written", label: "Written" },
+  { key: "waiting", label: "Waiting" },
+  { key: "confirmed", label: "Confirmed" },
+  { key: "posted", label: "Posted" },
 ] as const;
 
-export function PipelineStrip({ pipeline }: { pipeline: TikTokDesk["pipeline"] }) {
+export function PipelineStrip({
+  pipeline,
+  current,
+}: {
+  pipeline: TikTokDesk["pipeline"];
+  current: (typeof STEPS)[number]["key"];
+}) {
   return (
-    <Card>
-      <CardContent className="grid grid-cols-2 gap-0 p-0 sm:grid-cols-3 lg:grid-cols-5">
-        {STEPS.map((step, index) => (
-          <div
+    <ol className="grid grid-cols-5 gap-1.5" aria-label="Clip pipeline">
+      {STEPS.map((step) => {
+        const active = step.key === current;
+        return (
+          <li
             key={step.key}
-            className={`min-w-0 p-4 ${index > 0 ? "border-border max-lg:border-t lg:border-l" : ""} ${index === 1 ? "max-sm:border-l max-sm:border-t-0" : ""}`}
+            aria-current={active ? "step" : undefined}
+            className={`min-w-0 rounded-sm border px-1 py-2 text-center ${active ? "border-foreground bg-card" : "border-border bg-background"}`}
           >
-            <p className="text-xs text-muted-foreground">
-              {index + 1}. {step.label}
-            </p>
-            <p className="mt-2 font-mono text-2xl tabular-nums">{pipeline[step.key]}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{step.hint}</p>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
+            <p className="truncate text-[10px] uppercase tracking-wide text-muted-foreground sm:text-xs">{step.label}</p>
+            <p className="mt-1 font-mono text-sm tabular-nums sm:text-base">{pipeline[step.key]}</p>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

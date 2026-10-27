@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { usePlatform } from "@/lib/platform";
 import { Button } from "@/components/ui/button";
 import { type SocialBrand, SocialName } from "@/components/SocialLogo";
+import { TikTokConnectionCard } from "@/components/settings/TikTokConnectionCard";
 import type { XConnectStatus } from "@/lib/settings";
 
 type Props = {
@@ -15,12 +16,6 @@ type Props = {
 };
 
 const pending: Array<{ name: string; brand: SocialBrand; href: string; note: string }> = [
-  {
-    name: "TikTok",
-    brand: "tiktok",
-    href: "/content-studio",
-    note: "The account connection waits on TikTok. Compose is open, so you can write the clip now.",
-  },
   {
     name: "YouTube",
     brand: "youtube",
@@ -96,6 +91,8 @@ export function ConnectedAccountCard({ status, onDisconnected }: Props) {
             </>
           )}
         </div>
+
+        <TikTokConnectionCard />
 
         {platform !== "x" && pending.map((network) => (
           <Link

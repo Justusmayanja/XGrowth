@@ -8,6 +8,8 @@ export type TikTokClip = {
   id: number;
   status: TikTokClipStatus | string;
   status_label: string;
+  kind?: string | null;
+  kind_label?: string | null;
   topic: string | null;
   hook: string | null;
   script_lines: string[];
@@ -55,7 +57,21 @@ export type TikTokDesk = {
   daily_cap: { cap: number; used: number; reached: boolean; available_at: string | null };
   block: TikTokBlock | null;
   timezone: { value: string; assumed: boolean };
-  connection: { connected: boolean };
+  connection: {
+    connected: boolean;
+    display_name?: string | null;
+    needs_reconnect?: boolean;
+    configured?: boolean;
+  };
+};
+
+export type TikTokConnectionStatus = {
+  configured: boolean;
+  connected: boolean;
+  display_name: string | null;
+  avatar_url: string | null;
+  connected_at: string | null;
+  needs_reconnect: boolean;
 };
 
 export type TikTokRun = {
@@ -89,6 +105,37 @@ async function call<T>(path: string, options: RequestInit = {}, timeoutMs = 3000
   } catch (err) {
     throw normalizeTikTokError(err);
   }
+}
+
+export type TikTokHistory = {
+  data: TikTokClip[];
+  summary: {
+    learned: number;
+    average_completion: number | null;
+    views: number;
+    follows: number;
+  };
+  meta?: { current_page: number; last_page: number };
+};
+
+export function fetchTikTokIdeas() {
+  return call<{ data: TikTokIdea[] }>("/tiktok/ideas");
+}
+
+export function fetchTikTokClips(page = 1) {
+  return call<TikTokHistory>(`/tiktok/clips?status=learned&page=${page}`);
+}
+
+export function startTikTokConnect() {
+  return call<{ data: { authorize_url: string } }>("/connected-accounts/tiktok/connect", { method: "POST" });
+}
+
+export function getTikTokStatus() {
+  return call<{ data: TikTokConnectionStatus }>("/connected-accounts/tiktok/status");
+}
+
+export function disconnectTikTok() {
+  return call<{ data: TikTokConnectionStatus }>("/connected-accounts/tiktok", { method: "DELETE" });
 }
 
 export function runTikTok() {

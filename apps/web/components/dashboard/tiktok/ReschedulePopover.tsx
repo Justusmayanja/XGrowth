@@ -17,14 +17,16 @@ export function ReschedulePopover({
   error,
   busy,
   onSave,
+  initiallyOpen = false,
 }: {
   profileZone: string | null;
   assumed: boolean;
   error: string | null;
   busy: boolean;
   onSave: (iso: string) => void;
+  initiallyOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
   const browser = browserTimeZone();
   const differs = Boolean(profileZone && !assumed && profileZone !== browser);
   const bounds = useMemo(() => {

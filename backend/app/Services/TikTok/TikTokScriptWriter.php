@@ -91,7 +91,7 @@ class TikTokScriptWriter
         } catch (Throwable $e) {
             Log::warning('TikTok script fell back to the local writer', [
                 'user_id' => $user->id,
-                'error' => $e->getMessage(),
+                'error' => $e::class,
             ]);
 
             return null;

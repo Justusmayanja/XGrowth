@@ -43,6 +43,7 @@ Route::prefix('auth')->group(function () {
     Route::get('/x/callback', function (Request $request) {
         return app(SocialAuthController::class)->callback($request, 'x');
     });
+    Route::get('/tiktok/callback', [ConnectedAccountController::class, 'tiktokCallback']);
 });
 
 Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
@@ -83,6 +84,8 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::delete('/content/drafts/{post}', [ContentController::class, 'destroy']);
         Route::get('/content/posts', [ContentController::class, 'index']);
 
+        Route::get('/tiktok/ideas', [TikTokController::class, 'ideas']);
+        Route::get('/tiktok/clips', [TikTokController::class, 'index']);
         Route::post('/tiktok/run', [TikTokController::class, 'run'])->middleware('throttle:6,1');
         Route::post('/tiktok/clips/{clip}/confirm', [TikTokController::class, 'confirm']);
         Route::post('/tiktok/clips/{clip}/results', [TikTokController::class, 'results']);
@@ -109,6 +112,9 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::get('/connected-accounts', [ConnectedAccountController::class, 'index']);
         Route::get('/connected-accounts/x/status', [ConnectedAccountController::class, 'connectStatus']);
         Route::delete('/connected-accounts/x', [ConnectedAccountController::class, 'disconnect']);
+        Route::post('/connected-accounts/tiktok/connect', [ConnectedAccountController::class, 'tiktokConnect'])->middleware('throttle:6,1');
+        Route::get('/connected-accounts/tiktok/status', [ConnectedAccountController::class, 'tiktokStatus']);
+        Route::delete('/connected-accounts/tiktok', [ConnectedAccountController::class, 'tiktokDisconnect']);
     });
 
     Route::post('/billing/preview', [BillingController::class, 'preview']);
@@ -130,6 +136,9 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::post('/seed-demo', [AdminController::class, 'seedDemo']);
         Route::post('/evaluate-all', [AdminController::class, 'evaluateAll']);
         Route::post('/reset-safety', [AdminController::class, 'resetSafety']);
+        Route::get('/tiktok', [AdminController::class, 'tiktok']);
+        Route::get('/tiktok/diagnose', [AdminController::class, 'tiktokDiagnose']);
+        Route::post('/tiktok/run', [AdminController::class, 'tiktokRun']);
         Route::get('/plans', [SubscriptionPlanController::class, 'index']);
         Route::patch('/plans', [SubscriptionPlanController::class, 'bulkUpdate']);
         Route::patch('/plans/{slug}', [SubscriptionPlanController::class, 'update']);

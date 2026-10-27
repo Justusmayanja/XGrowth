@@ -257,7 +257,7 @@ class AccountSetupController extends Controller
         } catch (Throwable $e) {
             Log::warning('TikTok time could not follow the new timezone', [
                 'user_id' => $user->id,
-                'error' => $e->getMessage(),
+                'error' => $e::class,
             ]);
         }
 
@@ -266,7 +266,7 @@ class AccountSetupController extends Controller
         } catch (Throwable $e) {
             Log::warning('TikTok engine could not start after setup', [
                 'user_id' => $user->id,
-                'error' => $e->getMessage(),
+                'error' => $e::class,
             ]);
         }
     }

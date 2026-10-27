@@ -44,6 +44,13 @@ return [
         'redirect' => env('X_REDIRECT_URI', 'http://127.0.0.1:8000/api/auth/x/callback'),
     ],
 
+    'tiktok' => [
+        'client_key' => env('TIKTOK_CLIENT_KEY'),
+        'client_secret' => env('TIKTOK_CLIENT_SECRET'),
+        'redirect' => env('TIKTOK_REDIRECT_URI'),
+        'scopes' => env('TIKTOK_SCOPES', 'user.info.basic'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

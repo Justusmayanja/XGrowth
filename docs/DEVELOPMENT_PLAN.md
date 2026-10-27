@@ -336,6 +336,8 @@ Do NOT start until X module has paying users and proven growth results.
 |--------|--------|
 | TikTok | Not started |
 | YouTube | Not started |
+
+The Phase 6 TikTok line above is stale: the engine, clip desk, and hourly schedule now exist, and this checklist was not rewritten.
 | Cross-platform trend linking | Not started |
 
 ---

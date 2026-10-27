@@ -49,6 +49,72 @@ function SkeletonCard() {
   );
 }
 
+function currentStep(tiktok: TikTokDesk): "ideas" | "written" | "waiting" | "confirmed" | "posted" {
+  const status = tiktok.clip?.status;
+  if (status === "posted") return "posted";
+  if (status === "queued") return "confirmed";
+  if (status === "waiting") return "waiting";
+  if (tiktok.pipeline.written > 0) return "written";
+  return "ideas";
+}
+
+function timeHasPassed(iso: string | null | undefined): boolean {
+  if (!iso) return false;
+  const date = new Date(iso);
+  return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
+}
+
+function Meter({ label, used, limit, detail }: { label: string; used: number; limit: number; detail: string }) {
+  const width = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3 text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="tabular-nums">
+          {used} of {limit}
+        </span>
+      </div>
+      <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted" aria-hidden>
+        <div className="h-full bg-foreground/70" style={{ width: `${width}%` }} />
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">{detail}</p>
+    </div>
+  );
+}
+
+function DeskRail({ tiktok }: { tiktok: TikTokDesk }) {
+  const zone = tiktok.timezone.value || "UTC";
+  const renews = tiktok.allowance.period_end ? formatWhen(tiktok.allowance.period_end, zone) : "when the period ends";
+  const capDetail = tiktok.daily_cap.reached
+    ? `You can confirm again at ${formatWhen(tiktok.daily_cap.available_at, zone)}.`
+    : "Confirm up to this many clips in a rolling day.";
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="space-y-5 pt-6">
+          <Meter
+            label="This month"
+            used={tiktok.allowance.used}
+            limit={tiktok.allowance.limit}
+            detail={tiktok.allowance.plan_found ? `Renews ${renews}.` : "TikTok is not on this account."}
+          />
+          <Meter label="Today" used={tiktok.daily_cap.used} limit={tiktok.daily_cap.cap} detail={capDetail} />
+          <p className="text-xs text-muted-foreground">
+            Times use {tiktok.timezone.assumed ? "UTC until you set a timezone" : zone}.
+          </p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="pt-6">
+          <IdeasList ideas={tiktok.ideas} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function SkipDialog({ busy, onKeep, onSkip }: { busy: boolean; onKeep: () => void; onSkip: () => void }) {
   return (
     <div role="dialog" aria-labelledby="skip-clip-title" className="max-w-md space-y-3 rounded-sm border border-border p-4">
@@ -92,6 +158,7 @@ export function TikTokBody({
 
   const clip = tiktok.clip;
   const zone = clip?.timezone || tiktok.timezone.value || "UTC";
+  const timePassed = clip?.status === "waiting" && timeHasPassed(clip.suggested_for);
 
   useEffect(() => {
     if (focusConfirmed && clip?.status === "queued") {
@@ -240,11 +307,13 @@ export function TikTokBody({
   const showResults = clip?.status === "queued" || clip?.status === "posted";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-28 md:pb-0">
       <div aria-live="polite" className="sr-only">
         {live}
       </div>
-      <PipelineStrip pipeline={tiktok.pipeline} />
+      <PipelineStrip pipeline={tiktok.pipeline} current={currentStep(tiktok)} />
+      <div className="grid items-start gap-6 lg:grid-cols-3">
+      <div className="min-w-0 space-y-6 lg:col-span-2">
 
       {writing ? (
         <SkeletonCard />
@@ -276,12 +345,13 @@ export function TikTokBody({
                 )}
               </div>
             )}
-            <IdeasList ideas={tiktok.ideas} />
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-6">
-          {clip.status === "queued" && <QueuedPanel blockers={clip.blockers} headingRef={headingRef} />}
+          {clip.status === "queued" && (
+            <QueuedPanel blockers={clip.blockers} connection={tiktok.connection} headingRef={headingRef} />
+          )}
           {clip.status === "posted" && (
             <Card>
               <CardContent className="pt-6">
@@ -295,19 +365,20 @@ export function TikTokBody({
               </CardContent>
             </Card>
           )}
-          {clip.status === "waiting" && (
-            <p className="text-xs text-muted-foreground">Waiting for your yes</p>
+          {clip.status === "waiting" && timePassed && (
+            <p className="text-sm">This time has passed. Pick a new one.</p>
           )}
           <ClipCard clip={clip} collapsed={clip.status === "queued" || clip.status === "posted"} />
           {clip.status === "waiting" && (clip.timezone_assumed || tiktok.timezone.assumed) && (
             <TimezoneNotice busy={busy === "zone"} onUse={(name) => void useZone(name)} />
           )}
-          {clip.status === "waiting" && (
+          {clip.status === "waiting" && !timePassed && (
             <p className="text-sm">Suggested time: {formatWhen(clip.suggested_for, zone)}.</p>
           )}
           {clip.status === "waiting" && (
             <ConfirmBar
               time={formatWhen(clip.suggested_for, zone)}
+              label={timePassed ? "Yes, go ahead" : undefined}
               busy={busy === "confirm"}
               disabled={capReached || allowanceSpent || !tiktok.allowance.plan_found}
               reason={confirmReason}
@@ -326,6 +397,7 @@ export function TikTokBody({
                 assumed={tiktok.timezone.assumed || clip.timezone_assumed}
                 error={timeError}
                 busy={busy === "time"}
+                initiallyOpen={timePassed}
                 onSave={(iso) => void reschedule(iso)}
               />
               {skipping ? (
@@ -374,6 +446,9 @@ export function TikTokBody({
           </ul>
         </section>
       )}
+      </div>
+      <DeskRail tiktok={tiktok} />
+      </div>
     </div>
   );
 }

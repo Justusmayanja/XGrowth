@@ -17,11 +17,16 @@ class TikTokClipResource extends JsonResource
     public function toArray(Request $request): array
     {
         $package = $this->package;
+        $kind = is_string($package['idea_kind'] ?? null) && $package['idea_kind'] !== ''
+            ? $package['idea_kind']
+            : null;
 
         return [
             'id' => $this->id,
             'status' => $this->status,
             'status_label' => $this->statusLabel(),
+            'kind' => $kind,
+            'kind_label' => $kind ? TikTokCatalog::kindLabel($kind) : null,
             'topic' => $this->topic,
             'hook' => $this->hook,
             'script_lines' => $this->scriptLines(),
@@ -82,6 +87,7 @@ class TikTokClipResource extends JsonResource
                 ->where('platform', 'tiktok')
                 ->where('is_active', true)
                 ->exists();
+        // is_active false means the link needs a fresh sign-in and still blocks posting.
         if (! $connected) {
             $blockers[] = TikTokCatalog::BLOCKER_TIKTOK_CONNECTION;
         }
