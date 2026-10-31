@@ -149,7 +149,10 @@ export function Navbar() {
             ))}
           </nav>
 
-          <div className="hidden shrink-0 min-[992px]:block">
+          <div className="hidden shrink-0 items-center gap-1 min-[992px]:flex">
+            <Link href="/login" className="th-link">
+              Sign in
+            </Link>
             <Link href="/register" className="th-cta">
               Get started for free
               <ChevronRight className="h-3.5 w-3.5" />

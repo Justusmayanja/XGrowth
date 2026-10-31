@@ -57,6 +57,7 @@ export function HeroShot() {
           })}
         </div>
         <div className="th-hero-main">
+          <p className="th-hero-sample">Sample desk</p>
           <p className="th-hero-kicker">Today</p>
           <p className="th-hero-lead">What is ready across X, TikTok, and YouTube.</p>
           <div className="th-hero-stats">

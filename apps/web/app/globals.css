@@ -1039,6 +1039,15 @@ input[type="radio"] {
   color: #f7f8f8;
 }
 
+.th-hero-sample {
+  margin: 0 0 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(247, 248, 248, 0.45);
+}
+
 .th-hero-kicker {
   margin: 0;
   font-size: 1.35rem;

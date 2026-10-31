@@ -1,7 +1,9 @@
+import { Boundaries } from "./Boundaries";
 import { CTA } from "./CTA";
 import { FaqList } from "./FaqList";
 import { Features } from "./Features";
 import { Footer } from "./Footer";
+import { ForWhom } from "./ForWhom";
 import { Hero } from "./Hero";
 import { HowItWorks } from "./HowItWorks";
 import { ModesSection } from "./ModesSection";
@@ -9,6 +11,7 @@ import { MotionCopy } from "./MotionCopy";
 import { Navbar } from "./Navbar";
 import { Pricing } from "./Pricing";
 import { ProblemSection } from "./ProblemSection";
+import { SampleDesk } from "./SampleDesk";
 import { ScrollField } from "./ScrollField";
 import { ScrollFocus } from "./ScrollFocus";
 import { SectionDrop } from "./SectionDrop";
@@ -24,9 +27,12 @@ export function LandingPage() {
       <main>
         <Hero />
         <ProblemSection />
+        <ForWhom />
+        <SampleDesk />
         <Features />
         <HowItWorks />
         <ModesSection />
+        <Boundaries />
         <Pricing />
         <section id="faq" className="py-16">
           <div className="mx-auto max-w-3xl px-6">
