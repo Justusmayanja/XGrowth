@@ -29,6 +29,7 @@ class GrowthAgentService
         private readonly XApiService $xApi,
         private readonly TrendEngineService $trends,
         private readonly ApiSpendService $budget,
+        private readonly XGoalPlan $goals,
     ) {}
 
     private bool $draftedThisRun = false;
@@ -37,6 +38,15 @@ class GrowthAgentService
 
     /** @var list<array{trend: \App\Models\Trend, opportunity_score: float, suggestion?: string}> */
     private array $momentsThisRun = [];
+
+    /** @var list<array{trend: \App\Models\Trend, opportunity_score: float, suggestion?: string}> */
+    private array $shareMoments = [];
+
+    private ?\App\Models\ConnectedAccount $accountThisRun = null;
+
+    private int $xAccountCount = 1;
+
+    private bool $sawHeat = false;
 
     public function evaluateAllUsers(): int
     {
@@ -68,11 +78,9 @@ class GrowthAgentService
         }
 
         $profile = $user->accountProfile;
-        $this->draftedThisRun = false;
-        $this->postedThisRun = false;
-        $this->momentsThisRun = [];
-
         if ($profile->engine_paused) {
+            $this->accountThisRun = null;
+
             return $this->logDecision(
                 $user,
                 'WAIT',
@@ -83,17 +91,58 @@ class GrowthAgentService
             );
         }
 
+        $accounts = $user->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->get();
+        $this->xAccountCount = max(1, $accounts->count());
+        $this->sawHeat = false;
+
+        if ($accounts->count() <= 1) {
+            $this->accountThisRun = $accounts->first();
+            $decision = $this->runOnce($user, $profile);
+        } else {
+            $decision = null;
+            foreach ($accounts as $account) {
+                $this->accountThisRun = $account;
+                $decision = $this->runOnce($user, $this->withVoice($profile, $account));
+            }
+        }
+
+        $this->growthBrain->noteHeat($user->id, $this->sawHeat);
+
+        return $decision;
+    }
+
+    private function runOnce(User $user, AccountProfile $profile): string
+    {
+        $this->draftedThisRun = false;
+        $this->postedThisRun = false;
+        $this->momentsThisRun = [];
+        $this->shareMoments = [];
+
         $prefilterLimit = max(1, $this->settings->getInt('growth_brain_prefilter_limit', 5));
-        $fromNiche = $this->trends->rankedForWatch($user);
+        $account = $this->xAccount($user);
+        $fromNiche = $this->trends->rankedForWatch(
+            $user,
+            $account,
+            $profile->resolvedNiche(),
+            trim((string) $profile->description.' '.(string) $profile->audience),
+        );
         $ranked = is_array($fromNiche) ? array_slice($fromNiche, 0, $prefilterLimit) : [];
+        $ranked = $this->goals->orderMoments($this->goals->goals($profile), $ranked);
+        $related = $ranked;
 
         if ($this->growthBrain->isEnabled()) {
             $ranked = $this->freshHotMoments($user, $ranked);
         }
 
-        if ($ranked === []) {
-            $this->growthBrain->noteHeat($user->id, false);
+        if ($this->postedMinutesAgo($user) === 9999) {
+            $this->shareMoments = $related;
+        }
 
+        if ($ranked === []) {
             return $this->finish(
                 $user,
                 $profile,
@@ -102,7 +151,7 @@ class GrowthAgentService
         }
 
         $this->momentsThisRun = $ranked;
-        $this->growthBrain->noteHeat($user->id, $this->listIsHot($ranked));
+        $this->sawHeat = $this->sawHeat || $this->listIsHot($ranked);
 
         if ($this->growthBrain->isEnabled()) {
             try {
@@ -144,6 +193,11 @@ class GrowthAgentService
                 'total' => $evaluation['total_tokens'],
             ],
         ];
+
+        if ($decision === 'POST' && $trend && $this->goals->prefersReplyFor($profile) && $this->goals->hasAudience($trend)) {
+            $decision = 'ENGAGE';
+            $reason = 'Reply under "'.$trend->name.'". It already has an audience, which is what this goal counts.';
+        }
 
         if ($decision === 'POST' && ! $this->safetyEngine->canAct($user, 'post')) {
             return $this->logDecision(
@@ -188,7 +242,7 @@ class GrowthAgentService
             );
         }
 
-        if ($decision === 'ENGAGE' && ! $profile->auto_engage_enabled) {
+        if ($decision === 'ENGAGE' && ! $profile->auto_engage_enabled && ! ($profile->auto_reply_enabled && $this->goals->prefersReplyFor($profile))) {
             return $this->logDecision(
                 $user,
                 'WAIT',
@@ -237,10 +291,21 @@ class GrowthAgentService
             return $this->logDecision($user, 'WAIT', 'resting', $score, $picked['reason'], $context);
         }
 
+        if ($this->goals->prefersReplyFor($profile) && $this->goals->hasAudience($trend)) {
+            return $this->logDecision(
+                $user,
+                'ENGAGE',
+                'reply_under',
+                $score,
+                'Reply under "'.$trend->name.'". It already has an audience, which is what this goal counts.',
+                $context
+            );
+        }
+
         $engageThreshold = $this->settings->getInt('rules_engage_threshold', 68);
         $postThreshold = $this->settings->getInt('rules_post_threshold', 82);
 
-        if ($score >= $postThreshold || $this->isFreshSpike($trend, $score) || $this->silenceHasRunLong($user)) {
+        if ($score >= $postThreshold || $this->isFreshSpike($trend, $score)) {
             return $this->actOnPostOpportunity(
                 $user,
                 $profile,
@@ -276,10 +341,6 @@ class GrowthAgentService
 
     private function finish(User $user, AccountProfile $profile, string $decision): string
     {
-        if ($decision !== 'POST' && $this->canUnattendedPost($profile) && $this->silenceHasRunLong($user) && $this->safetyEngine->canAct($user, 'post')) {
-            $decision = $this->speakAfterQuiet($user, $profile);
-        }
-
         if (! $this->postedThisRun) {
             $this->maybeEngage($user, $profile);
             $this->maybeShare($user, $profile);
@@ -299,26 +360,16 @@ class GrowthAgentService
         $threshold = $this->settings->getInt('rules_post_threshold', 82);
         $mild = null;
         $leftABigAccount = false;
-
-        if ($unattended && $this->silenceHasRunLong($user)) {
-            foreach ($ordered as $row) {
-                $trend = $row['trend'];
-                $score = (float) $row['opportunity_score'];
-                if ($this->beatAlreadyPosted($user, $trend)) {
-                    continue;
-                }
-                $gap = $this->gapHold($user, $trend, $score);
-                if ($gap !== null) {
-                    return ['row' => null, 'reason' => $gap, 'score' => $score, 'trend' => $trend];
-                }
-
-                return ['row' => $row, 'reason' => '', 'score' => $score, 'trend' => $trend];
-            }
-        }
+        $offBrief = false;
 
         foreach ($ordered as $row) {
             $trend = $row['trend'];
             $score = (float) $row['opportunity_score'];
+            if ($this->goals->skipsMoment($profile, $trend)) {
+                $offBrief = true;
+
+                continue;
+            }
             if ($unattended && $this->beatAlreadyPosted($user, $trend)) {
                 continue;
             }
@@ -359,9 +410,11 @@ class GrowthAgentService
 
         return [
             'row' => null,
-            'reason' => $leftABigAccount
-                ? 'Left that one. Not every big account gets an answer.'
-                : 'Nothing new is loud enough to post.',
+            'reason' => $offBrief
+                ? 'Left it. The moment is not about what this business sells.'
+                : ($leftABigAccount
+                    ? 'Left that one. Not every big account gets an answer.'
+                    : 'Nothing new is loud enough to post.'),
             'score' => (float) ($top['opportunity_score'] ?? 0),
             'trend' => $top['trend'] ?? null,
         ];
@@ -490,10 +543,7 @@ class GrowthAgentService
             );
         }
 
-        $account = $user->connectedAccounts()
-            ->where('platform', 'x')
-            ->where('is_active', true)
-            ->first();
+        $account = $this->xAccount($user);
 
         if (! $account) {
             return $this->logDecision(
@@ -566,7 +616,6 @@ class GrowthAgentService
             'posted_at' => now(),
         ]);
         Cache::forget($this->publishLockKey($user->id));
-        Cache::forget($this->quietSinceKey($user->id));
         $this->postedThisRun = true;
         $this->safetyEngine->recordAction($user, 'post');
 
@@ -594,7 +643,7 @@ class GrowthAgentService
             return null;
         }
 
-        if (($contentSource === 'original' || trim((string) $trend?->name) === '') && ! $this->silenceHasRunLong($user)) {
+        if ($contentSource === 'original' || trim((string) $trend?->name) === '') {
             return 'Nothing loud is happening, so nothing goes live.';
         }
 
@@ -607,7 +656,7 @@ class GrowthAgentService
         }
 
         $hot = $this->settings->getInt('rules_post_threshold', 82);
-        if ($score < $hot && ! $this->isFreshSpike($trend, $score) && ! $this->silenceHasRunLong($user)) {
+        if ($score < $hot && ! $this->isFreshSpike($trend, $score)) {
             return "The moment is {$score}/100. It needs {$hot} before it goes live.";
         }
 
@@ -756,69 +805,6 @@ class GrowthAgentService
         return $score >= 90;
     }
 
-    private function speakAfterQuiet(User $user, AccountProfile $profile): string
-    {
-        if ($this->momentsThisRun !== []) {
-            $picked = $this->selectMoment($user, $profile, $this->momentsThisRun);
-            if ($picked['row'] !== null) {
-                $trend = $picked['row']['trend'];
-
-                return $this->actOnPostOpportunity(
-                    $user,
-                    $profile,
-                    $trend,
-                    $this->bridgeAngle($trend),
-                    'trend',
-                    (float) $picked['score'],
-                    'A quiet stretch has gone on long enough for one view',
-                    ['engine' => 'quiet_stretch', 'trend_name' => $trend->name],
-                );
-            }
-        }
-
-        return $this->actOnPostOpportunity(
-            $user,
-            $profile,
-            null,
-            'One view after being away, not a plan',
-            'original',
-            80,
-            'A quiet stretch has gone on long enough for one view',
-            ['engine' => 'quiet_stretch', 'content_source' => 'original'],
-        );
-    }
-
-    /**
-     * Quiet is allowed. The length of this stretch sits somewhere between 3 and 4 hours,
-     * and it changes after each post, so it does not land on a clock.
-     */
-    private function silenceHasRunLong(User $user): bool
-    {
-        $ago = $this->postedMinutesAgo($user);
-        if ($ago < 9999) {
-            return $ago >= $this->silenceCeilingMinutes($user);
-        }
-
-        $started = Cache::get($this->quietSinceKey($user->id));
-        if (! is_numeric($started)) {
-            Cache::put($this->quietSinceKey($user->id), now()->timestamp, now()->addDays(14));
-
-            return false;
-        }
-
-        $minutes = (int) abs(now()->diffInMinutes(Carbon::createFromTimestamp((int) $started)));
-
-        return $minutes >= $this->silenceCeilingMinutes($user);
-    }
-
-    private function silenceCeilingMinutes(User $user): int
-    {
-        $lastId = $user->posts()->where('status', 'posted')->where('content_type', 'tweet')->latest('posted_at')->value('id');
-        $seed = $user->id.'|'.($lastId ?: 'quiet');
-
-        return 180 + (hexdec(substr(md5((string) $seed), 0, 2)) % 61);
-    }
-
     private function skippedThisBeat(User $user, \App\Models\Trend $trend): bool
     {
         $meta = is_array($trend->metadata) ? $trend->metadata : [];
@@ -837,23 +823,23 @@ class GrowthAgentService
             return;
         }
 
-        $account = $user->connectedAccounts()->where('platform', 'x')->where('is_active', true)->first();
+        $account = $this->xAccount($user);
         if (! $account) {
             return;
         }
 
         $sincePost = $this->postedMinutesAgo($user);
-        if ($sincePost === 9999 || $sincePost > 50) {
+        if (! $this->goals->prefersReplyFor($profile) && ($sincePost === 9999 || $sincePost > 50)) {
             return;
         }
 
-        $candidates = $this->engagementCandidates();
+        $candidates = $this->goals->orderCandidates($this->goals->goals($profile), $this->engagementCandidates());
         if ($candidates === []) {
             return;
         }
 
         $liked = null;
-        if ($profile->auto_engage_enabled && $this->canEngageNow($user, 'like', 2, 40)) {
+        if ($profile->auto_engage_enabled && $this->canEngageNow($user, 'like', $this->budget->dailyLikes($user->id), 40)) {
             foreach ($candidates as $candidate) {
                 if (! $this->wantsAction($user, $candidate['id'], 'like', 4)) {
                     continue;
@@ -878,28 +864,43 @@ class GrowthAgentService
             }
         }
 
-        if (! $profile->auto_reply_enabled || ! $this->budget->canReply($user->id) || ! $this->canEngageNow($user, 'reply', 3, 80)) {
+        if (! $profile->auto_reply_enabled || ! $this->budget->canReply($user->id, (int) $account->id) || ! $this->canEngageNow($user, 'reply', $this->budget->dailyReplies($user->id), 80)) {
             return;
         }
 
+        $phrases = $this->goals->replyPhrases($profile);
+        $replyLed = $this->goals->prefersReplyFor($profile);
         foreach ($candidates as $candidate) {
-            if ($candidate['id'] === $liked || ! $this->wantsAction($user, $candidate['id'], 'reply', 5)) {
+            if ($candidate['id'] === $liked || $this->alreadyTouched($user, 'reply', $candidate['id']) || $this->alreadyTouched($user, 'skip', $candidate['id'])) {
                 continue;
             }
-            if ($this->alreadyTouched($user, 'reply', $candidate['id'])) {
+            if ($phrases !== [] && ! $this->xApi->sharesAny($candidate['text'], $phrases)) {
+                $this->rememberTouch($user, 'skip', $candidate['id']);
+                $this->logDecision($user, 'IGNORE', 'skipped_reply', null, 'Left this post. It does not match what this account is for.', [
+                    'tweet_id' => $candidate['id'],
+                    'author' => $candidate['author'] ?? 'Someone',
+                    'theirs' => $candidate['text'],
+                ]);
+
                 continue;
             }
+            if (! $replyLed && ! $this->wantsAction($user, $candidate['id'], 'reply', 5)) {
+                continue;
+            }
+            $replyLed = false;
             try {
                 $drafts = $this->aiCore->generateReplyDrafts([
                     'user' => $user,
-                    'context' => 'A short human reply under this post. One or two sentences. No hashtags, no link, no pitch.',
+                    'context' => $this->goals->replyBrief($profile),
                     'tone' => $profile->primaryTone(),
                     'niche' => $profile->resolvedNiche(),
                     'post_content' => $candidate['text'],
+                    'voice' => trim($profile->description.' '.$profile->audience.' '.$profile->goalSentenceFor('x')),
                     'human' => true,
+                    'allow_link' => $this->goals->allowsLink($profile),
                     'use_web_search' => false,
                 ]);
-                $text = trim((string) ($drafts[0]['content'] ?? ''));
+                $text = $this->goals->finishText($profile, trim((string) ($drafts[0]['content'] ?? '')));
                 if ($text === '') {
                     return;
                 }
@@ -916,8 +917,13 @@ class GrowthAgentService
                 $this->safetyEngine->recordAction($user, 'reply');
                 $this->rememberTouch($user, 'reply', $candidate['id']);
                 Cache::put($this->engageGapKey($user->id, 'reply'), now()->timestamp, now()->addDay());
-                $this->logDecision($user, 'ENGAGE', 'replied', null, 'Replied to one post. The rest were left.', [
+                $this->logDecision($user, 'ENGAGE', 'replied', null, $this->goals->allowsLink($profile)
+                    ? 'Replied and pointed at the destination.'
+                    : 'Replied in this voice.', [
                     'tweet_id' => $candidate['id'],
+                    'author' => $candidate['author'] ?? 'Someone',
+                    'theirs' => $candidate['text'],
+                    'ours' => $text,
                 ]);
             } catch (Throwable $e) {
                 Log::info('Reply was skipped', ['user_id' => $user->id, 'error' => $e->getMessage()]);
@@ -929,8 +935,9 @@ class GrowthAgentService
     }
 
     /**
-     * A related post on the home timeline can be reposted, and a second one can be quoted.
-     * Both wait until this account has been quiet for 50 minutes, and both stop when the day or the month is used.
+     * A related post from someone else can be reposted, and a second one can be quoted.
+     * An account with nothing published can do that on this look. After one of its own posts, it waits 50 minutes.
+     * Both stop when the day or the month is used.
      */
     private function maybeShare(User $user, AccountProfile $profile): void
     {
@@ -943,14 +950,14 @@ class GrowthAgentService
             return;
         }
 
-        $account = $user->connectedAccounts()->where('platform', 'x')->where('is_active', true)->first();
+        $account = $this->xAccount($user);
         if (! $account) {
             return;
         }
 
         $floor = $this->settings->getInt('rules_engage_threshold', 68);
         $candidates = array_values(array_filter(
-            $this->engagementCandidates(),
+            $this->engagementCandidates($this->shareMoments !== [] ? $this->shareMoments : null),
             fn (array $candidate) => $candidate['score'] >= $floor
                 && ! $this->alreadyTouched($user, 'repost', $candidate['id'])
                 && ! $this->alreadyTouched($user, 'quote', $candidate['id'])
@@ -1015,14 +1022,15 @@ class GrowthAgentService
         try {
             $drafts = $this->aiCore->generateReplyDrafts([
                 'user' => $user,
-                'context' => 'One caption that sits above this post. One sentence, in this account\'s voice. No hashtags, no link, and do not repeat their sentence.',
+                'context' => $this->goals->replyBrief($profile),
                 'tone' => $profile->primaryTone(),
                 'niche' => $profile->resolvedNiche(),
                 'post_content' => $candidate['text'],
                 'human' => true,
+                'allow_link' => $this->goals->allowsLink($profile),
                 'use_web_search' => false,
             ]);
-            $text = trim((string) ($drafts[0]['content'] ?? ''));
+            $text = $this->goals->finishText($profile, trim((string) ($drafts[0]['content'] ?? '')));
             if ($text === '') {
                 $this->rememberTouch($user, 'quote', $candidate['id']);
 
@@ -1048,12 +1056,13 @@ class GrowthAgentService
     }
 
     /**
-     * @return list<array{id: string, text: string, score: float}>
+     * @param  list<array{trend: \App\Models\Trend, opportunity_score: float, suggestion?: string}>|null  $source
+     * @return list<array{id: string, text: string, score: float, reach: int, replies: int, author: string}>
      */
-    private function engagementCandidates(): array
+    private function engagementCandidates(?array $source = null): array
     {
         $rows = [];
-        foreach ($this->momentsThisRun as $row) {
+        foreach ($source ?? $this->momentsThisRun as $row) {
             $trend = $row['trend'];
             $meta = is_array($trend->metadata) ? $trend->metadata : [];
             $id = trim((string) ($meta['tweet_id'] ?? ''));
@@ -1071,7 +1080,10 @@ class GrowthAgentService
             $rows[] = [
                 'id' => $id,
                 'text' => mb_substr($text, 0, 240),
+                'author' => trim((string) ($meta['author'] ?? '')) ?: 'Someone',
                 'score' => (float) ($row['opportunity_score'] ?? 0),
+                'reach' => (int) ($meta['author_followers'] ?? 0),
+                'replies' => (int) ($meta['replies'] ?? 0),
             ];
         }
 
@@ -1116,22 +1128,57 @@ class GrowthAgentService
 
     private function touchKey(int $userId, string $action, string $tweetId): string
     {
-        return "engage:{$action}:{$userId}:{$tweetId}";
+        return "engage:{$action}:{$userId}:".$this->scopeKey().":{$tweetId}";
     }
 
     private function engageGapKey(int $userId, string $action): string
     {
-        return "engage:last:{$action}:{$userId}";
+        return "engage:last:{$action}:{$userId}:".$this->scopeKey();
     }
 
-    private function quietSinceKey(int $userId): string
+    private function xAccount(User $user): ?\App\Models\ConnectedAccount
     {
-        return "autopost:quiet-since:{$userId}";
+        if ($this->accountThisRun && (int) $this->accountThisRun->user_id === (int) $user->id) {
+            return $this->accountThisRun;
+        }
+
+        return $user->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->first();
+    }
+
+    private function withVoice(AccountProfile $profile, \App\Models\ConnectedAccount $account): AccountProfile
+    {
+        if (! $account->hasOwnVoice()) {
+            return $profile;
+        }
+
+        $copy = $profile->replicate();
+        $niche = $account->nicheFor($profile);
+        if ($niche !== '') {
+            $copy->niche = $niche;
+            $copy->custom_niche = $niche;
+        }
+        $copy->description = $account->descriptionFor($profile);
+        $copy->audience = $account->audienceFor($profile);
+
+        return $copy;
+    }
+
+    private function scopeKey(): string
+    {
+        return (string) ($this->accountThisRun?->id ?? '0');
     }
 
     private function postedMinutesAgo(User $user): int
     {
-        $last = $user->posts()->where('status', 'posted')->where('content_type', 'tweet')->latest('posted_at')->value('posted_at');
+        $query = $user->posts()->where('status', 'posted')->where('content_type', 'tweet');
+        if ($this->xAccountCount > 1 && $this->accountThisRun) {
+            $query->where('connected_account_id', $this->accountThisRun->id);
+        }
+        $last = $query->latest('posted_at')->value('posted_at');
         if (! $last) {
             return 9999;
         }
@@ -1141,7 +1188,9 @@ class GrowthAgentService
 
     private function publishLockKey(int $userId): string
     {
-        return "autopost:lock:{$userId}";
+        $account = $this->accountThisRun?->id ?? 'user';
+
+        return "autopost:lock:{$userId}:{$account}";
     }
 
     private function canUnattendedPost(AccountProfile $profile): bool
@@ -1167,11 +1216,15 @@ class GrowthAgentService
             return null;
         }
 
-        if (! $this->budget->canPost($user->id) || ! $this->budget->canSpend($user->id, ApiSpendService::POST_MILLS)) {
+        $accountId = $this->xAccount($user)?->id;
+        $accountId = $accountId ? (int) $accountId : null;
+
+        if (! $this->budget->canPost($user->id, 1, $accountId) || ! $this->budget->canSpend($user->id, ApiSpendService::POST_MILLS)) {
             return null;
         }
 
-        $draftsKey = 'growth-drafts:v1:'.$user->id.':'.now()->toDateString();
+        $scope = $this->accountThisRun?->id ?? 'user';
+        $draftsKey = 'growth-drafts:v1:'.$user->id.':'.$scope.':'.now()->toDateString();
         if ((int) Cache::get($draftsKey, 0) >= $this->budget->dailyPostTarget($user->id)) {
             return null;
         }
@@ -1194,6 +1247,8 @@ class GrowthAgentService
                 'tone' => $profile->primaryTone(),
                 'niche' => $profile->resolvedNiche(),
                 'goal' => $profile->goalSentenceFor('x') ?: str_replace('_', ' ', $profile->primaryGoal()),
+                'goal_instruction' => $this->goals->postBrief($profile),
+                'goal_lesson' => $this->goals->results($profile)['lesson'],
                 'content_type' => 'tweet',
                 'audience' => $profile->audience,
                 'description' => $profile->description,
@@ -1235,10 +1290,16 @@ class GrowthAgentService
                 return null;
             }
 
+            $content = $this->goals->finishText($profile, (string) $variant['content']);
+            if ($content === '') {
+                return null;
+            }
+
             $draft = Post::create([
                 'user_id' => $user->id,
+                'connected_account_id' => $accountId,
                 'trend_id' => $isOriginal ? null : $trend?->id,
-                'content' => $variant['content'],
+                'content' => $content,
                 'content_type' => 'tweet',
                 'status' => 'draft',
                 'virality_predicted' => $variant['virality_score'],
@@ -1263,12 +1324,13 @@ class GrowthAgentService
      */
     private function voiceExamples(User $user): array
     {
-        $account = $user->connectedAccounts()
-            ->where('platform', 'x')
-            ->where('is_active', true)
-            ->first();
+        $account = $this->xAccount($user);
         $spoken = $account ? $this->xApi->voiceSamples($account) : [];
-        $saved = $user->posts()->latest()->limit(5)->pluck('content')->map(fn ($content) => (string) $content)->all();
+        $savedQuery = $user->posts()->latest()->limit(5);
+        if ($this->xAccountCount > 1 && $account) {
+            $savedQuery->where('connected_account_id', $account->id);
+        }
+        $saved = $savedQuery->pluck('content')->map(fn ($content) => (string) $content)->all();
 
         $lines = [];
         foreach (array_merge($spoken, $saved) as $line) {
@@ -1359,6 +1421,7 @@ class GrowthAgentService
     ): string {
         AiDecision::create([
             'user_id' => $user->id,
+            'connected_account_id' => $this->accountThisRun?->id,
             'decision' => $decision,
             'action_taken' => $action,
             'opportunity_score' => $score,

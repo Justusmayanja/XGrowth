@@ -20,6 +20,7 @@ class GrowthBrainService
         private readonly AiContextBuilder $context,
         private readonly AiUsageService $usage,
         private readonly PlatformSettingsService $settings,
+        private readonly XGoalPlan $goals,
     ) {}
 
     public function isEnabled(): bool
@@ -72,6 +73,7 @@ class GrowthBrainService
             'original_ideas' => $this->context->originalIdeasDigest($profile),
             'trends' => $this->context->trendDigest($trends),
             'last' => $this->context->lastDecisionDigest($user),
+            'results' => $this->goals->results($profile),
         ];
 
         $systemPrompt = $this->buildSystemPrompt();
@@ -221,7 +223,13 @@ Other rules:
 - This is not a schedule. POST when a new moment is actually happening inside this niche: a goal, a price jump in this niche, a decision this niche would post, a large account in this niche saying something new.
 - A new beat of an event already posted about can be POST. The same sentence cannot.
 - Stay in the niche. IGNORE a war, a politician, a celebrity, or any worldwide trend this niche would not post. A high follower count does not make an outside topic relevant.
-- A supplied trend is already from this account's home timeline. It still has to fit the description and the people the account is for. IGNORE it when those people would not care. The aim (grow followers, promote the business, or whatever the profile says) decides the point of the post, not a new subject.
+- profile.goals is every X goal. profile.aim says the same thing in words. The first goal wins when two goals want different moves. results.lesson says which recent post or reply moved the number. Repeat that kind.
+- monetize counts impressions. When a trend has reach, decide ENGAGE and reply under that post. A new post waits unless nothing with an audience is available.
+- grow_followers wants a take worth opening the profile for, then a reply where those people already are.
+- build_brand and influencer stay on the description. IGNORE an adjacent moment, including a loud one.
+- promote_business: POST or ENGAGE only when the trend is already about what the description says the business sells. Otherwise IGNORE.
+- drive_traffic points at the destination in the description. Do not put a URL in content_angle.
+- A supplied trend is already from this account's home timeline. It still has to fit the description and the people the account is for. IGNORE it when those people would not care. The aim decides the point of the post, not a new subject.
 - A trend with life set is a second loyalty that keeps appearing on this account's own timeline, such as a bag seller who also follows a club. That loyalty is part of this account. POST it as that person, not as an advert for the shop. A war or a politician is still IGNORE.
 - Another match can be POST only when it is already one of the supplied trends and it is the same sport. A price or a rule can be POST only when this niche is money and that item is already one of the supplied trends.
 - content_angle is the opinion, not a summary of the news and not a plan.
@@ -229,8 +237,9 @@ Other rules:
 - If minutes on a trend are over 180, it is old. Do not treat it as breaking.
 - A name in a post is not a current job. Do not put a coach, a rate, or a score into content_angle unless the input states it as happening now.
 - A large account posting does not mean POST. Skip some. Answer the ones this account would actually care about.
-- A quiet stretch is normal. If last.mins is past about 180, one post can end the stretch. Do not turn that into a repeating clock.
-- If nothing new is loud and the stretch is still short, WAIT.
+- A quiet stretch stays quiet. Do not POST because time has passed, and do not POST to fill a gap. WAIT until a new moment in this niche is actually loud.
+- If nothing new is loud, WAIT.
+- Never put a URL or a link in content_angle. The app adds a link only when drive_traffic is a goal and the description already contains one.
 - If profile.automation is below 2, POST means the moment is worth a draft. The app will not publish it.
 - Do not invent trends or metrics not in the input.
 

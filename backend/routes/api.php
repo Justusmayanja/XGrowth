@@ -115,6 +115,7 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
 
         Route::get('/connected-accounts', [ConnectedAccountController::class, 'index']);
         Route::get('/connected-accounts/x/status', [ConnectedAccountController::class, 'connectStatus']);
+        Route::put('/connected-accounts/x/{account}/voice', [ConnectedAccountController::class, 'updateVoice']);
         Route::delete('/connected-accounts/x', [ConnectedAccountController::class, 'disconnect']);
         Route::post('/connected-accounts/tiktok/connect', [ConnectedAccountController::class, 'tiktokConnect'])->middleware('throttle:6,1');
         Route::get('/connected-accounts/tiktok/status', [ConnectedAccountController::class, 'tiktokStatus']);

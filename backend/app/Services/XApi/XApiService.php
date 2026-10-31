@@ -152,6 +152,21 @@ class XApiService
             $values['refresh_token'] = $token['refresh_token'];
         }
 
+        $already = ConnectedAccount::query()
+            ->where('user_id', $user->id)
+            ->where('platform', 'x')
+            ->where('platform_account_id', $profile['id'])
+            ->exists();
+        $connected = ConnectedAccount::query()
+            ->where('user_id', $user->id)
+            ->where('platform', 'x')
+            ->count();
+        $limit = $this->budget->accountLimit((int) $user->id);
+        if (! $already && $connected >= $limit) {
+            $noun = $limit === 1 ? 'account' : 'accounts';
+            throw new RuntimeException("This plan connects {$limit} X {$noun}.");
+        }
+
         return ConnectedAccount::updateOrCreate(
             [
                 'user_id' => $user->id,
@@ -172,20 +187,21 @@ class XApiService
             throw new RuntimeException('That draft is empty.');
         }
 
+        foreach ($parts as $part) {
+            if ($this->budget->containsLink($part)) {
+                throw new RuntimeException('Links stay out of this app. Remove the link and post the words.');
+            }
+        }
+
         $reply = $type === 'reply';
-        if ($reply && ! $this->budget->canReply((int) $account->user_id)) {
+        if ($reply && ! $this->budget->canReply((int) $account->user_id, (int) $account->id)) {
             throw new RuntimeException('Today\'s replies are already out. The next one waits until tomorrow.');
         }
-        if (! $reply && ! $this->budget->canPost((int) $account->user_id, count($parts))) {
+        if (! $reply && ! $this->budget->canPost((int) $account->user_id, count($parts), (int) $account->id)) {
             throw new RuntimeException('Today\'s posts are already out. The next one waits until tomorrow.');
         }
 
-        $mills = 0;
-        foreach ($parts as $part) {
-            $mills += preg_match('/https?:\/\//i', $part) === 1
-                ? ApiSpendService::LINK_POST_MILLS
-                : ApiSpendService::POST_MILLS;
-        }
+        $mills = count($parts) * ApiSpendService::POST_MILLS;
         $this->budget->assertCanSpend((int) $account->user_id, $mills);
 
         $token = $this->accessToken($account);
@@ -205,14 +221,11 @@ class XApiService
 
             $replyTo = (string) $response->json('data.id');
             $first ??= $replyTo;
-            $partMills = preg_match('/https?:\/\//i', $part) === 1
-                ? ApiSpendService::LINK_POST_MILLS
-                : ApiSpendService::POST_MILLS;
-            $this->budget->spend((int) $account->user_id, $partMills);
+            $this->budget->spend((int) $account->user_id, ApiSpendService::POST_MILLS);
             if ($reply) {
-                $this->budget->recordReply((int) $account->user_id);
+                $this->budget->recordReply((int) $account->user_id, (int) $account->id);
             } else {
-                $this->budget->recordPost((int) $account->user_id);
+                $this->budget->recordPost((int) $account->user_id, 1, (int) $account->id);
             }
         }
 
@@ -221,7 +234,7 @@ class XApiService
 
     public function likeTweet(ConnectedAccount $account, string $tweetId): void
     {
-        if (! $this->budget->canLike((int) $account->user_id)) {
+        if (! $this->budget->canLike((int) $account->user_id, (int) $account->id)) {
             throw new RuntimeException('Today\'s likes are already out. The next one waits until tomorrow.');
         }
         $this->budget->assertCanSpend((int) $account->user_id, ApiSpendService::LIKE_MILLS);
@@ -237,7 +250,7 @@ class XApiService
         }
 
         $this->budget->spend((int) $account->user_id, ApiSpendService::LIKE_MILLS);
-        $this->budget->recordLike((int) $account->user_id);
+        $this->budget->recordLike((int) $account->user_id, (int) $account->id);
     }
 
     public function repostTweet(ConnectedAccount $account, string $tweetId): void
@@ -307,12 +320,13 @@ class XApiService
         if ($text === '') {
             throw new RuntimeException('That reply is empty.');
         }
-        if (! $this->budget->canReply((int) $account->user_id)) {
+        if ($this->budget->containsLink($text)) {
+            throw new RuntimeException('Links stay out of this app. Remove the link and post the words.');
+        }
+        if (! $this->budget->canReply((int) $account->user_id, (int) $account->id)) {
             throw new RuntimeException('Today\'s replies are already out. The next one waits until tomorrow.');
         }
-        $mills = preg_match('/https?:\/\//i', $text) === 1
-            ? ApiSpendService::LINK_POST_MILLS
-            : ApiSpendService::POST_MILLS;
+        $mills = ApiSpendService::POST_MILLS;
         $this->budget->assertCanSpend((int) $account->user_id, $mills);
 
         $response = Http::withToken($this->accessToken($account))->post('https://api.twitter.com/2/tweets', [
@@ -325,7 +339,7 @@ class XApiService
         }
 
         $this->budget->spend((int) $account->user_id, $mills);
-        $this->budget->recordReply((int) $account->user_id);
+        $this->budget->recordReply((int) $account->user_id, (int) $account->id);
 
         return (string) $response->json('data.id');
     }
@@ -400,7 +414,7 @@ class XApiService
         }
 
         $this->chargeReads($account, $loaded['complete'] ? 10 : 0, 1);
-        Cache::put($cacheKey, $payload, now()->addDays(7));
+        Cache::put($cacheKey, $payload, now()->addHours($this->budget->activityCacheHours((int) $account->user_id)));
 
         return $payload;
     }
@@ -469,7 +483,7 @@ class XApiService
 
         if ($errors === []) {
             $feed['fetched_at'] = now()->toIso8601String();
-            Cache::put($this->replyCacheKey($account), $feed, now()->addDays(7));
+            Cache::put($this->replyCacheKey($account), $feed, now()->addHours($this->budget->mentionCacheHours((int) $account->user_id)));
         }
 
         return $feed;
@@ -965,6 +979,7 @@ class XApiService
         $history = array_slice($history, -14, null, true);
         Cache::put($key, $history, now()->addDays(45));
 
+        $payload['followers_change'] = $previous ? (int) $payload['followers'] - (int) ($previous['followers'] ?? 0) : null;
         $payload['likes_change'] = $previous ? (int) $payload['likes'] - (int) ($previous['likes'] ?? 0) : null;
         $payload['impressions_change'] = $payload['views_known'] && $previous && isset($previous['impressions'])
             ? (int) $payload['impressions'] - (int) $previous['impressions']
@@ -987,7 +1002,7 @@ class XApiService
             return [];
         }
 
-        $cacheKey = 'x-home-timeline:v6:'.$account->id.':'.md5(mb_strtolower(trim($niche).'|'.$purpose));
+        $cacheKey = $this->timelineCacheKey($account, $niche, $purpose);
         $cached = Cache::get($cacheKey);
         if (is_array($cached) && array_key_exists('topics', $cached) && is_array($cached['topics'])) {
             return $this->topicsWithin($cached['topics'], $watch);
@@ -1008,13 +1023,13 @@ class XApiService
                 ],
             );
         } catch (\Throwable) {
-            Cache::put($cacheKey, ['fetched_at' => now()->toIso8601String(), 'topics' => []], now()->addMinutes(30));
+            Cache::put($cacheKey, ['fetched_at' => now()->toIso8601String(), 'topics' => [], 'skipped' => []], now()->addMinutes(30));
 
             return [];
         }
 
         if ($response->failed()) {
-            Cache::put($cacheKey, ['fetched_at' => now()->toIso8601String(), 'topics' => []], now()->addMinutes(30));
+            Cache::put($cacheKey, ['fetched_at' => now()->toIso8601String(), 'topics' => [], 'skipped' => []], now()->addMinutes(30));
 
             return [];
         }
@@ -1064,6 +1079,7 @@ class XApiService
         }
 
         $topics = [];
+        $skipped = [];
         $newsIsTheAccount = $this->mentionsBlockedNews($niche.' '.$purpose);
         foreach ($candidates as $candidate) {
             $text = $candidate['text'];
@@ -1073,9 +1089,13 @@ class XApiService
                 : $text;
             $loyalty = $inNiche ? null : $this->loyaltyIn($forLoyalty, $purposeWords);
             if (! $inNiche && $loyalty === null) {
+                $this->rememberTimelineSkip($skipped, $candidate, 'It does not match what this account is for.');
+
                 continue;
             }
             if ($this->mentionsBlockedNews($text) && ! $newsIsTheAccount) {
+                $this->rememberTimelineSkip($skipped, $candidate, 'It is outside what this account would post.');
+
                 continue;
             }
             $metrics = $candidate['metrics'];
@@ -1104,9 +1124,51 @@ class XApiService
         Cache::put($cacheKey, [
             'fetched_at' => now()->toIso8601String(),
             'topics' => $topics,
-        ], now()->addHours(8));
+            'skipped' => $skipped,
+        ], now()->addHours($this->budget->timelineCacheHours((int) $account->user_id)));
 
         return $this->topicsWithin($topics, $watch);
+    }
+
+    /**
+     * Posts on the last timeline read that were left because they do not fit this account.
+     *
+     * @return list<array{author: string, theirs: string, reason: string}>
+     */
+    public function timelineSkipped(ConnectedAccount $account, string $niche, string $purpose = ''): array
+    {
+        $cached = Cache::get($this->timelineCacheKey($account, $niche, $purpose));
+        $rows = is_array($cached) && is_array($cached['skipped'] ?? null) ? $cached['skipped'] : [];
+
+        return array_values(array_slice($rows, 0, 5));
+    }
+
+    private function timelineCacheKey(ConnectedAccount $account, string $niche, string $purpose): string
+    {
+        return 'x-home-timeline:v7:'.$account->id.':'.md5(mb_strtolower(trim($niche).'|'.$purpose));
+    }
+
+    /**
+     * @param  list<array{author: string, theirs: string, reason: string}>  $skipped
+     * @param  array<string, mixed>  $candidate
+     */
+    private function rememberTimelineSkip(array &$skipped, array $candidate, string $reason): void
+    {
+        if (count($skipped) >= 5) {
+            return;
+        }
+
+        $text = trim((string) ($candidate['text'] ?? ''));
+        if ($text === '') {
+            return;
+        }
+
+        $author = trim((string) ($candidate['author'] ?? ''));
+        $skipped[] = [
+            'author' => $author !== '' ? $author : 'Someone',
+            'theirs' => mb_substr($text, 0, 180),
+            'reason' => $reason,
+        ];
     }
 
     /**
@@ -1396,6 +1458,33 @@ class XApiService
         }
 
         return array_keys($out);
+    }
+
+    /**
+     * True when the post uses a word from this account's niche, description, or audience.
+     */
+    public function sharesWords(string $text, string $purpose): bool
+    {
+        $purpose = trim($purpose);
+        if ($purpose === '' || trim($text) === '') {
+            return false;
+        }
+
+        return $this->textTouchesNiche($text, $purpose);
+    }
+
+    /**
+     * @param  list<string>  $phrases
+     */
+    public function sharesAny(string $text, array $phrases): bool
+    {
+        foreach ($phrases as $phrase) {
+            if ($this->sharesWords($text, $phrase)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function textTouchesNiche(string $text, string $niche): bool

@@ -47,11 +47,12 @@ class TrendEngineService
      *
      * @return list<array{trend: Trend, opportunity_score: float, suggestion: string}>|null
      */
-    public function rankedInNiche(User $user): ?array
+    public function rankedInNiche(User $user, ?\App\Models\ConnectedAccount $account = null, ?string $niche = null, ?string $purpose = null): ?array
     {
-        $account = $user->connectedAccounts()
+        $account ??= $user->connectedAccounts()
             ->where('platform', 'x')
             ->where('is_active', true)
+            ->orderBy('id')
             ->first();
 
         if (! $account) {
@@ -59,8 +60,8 @@ class TrendEngineService
         }
 
         $profile = $user->accountProfile;
-        $niche = $profile?->resolvedNiche() ?? '';
-        $purpose = trim((string) ($profile?->description ?? '').' '.(string) ($profile?->audience ?? ''));
+        $niche ??= $account->nicheFor($profile);
+        $purpose ??= trim($account->descriptionFor($profile).' '.$account->audienceFor($profile));
 
         try {
             $topics = $this->x->homeFeed($account, $niche, $purpose);
@@ -82,11 +83,12 @@ class TrendEngineService
      *
      * @return list<array{trend: Trend, opportunity_score: float, suggestion: string}>|null
      */
-    public function rankedForWatch(User $user): ?array
+    public function rankedForWatch(User $user, ?\App\Models\ConnectedAccount $account = null, ?string $niche = null, ?string $purpose = null): ?array
     {
-        $account = $user->connectedAccounts()
+        $account ??= $user->connectedAccounts()
             ->where('platform', 'x')
             ->where('is_active', true)
+            ->orderBy('id')
             ->first();
 
         if (! $account) {
@@ -94,8 +96,8 @@ class TrendEngineService
         }
 
         $profile = $user->accountProfile;
-        $niche = $profile?->resolvedNiche() ?? '';
-        $purpose = trim((string) ($profile?->description ?? '').' '.(string) ($profile?->audience ?? ''));
+        $niche ??= $account->nicheFor($profile);
+        $purpose ??= trim($account->descriptionFor($profile).' '.$account->audienceFor($profile));
 
         try {
             $topics = $this->x->homeFeed($account, $niche, $purpose, watch: true);
@@ -227,11 +229,12 @@ class TrendEngineService
      *
      * @return array{trends: list<array{name: string, angle: string, draft: string}>, source: string|null, note: string}
      */
-    public function topicsForPage(User $user): array
+    public function topicsForPage(User $user, ?\App\Models\ConnectedAccount $account = null): array
     {
-        $account = $user->connectedAccounts()
+        $account ??= $user->connectedAccounts()
             ->where('platform', 'x')
             ->where('is_active', true)
+            ->orderBy('id')
             ->first();
 
         if (! $account) {
@@ -243,8 +246,8 @@ class TrendEngineService
         }
 
         $profile = $user->accountProfile;
-        $niche = trim((string) ($profile?->resolvedNiche() ?? ''));
-        $purpose = trim((string) ($profile?->description ?? '').' '.(string) ($profile?->audience ?? ''));
+        $niche = trim($account->nicheFor($profile));
+        $purpose = trim($account->descriptionFor($profile).' '.$account->audienceFor($profile));
         $generic = $niche === '' || in_array(strtolower($niche), ['general', 'your niche', 'niche'], true);
         if ($generic && $purpose === '') {
             return [
@@ -254,7 +257,7 @@ class TrendEngineService
             ];
         }
 
-        $ranked = $this->rankedInNiche($user) ?? [];
+        $ranked = $this->rankedInNiche($user, $account, $niche, $purpose) ?? [];
         $trends = [];
         foreach (array_slice($ranked, 0, 5) as $row) {
             $name = trim((string) $row['trend']->name);

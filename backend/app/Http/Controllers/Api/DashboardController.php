@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\PlatformSetup;
+use App\Services\ApiSpend\ApiSpendService;
+use App\Services\GrowthAgent\AccountDeskService;
+use App\Services\GrowthAgent\XGoalPlan;
 use App\Services\TikTok\TikTokEngineService;
 use App\Services\TrendEngine\TrendEngineService;
 use App\Services\XApi\XApiService;
@@ -19,6 +22,9 @@ class DashboardController extends Controller
         private readonly TrendEngineService $trendEngine,
         private readonly YouTubeEngineService $youtube,
         private readonly TikTokEngineService $tiktok,
+        private readonly ApiSpendService $budget,
+        private readonly AccountDeskService $desk,
+        private readonly XGoalPlan $goals,
     ) {}
 
     public function stats(Request $request): JsonResponse
@@ -92,7 +98,10 @@ class DashboardController extends Controller
             ->where('platform', $platform)
             ->first();
 
-        $connected = $user->connectedAccounts()
+        $selected = $platform === 'x'
+            ? $this->desk->select($user, is_numeric($request->query('account')) ? (int) $request->query('account') : null)
+            : null;
+        $connected = $selected ?? $user->connectedAccounts()
             ->where('platform', $platform)
             ->where('is_active', true)
             ->first();
@@ -106,8 +115,20 @@ class DashboardController extends Controller
             }
         });
 
-        $purpose = trim((string) ($profile?->description ?? '').' '.(string) ($profile?->audience ?? '').' '.(string) ($profile?->resolvedNiche() ?? ''));
-        $drafts = (clone $posts)->where('status', 'draft')->latest()->limit(12)
+        $purpose = $platform === 'x'
+            ? $this->desk->purpose($user, $selected)
+            : trim((string) ($profile?->description ?? '').' '.(string) ($profile?->audience ?? '').' '.(string) ($profile?->resolvedNiche() ?? ''));
+        $postQuery = clone $posts;
+        if ($platform === 'x' && $selected) {
+            $primaryId = $this->desk->accounts($user)->first()?->id;
+            $postQuery->where(function ($query) use ($selected, $primaryId) {
+                $query->where('connected_account_id', $selected->id);
+                if ((int) $selected->id === (int) $primaryId) {
+                    $query->orWhereNull('connected_account_id');
+                }
+            });
+        }
+        $drafts = (clone $postQuery)->where('status', 'draft')->latest()->limit(12)
             ->get(['id', 'content', 'content_type', 'created_at']);
         if ($platform === 'x') {
             $drafts = $drafts
@@ -117,7 +138,7 @@ class DashboardController extends Controller
         }
 
         $preview = $platform !== 'x' && $connected === null;
-        $live = $platform === 'x' ? $this->liveActivity($user) : null;
+        $live = $platform === 'x' ? $this->liveActivity($user, $selected) : null;
         $seed = crc32($user->id.$platform.($profile?->niche ?? 'general'));
 
         $metrics = match ($platform) {
@@ -131,15 +152,7 @@ class DashboardController extends Controller
                 ['label' => 'Watch hours', 'value' => $preview ? 40 + ($seed % 900) : 0, 'sub' => 'Last 28 days'],
                 ['label' => 'Views', 'value' => $preview ? 2400 + ($seed % 50000) : 0, 'sub' => 'Last 28 days'],
             ],
-            default => $live && ($live['metrics_loaded'] ?? false) ? [
-                ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Results for the last seven days'],
-                ($live['views_known'] ?? false)
-                    ? ['label' => 'Impressions', 'value' => $live['impressions'], 'sub' => 'Results for the last seven days']
-                    : ['label' => 'Reactions', 'value' => (int) ($live['engagements'] ?? 0), 'sub' => 'Results for the last seven days'],
-                ($live['views_known'] ?? false)
-                    ? ['label' => 'Likes', 'value' => (int) ($live['likes'] ?? 0), 'sub' => 'Results for the last seven days']
-                    : ['label' => 'Likes', 'value' => (int) ($live['likes'] ?? 0), 'sub' => 'Results for the last seven days'],
-            ] : ($live ? [
+            default => $live && ($live['metrics_loaded'] ?? false) ? $this->xMetrics($live, $this->budget->showsFullDesk($user->id)) : ($live ? [
                 ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Results for the last seven days'],
                 ['label' => 'Reactions', 'value' => null, 'sub' => 'Could not load likes from X'],
                 ['label' => 'Likes', 'value' => null, 'sub' => 'Could not load likes from X'],
@@ -154,7 +167,7 @@ class DashboardController extends Controller
         $ideasNote = null;
         if ($platform === 'x' && $connected) {
             try {
-                $topicPage = $this->trendEngine->topicsForPage($user);
+                $topicPage = $this->trendEngine->topicsForPage($user, $selected);
                 $ideasNote = $topicPage['note'] ?? null;
                 foreach (array_slice($topicPage['trends'], 0, 5) as $topic) {
                     $name = trim((string) ($topic['name'] ?? ''));
@@ -215,15 +228,29 @@ class DashboardController extends Controller
             'metrics' => $metrics,
             'counts' => [
                 'drafts' => $platform === 'x'
-                    ? (clone $posts)->where('status', 'draft')->pluck('content')
+                    ? (clone $postQuery)->where('status', 'draft')->pluck('content')
                         ->reject(fn ($content) => $this->x->isOutsideTheAccount((string) $content, $purpose))
                         ->count()
                     : (clone $posts)->where('status', 'draft')->count(),
-                'posted' => (clone $posts)->where('status', 'posted')->count(),
+                'posted' => (clone $postQuery)->where('status', 'posted')->count(),
             ],
             'drafts' => $drafts,
             'ideas' => $ideas,
             'ideas_note' => $ideasNote,
+            'pace' => $platform === 'x' ? [
+                'ceiling' => $this->budget->dailyPostTarget($user->id),
+                'low' => (int) (config('billing.platforms.x.tiers.'.$this->budget->tier($user->id).'.api.post_low') ?? 6),
+                'high' => (int) (config('billing.platforms.x.tiers.'.$this->budget->tier($user->id).'.api.post_high') ?? 8),
+            ] : null,
+            'accounts' => $platform === 'x' ? [
+                'connected' => $this->desk->accounts($user)->count(),
+                'included' => $this->budget->accountLimit($user->id),
+            ] : null,
+            'judgment' => $platform === 'x' ? $this->desk->judgment($user, $selected) : null,
+            'goal_progress' => $platform === 'x' && $profile ? $this->goals->progress($profile, $live) : null,
+            'earned' => $platform === 'x' ? $this->desk->earned($live) : null,
+            'reply_record' => $platform === 'x' ? $this->desk->replyRecord($user, $selected) : null,
+            'voices' => $platform === 'x' ? $this->desk->voices($user, $selected) : null,
             'pipeline' => $youtubeDesk['pipeline'],
             'series' => $youtubeDesk['series'],
             'week' => $youtubeDesk['week'],
@@ -312,9 +339,33 @@ class DashboardController extends Controller
     /**
      * @return array{followers: int, impressions: int, engagement_rate: float, ranked_for_niche: bool, tweets: list<array<string, mixed>>}|null
      */
-    private function liveActivity(mixed $user): ?array
+    /**
+     * @param  array<string, mixed>  $live
+     * @return list<array{label: string, value: int, sub: string}>
+     */
+    private function xMetrics(array $live, bool $full): array
     {
-        $account = $user->connectedAccounts()
+        $sub = $full ? 'From the latest read' : 'Results for the last seven days';
+        $cards = [
+            ['label' => 'Followers', 'value' => (int) $live['followers'], 'sub' => $sub],
+            ($live['views_known'] ?? false)
+                ? ['label' => 'Impressions', 'value' => (int) $live['impressions'], 'sub' => $sub]
+                : ['label' => 'Reactions', 'value' => (int) ($live['engagements'] ?? 0), 'sub' => $sub],
+            ['label' => 'Likes', 'value' => (int) ($live['likes'] ?? 0), 'sub' => $sub],
+        ];
+
+        if ($full) {
+            $cards[] = ['label' => 'Replies', 'value' => (int) ($live['replies'] ?? 0), 'sub' => $sub];
+            $cards[] = ['label' => 'Reposts', 'value' => (int) ($live['reposts'] ?? 0), 'sub' => $sub];
+            $cards[] = ['label' => 'Profile visits', 'value' => (int) ($live['profile_clicks'] ?? 0), 'sub' => $sub];
+        }
+
+        return $cards;
+    }
+
+    private function liveActivity(mixed $user, mixed $account = null): ?array
+    {
+        $account ??= $user->connectedAccounts()
             ->where('platform', 'x')
             ->where('is_active', true)
             ->first();
@@ -324,7 +375,7 @@ class DashboardController extends Controller
         }
 
         try {
-            return $this->x->accountActivity($account, $user->accountProfile?->resolvedNiche());
+            return $this->x->accountActivity($account, $account->nicheFor($user->accountProfile));
         } catch (Throwable $e) {
             report($e);
 

@@ -36,51 +36,108 @@ class ConnectedAccountController extends Controller
             ->first();
 
         if ($account) {
-            return response()->json([
-                'available' => true,
-                'connected' => true,
-                'username' => $account->username,
-                'authorize_url' => null,
-                'message' => "@{$account->username} is connected.",
-            ]);
+            return response()->json($this->xPayload($request, true, $account->username));
         }
 
         if (! $this->x->configured()) {
-            return response()->json([
-                'available' => false,
-                'connected' => false,
-                'authorize_url' => null,
-                'message' => 'X sign-in is not turned on for this server yet.',
-            ]);
+            return response()->json($this->xPayload($request, false, null, 'X sign-in is not turned on for this server yet.', false));
         }
 
         $next = $this->safeNext($request->query('next'));
 
-        return response()->json([
-            'available' => true,
-            'connected' => false,
-            'authorize_url' => $this->x->authorizationUrl([
+        return response()->json($this->xPayload(
+            $request,
+            false,
+            null,
+            'Connect X to publish and read live totals.',
+            true,
+            $this->x->authorizationUrl([
                 'provider' => 'x',
                 'purpose' => 'connect',
                 'user_id' => $request->user()->id,
                 'next' => $next,
             ]),
-            'message' => 'Connect X to publish and read live totals.',
+        ));
+    }
+
+    public function updateVoice(Request $request, int $account): JsonResponse
+    {
+        $row = $request->user()
+            ->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->whereKey($account)
+            ->first();
+
+        if (! $row) {
+            return response()->json([
+                'error' => ['message' => 'That X account is not connected.'],
+            ], 404);
+        }
+
+        $data = $request->validate([
+            'niche' => ['nullable', 'string', 'max:80'],
+            'description' => ['nullable', 'string', 'max:500'],
+            'audience' => ['nullable', 'string', 'max:200'],
         ]);
+
+        $row->update([
+            'voice_niche' => $this->blankToNull($data['niche'] ?? null),
+            'voice_description' => $this->blankToNull($data['description'] ?? null),
+            'voice_audience' => $this->blankToNull($data['audience'] ?? null),
+        ]);
+
+        return response()->json($this->xPayload($request, true, $row->username));
     }
 
     public function disconnect(Request $request): JsonResponse
     {
-        $request->user()
-            ->connectedAccounts()
-            ->where('platform', 'x')
-            ->delete();
+        $query = $request->user()->connectedAccounts()->where('platform', 'x');
+        $id = $request->input('account', $request->query('account'));
+        if (is_numeric($id)) {
+            $query->whereKey((int) $id);
+        }
+        $query->delete();
 
-        return response()->json([
-            'available' => $this->x->configured(),
-            'connected' => false,
-            'message' => 'X is disconnected.',
-        ]);
+        $left = $request->user()->connectedAccounts()->where('platform', 'x')->where('is_active', true)->orderBy('id')->first();
+
+        return response()->json($left
+            ? $this->xPayload($request, true, $left->username)
+            : $this->xPayload($request, false, null, 'X is disconnected.', $this->x->configured()));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function xPayload(Request $request, bool $connected, ?string $username, ?string $message = null, bool $available = true, ?string $authorizeUrl = null): array
+    {
+        $accounts = $request->user()->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->get(['id', 'username', 'voice_niche', 'voice_description', 'voice_audience']);
+
+        return [
+            'available' => $available,
+            'connected' => $connected,
+            'username' => $username,
+            'authorize_url' => $authorizeUrl,
+            'message' => $message ?? ($username ? "@{$username} is connected." : 'Connect X to publish and read live totals.'),
+            'accounts' => $accounts->map(fn ($account) => [
+                'id' => (int) $account->id,
+                'username' => $account->username,
+                'niche' => (string) ($account->voice_niche ?? ''),
+                'description' => (string) ($account->voice_description ?? ''),
+                'audience' => (string) ($account->voice_audience ?? ''),
+            ])->all(),
+        ];
+    }
+
+    private function blankToNull(mixed $value): ?string
+    {
+        $text = trim((string) $value);
+
+        return $text === '' ? null : $text;
     }
 
     public function tiktokConnect(Request $request): JsonResponse

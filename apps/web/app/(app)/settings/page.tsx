@@ -55,6 +55,7 @@ export default function SettingsPage() {
 
     const flag = new URLSearchParams(window.location.search).get("x");
     if (flag === "connected") toast.success("X is connected.");
+    if (flag === "account_limit") toast.error("This plan has no room for another X account.");
     if (flag === "error") toast.error("X could not be connected. Try again.");
     if (flag) {
       const url = new URL(window.location.href);

@@ -2,6 +2,7 @@
 
 import { MessageCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { DeskHeading } from "@/components/DeskHeading";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +21,8 @@ type ViralPost = {
   replies: number;
   impressions?: number;
   minutes_ago: number;
-  kind?: "mention" | "niche";
+  kind?: "mention" | "niche" | "ambition";
+  fits?: boolean;
 };
 
 type ReplyStats = {
@@ -33,8 +35,26 @@ type ReplyStats = {
 
 type ReplyDraft = { content: string; tone: string };
 
+type CircleAccount = {
+  author: string;
+  followers: number;
+  likes: number;
+  replies: number;
+  impressions: number;
+  content: string;
+};
+
+type ReplyRecord = {
+  answered: { author: string; theirs: string; ours: string }[];
+  skipped: { author: string; theirs: string; reason: string }[];
+};
+
 export default function EngagementPage() {
+  const search = useSearchParams();
+  const account = search.get("account");
   const [posts, setPosts] = useState<ViralPost[]>([]);
+  const [circle, setCircle] = useState<CircleAccount[]>([]);
+  const [record, setRecord] = useState<ReplyRecord>({ answered: [], skipped: [] });
   const [stats, setStats] = useState<ReplyStats | null>(null);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
@@ -43,14 +63,17 @@ export default function EngagementPage() {
   const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
-    api<{ posts: ViralPost[]; note: string; stats: ReplyStats }>("/engagement/feed")
+    const path = account ? `/engagement/feed?account=${account}` : "/engagement/feed";
+    api<{ posts: ViralPost[]; circle?: CircleAccount[]; record?: ReplyRecord; note: string; stats: ReplyStats }>(path)
       .then((res) => {
         setPosts(res.posts);
+        setCircle(res.circle ?? []);
+        setRecord(res.record ?? { answered: [], skipped: [] });
         setStats(res.stats);
         setNote(res.note);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [account]);
 
   const shown = activePost ?? posts[0] ?? null;
 
@@ -61,7 +84,11 @@ export default function EngagementPage() {
     try {
       const res = await api<{ drafts: ReplyDraft[] }>("/engagement/reply-drafts", {
         method: "POST",
-        body: JSON.stringify({ post_id: post.id, context: post.content.slice(0, 200) }),
+        body: JSON.stringify({
+          post_id: post.id,
+          context: post.content.slice(0, 200),
+          account: account ? Number(account) : undefined,
+        }),
       });
       setDrafts(res.drafts);
     } catch (err) {
@@ -83,9 +110,34 @@ export default function EngagementPage() {
     <div className="space-y-6">
       <DeskHeading icon={MessageCircle} title="Replies">
         <p className="text-muted-foreground">
-          Three to five mentions and replies on this account, with the one worth answering on the right.
+          People whose posts match what this account is for come first. The reply is written in this voice, with no link.
         </p>
       </DeskHeading>
+
+      {(record.answered.length > 0 || record.skipped.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>This morning</CardTitle>
+            <CardDescription>Replies that went out, and posts that were left because they do not fit.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {record.answered.map((row) => (
+              <div key={`${row.author}-${row.ours}`}>
+                <p className="text-sm font-medium">{row.author}</p>
+                {row.theirs && <p className="text-xs text-muted-foreground">{row.theirs}</p>}
+                <p className="mt-1 text-sm">{row.ours}</p>
+              </div>
+            ))}
+            {record.skipped.map((row) => (
+              <div key={`${row.author}-${row.theirs}`}>
+                <p className="text-sm font-medium">{row.author}</p>
+                {row.theirs && <p className="text-sm">{row.theirs}</p>}
+                <p className="text-xs text-muted-foreground">{row.reason}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {stats && stats.conversations > 0 && (
         <div className="grid gap-4 sm:grid-cols-4">
@@ -105,6 +157,32 @@ export default function EngagementPage() {
         </div>
       )}
 
+      {circle.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Larger accounts in this circle</CardTitle>
+            <CardDescription>
+              Accounts already on this home timeline with more followers, and how their latest post did.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {circle.map((account) => (
+              <div key={account.author} className="border-t border-border pt-4 first:border-t-0 first:pt-0">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-sm font-medium">{account.author}</p>
+                  <p className="text-xs text-muted-foreground">{account.followers.toLocaleString()} followers</p>
+                </div>
+                <p className="mt-2 text-sm leading-relaxed">{account.content}</p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {account.likes.toLocaleString()} likes · {account.replies.toLocaleString()} replies
+                  {account.impressions > 0 ? ` · ${account.impressions.toLocaleString()} impressions` : ""}
+                </p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {loading ? (
         <LoadingMark />
       ) : posts.length === 0 ? (
@@ -121,7 +199,9 @@ export default function EngagementPage() {
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between gap-2">
                       <CardTitle className="text-sm font-medium">{post.author}</CardTitle>
-                      <Badge variant="secondary">{post.kind === "mention" ? "On your account" : "Reply"}</Badge>
+                      <Badge variant="secondary">
+                        {post.fits ? "Fits this account" : post.kind === "mention" ? "On your account" : "Reply"}
+                      </Badge>
                     </div>
                     <CardDescription>
                       {post.author_followers.toLocaleString()} followers · {post.minutes_ago}m ago
@@ -172,7 +252,7 @@ export default function EngagementPage() {
                   {shown.author_followers ? ` · ${shown.author_followers.toLocaleString()} followers` : ""}
                 </p>
                 <Button size="sm" variant="secondary" onClick={() => generateReplies(shown)} disabled={generating}>
-                  {generating ? "Writing…" : "Draft replies"}
+                  {generating ? "Writing…" : "Reply in this voice"}
                 </Button>
               </>
             )}

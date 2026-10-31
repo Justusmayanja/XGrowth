@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight } from "lucide-react";
@@ -142,6 +142,19 @@ type Desk = {
   niche?: NicheResearch | null;
   audit?: ChannelAudit | null;
   tiktok?: TikTokDesk;
+  pace?: { ceiling: number; low: number; high: number } | null;
+  accounts?: { connected: number; included: number } | null;
+  judgment?: { decision: string | null; line: string; reason: string } | null;
+  goal_progress?: { goal: string; label: string; value: number | null; sub: string; lesson: string } | null;
+  earned?: {
+    profile: { content: string; visits: number } | null;
+    replies: { content: string; replies: number } | null;
+  } | null;
+  reply_record?: {
+    answered: { author: string; theirs: string; ours: string }[];
+    skipped: { author: string; theirs: string; reason: string }[];
+  } | null;
+  voices?: { id: number; username: string | null; niche: string; own_voice: boolean; uses_main_voice: boolean; selected: boolean }[] | null;
 };
 
 const LEDE: Record<Platform, string> = {
@@ -163,6 +176,9 @@ function composeHref(platform: Platform, topic?: string) {
 }
 
 function paceLine(desk: Desk): string {
+  if (desk.pace) {
+    return `Today's cap is ${desk.pace.ceiling}. It posts only when a moment is strong.`;
+  }
   return desk.setup.settings.mode === "proactive" ? "Even on a quiet day" : "When something is happening";
 }
 
@@ -349,16 +365,71 @@ function XBody({ desk }: { desk: Desk }) {
             title="Replies"
             description={
               desk.connected
-                ? "Mentions and replies on this account, with the counts X returned."
+                ? "Who was answered this morning, and who was left because the post does not fit."
                 : "Connect X and mentions on this account show up here."
             }
           >
-            <Link href={desk.connected ? "/engagement" : "/settings"}>
-              <Button variant="secondary" size="sm">{desk.connected ? "Open replies" : "Connect X"}</Button>
-            </Link>
+            <ReplyRecord desk={desk} />
           </Section>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReplyRecord({ desk }: { desk: Desk }) {
+  const selected = desk.voices?.find((voice) => voice.selected);
+  const href = !desk.connected
+    ? "/settings"
+    : selected
+      ? `/engagement?account=${selected.id}`
+      : "/engagement";
+  const answered = desk.reply_record?.answered ?? [];
+  const skipped = desk.reply_record?.skipped ?? [];
+
+  if (!desk.connected) {
+    return (
+      <Link href="/settings">
+        <Button variant="secondary" size="sm">Connect X</Button>
+      </Link>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-xs text-muted-foreground">Answered</p>
+        {answered.length === 0 ? (
+          <p className="mt-1 text-sm text-muted-foreground">No replies went out today.</p>
+        ) : (
+          <ul className="mt-2 space-y-3">
+            {answered.map((row) => (
+              <li key={`${row.author}-${row.ours}`}>
+                <p className="text-sm">{row.author}</p>
+                {row.theirs && <p className="text-xs text-muted-foreground">{row.theirs}</p>}
+                <p className="mt-1 text-sm">{row.ours}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {skipped.length > 0 && (
+        <div>
+          <p className="text-xs text-muted-foreground">Left alone</p>
+          <ul className="mt-2 space-y-3">
+            {skipped.map((row) => (
+              <li key={`${row.author}-${row.theirs}`}>
+                <p className="text-sm">{row.author}</p>
+                {row.theirs && <p className="text-sm">{row.theirs}</p>}
+                <p className="text-xs text-muted-foreground">{row.reason}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <Link href={href}>
+        <Button variant="secondary" size="sm">Open replies</Button>
+      </Link>
     </div>
   );
 }
@@ -388,7 +459,19 @@ function XDeskSkeleton() {
   );
 }
 
-function XDeskView({ desk, chosen, goals }: { desk: Desk; chosen: Platform[]; goals: string }) {
+function XDeskView({
+  desk,
+  chosen,
+  goals,
+  onAccount,
+}: {
+  desk: Desk;
+  chosen: Platform[];
+  goals: string;
+  onAccount: (id: number) => void;
+}) {
+  const voices = desk.voices ?? [];
+  const selected = voices.find((voice) => voice.selected);
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -399,18 +482,52 @@ function XDeskView({ desk, chosen, goals }: { desk: Desk; chosen: Platform[]; go
         <AddPlatforms chosen={chosen} />
       </div>
 
+      {voices.length > 1 && (
+        <div className="flex flex-wrap gap-2">
+          {voices.map((voice) => (
+            <button
+              key={voice.id}
+              type="button"
+              onClick={() => onAccount(voice.id)}
+              className={
+                voice.selected
+                  ? "rounded-full bg-foreground px-3 py-1 text-xs text-background"
+                  : "rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
+              }
+            >
+              @{voice.username || "account"}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="desk-arrive grid gap-4 sm:grid-cols-3">
         <Card className="h-full">
           <CardContent className="pt-6">
             <p className="text-xs text-muted-foreground">Posting</p>
             <p className="mt-1 text-sm font-medium">{paceLine(desk)}</p>
             <p className="mt-1 text-sm text-muted-foreground">{postingLine(desk)}</p>
+            {desk.pace && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                The cap changes by day: {desk.pace.low}, {desk.pace.low + 1}, or {desk.pace.high}. It is not a schedule.
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card className="h-full">
           <CardContent className="pt-6">
             <p className="text-xs text-muted-foreground">Goals</p>
             <p className="mt-1 text-sm">{goals}</p>
+            {desk.goal_progress && (
+              <div className="mt-3 border-t border-border pt-3">
+                <p className="text-xs text-muted-foreground">{desk.goal_progress.label}</p>
+                <p className="mt-1 text-sm font-medium tabular-nums">
+                  {desk.goal_progress.value == null ? "—" : desk.goal_progress.value.toLocaleString()}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">{desk.goal_progress.sub}</p>
+                <p className="mt-2 text-xs text-muted-foreground">{desk.goal_progress.lesson}</p>
+              </div>
+            )}
             <Link href="/onboarding?platform=x" className="mt-1 inline-block text-xs text-muted-foreground hover:text-foreground">
               Change
             </Link>
@@ -420,7 +537,17 @@ function XDeskView({ desk, chosen, goals }: { desk: Desk; chosen: Platform[]; go
           <CardContent className="pt-6">
             <p className="text-xs text-muted-foreground">Account</p>
             {desk.connected ? (
-              <p className="mt-1 text-sm">{desk.connected.username ? `@${desk.connected.username}` : "Connected"}</p>
+              <>
+                <p className="mt-1 text-sm">{desk.connected.username ? `@${desk.connected.username}` : "Connected"}</p>
+                {selected?.niche && (
+                  <p className="mt-1 text-xs text-muted-foreground">{selected.niche}</p>
+                )}
+                {desk.accounts && desk.accounts.included > 1 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {desk.accounts.connected} of {desk.accounts.included} accounts on this plan
+                  </p>
+                )}
+              </>
             ) : (
               <Link href="/settings" className="mt-1 inline-block text-sm underline underline-offset-4">
                 Connect X
@@ -429,6 +556,21 @@ function XDeskView({ desk, chosen, goals }: { desk: Desk; chosen: Platform[]; go
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardContent className="pt-6">
+          <p className="text-xs text-muted-foreground">Today</p>
+          <p className="mt-1 text-sm font-medium">{desk.judgment?.line ?? "It has not looked yet today."}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {desk.judgment?.reason ?? "When it looks, this line says why it posted or why it stayed quiet."}
+          </p>
+          {selected?.uses_main_voice && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              This account is still using the main voice. Set its own under Settings.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="desk-arrive grid gap-4 sm:grid-cols-3" style={{ animationDelay: "60ms" }}>
         {desk.metrics.map((metric) => (
@@ -452,6 +594,34 @@ function XDeskView({ desk, chosen, goals }: { desk: Desk; chosen: Platform[]; go
           </Link>
         ))}
       </div>
+
+      <Card>
+        <CardContent className="space-y-4 pt-6">
+          <p className="text-xs text-muted-foreground">What reached the profile</p>
+          {desk.earned?.profile ? (
+            <div>
+              <p className="text-sm font-medium">This post sent people to the profile</p>
+              <p className="mt-1 text-sm">{desk.earned.profile.content}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {desk.earned.profile.visits.toLocaleString()} profile {desk.earned.profile.visits === 1 ? "visit" : "visits"}
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              The latest read did not show a post that sent people to the profile.
+            </p>
+          )}
+          {desk.earned?.replies && (
+            <div>
+              <p className="text-sm font-medium">This post earned replies</p>
+              <p className="mt-1 text-sm">{desk.earned.replies.content}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {desk.earned.replies.replies.toLocaleString()} {desk.earned.replies.replies === 1 ? "reply" : "replies"}
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <XBody desk={desk} />
     </div>
@@ -801,6 +971,7 @@ function YouTubeBody({ desk, onChange }: { desk: Desk; onChange: () => Promise<v
 
 export function PlatformDesk({ platform }: { platform: Platform }) {
   const router = useRouter();
+  const accountId = useRef<number | null>(null);
   const [desk, setDesk] = useState<Desk | null>(null);
   const [chosen, setChosen] = useState<Platform[]>([]);
   const [error, setError] = useState("");
@@ -813,7 +984,8 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
         return;
       }
       setChosen(state.platforms);
-      setDesk(await api<Desk>(`/dashboard/platform/${platform}`, undefined, 20000, "The dashboard is taking too long. Refresh in a moment."));
+      const query = accountId.current ? `?account=${accountId.current}` : "";
+      setDesk(await api<Desk>(`/dashboard/platform/${platform}${query}`, undefined, 20000, "The dashboard is taking too long. Refresh in a moment."));
     } catch (err) {
       if (!getToken()) {
         router.replace("/login");
@@ -824,10 +996,16 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
   }, [platform, router]);
 
   useEffect(() => {
+    accountId.current = null;
     setDesk(null);
     setError("");
     void load();
   }, [load]);
+
+  function chooseAccount(id: number) {
+    accountId.current = id;
+    void load();
+  }
 
   const name = platformName(platform);
 
@@ -885,7 +1063,7 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
   const goals = desk.setup.goals.length ? formatMultiLabels(desk.setup.goals, PLATFORM_GOALS[platform]) : "Not set";
 
   if (platform === "x") {
-    return <XDeskView desk={desk} chosen={chosen} goals={goals} />;
+    return <XDeskView desk={desk} chosen={chosen} goals={goals} onAccount={chooseAccount} />;
   }
 
   return (

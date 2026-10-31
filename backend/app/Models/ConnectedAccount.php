@@ -13,6 +13,9 @@ class ConnectedAccount extends Model
         'platform',
         'platform_account_id',
         'username',
+        'voice_niche',
+        'voice_description',
+        'voice_audience',
         'access_token',
         'refresh_token',
         'token_expires_at',
@@ -47,5 +50,33 @@ class ConnectedAccount extends Model
     public function posts(): HasMany
     {
         return $this->hasMany(Post::class);
+    }
+
+    public function hasOwnVoice(): bool
+    {
+        return trim((string) $this->voice_niche) !== ''
+            || trim((string) $this->voice_description) !== ''
+            || trim((string) $this->voice_audience) !== '';
+    }
+
+    public function nicheFor(?AccountProfile $profile): string
+    {
+        $own = trim((string) $this->voice_niche);
+
+        return $own !== '' ? $own : ($profile?->resolvedNiche() ?? '');
+    }
+
+    public function descriptionFor(?AccountProfile $profile): string
+    {
+        $own = trim((string) $this->voice_description);
+
+        return $own !== '' ? $own : trim((string) ($profile?->description ?? ''));
+    }
+
+    public function audienceFor(?AccountProfile $profile): string
+    {
+        $own = trim((string) $this->voice_audience);
+
+        return $own !== '' ? $own : trim((string) ($profile?->audience ?? ''));
     }
 }

@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\AiDecision;
 use App\Models\ConnectedAccount;
 use App\Services\ApiSpend\ApiSpendService;
 use App\Models\Post;
 use App\Models\Trend;
 use App\Models\User;
+use App\Services\GrowthAgent\GrowthAgentService;
 use App\Services\TrendEngine\TrendEngineService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use RuntimeException;
@@ -76,6 +78,50 @@ class XLiveFeaturesTest extends TestCase
 
         Http::assertSent(fn ($request) => $request->url() === 'https://api.twitter.com/2/tweets'
             && $request['text'] === 'A real post, not a template.');
+    }
+
+    public function test_a_draft_with_a_link_is_not_posted(): void
+    {
+        Http::fake();
+
+        $user = User::factory()->create();
+        ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'mackie',
+            'access_token' => 'user-token',
+            'refresh_token' => 'refresh-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+        $draft = $user->posts()->create([
+            'content' => 'The dinner is ready https://shop.example/menu',
+            'content_type' => 'tweet',
+            'status' => 'draft',
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson("/api/content/drafts/{$draft->id}/publish")
+            ->assertStatus(422);
+
+        Http::assertNothingSent();
+        $this->assertSame('draft', $draft->fresh()->status);
+    }
+
+    public function test_pro_posts_more_and_agency_allows_four_accounts(): void
+    {
+        $budget = app(ApiSpendService::class);
+        $pro = User::factory()->create(['subscription_plan' => 'pro']);
+        $agency = User::factory()->create(['subscription_plan' => 'agency']);
+
+        $this->assertContains($budget->dailyPostTarget($pro->id), [11, 12, 13]);
+        $this->assertSame(5, $budget->dailyReplies($pro->id));
+        $this->assertSame(5, $budget->dailyLikes($pro->id));
+        $this->assertSame(1, $budget->accountLimit($pro->id));
+        $this->assertContains($budget->dailyPostTarget($agency->id), [6, 7, 8]);
+        $this->assertSame(4, $budget->accountLimit($agency->id));
+        $this->assertSame(9450 * 4, $budget->monthlyCapMills($agency->id));
     }
 
     public function test_the_reply_feed_uses_mentions_on_the_account(): void
@@ -186,6 +232,86 @@ class XLiveFeaturesTest extends TestCase
             ->assertJsonPath('posts.0.kind', 'mention')
             ->assertJsonPath('posts.0.likes', 1)
             ->assertJsonPath('stats.conversations', 1);
+    }
+
+    public function test_fitting_posts_lead_and_pro_shows_larger_accounts_in_the_circle(): void
+    {
+        $user = User::factory()->create(['subscription_plan' => 'pro']);
+        $user->accountProfile()->create([
+            'custom_niche' => 'budget cooking',
+            'description' => 'Cheap weeknight meals for one.',
+            'audience' => 'Students cooking on a budget',
+            'onboarding_completed' => true,
+        ]);
+        $account = ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'mackie',
+            'access_token' => 'user-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+        Cache::put('x-activity:v8:'.$account->id, ['followers' => 500, 'tweets' => [], 'views_known' => true], now()->addHour());
+
+        Http::fake([
+            'https://api.twitter.com/2/users/42/mentions*' => Http::response([
+                'data' => [[
+                    'id' => '55',
+                    'text' => 'A mention on the account',
+                    'author_id' => '7',
+                    'created_at' => now()->subMinutes(5)->toIso8601String(),
+                    'public_metrics' => ['like_count' => 1, 'retweet_count' => 0, 'reply_count' => 0, 'impression_count' => 10],
+                ]],
+                'includes' => [
+                    'users' => [[
+                        'id' => '7',
+                        'username' => 'cook',
+                        'public_metrics' => ['followers_count' => 120],
+                    ]],
+                ],
+            ]),
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
+                'data' => [
+                    [
+                        'id' => '900',
+                        'text' => 'Budget cooking gets a family through the week',
+                        'author_id' => '90',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(20)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 40, 'retweet_count' => 2, 'reply_count' => 6, 'impression_count' => 800],
+                    ],
+                    [
+                        'id' => '901',
+                        'text' => 'Cheap dinners for budget cooking tonight',
+                        'author_id' => '91',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(30)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 2, 'retweet_count' => 0, 'reply_count' => 1, 'impression_count' => 20],
+                    ],
+                ],
+                'includes' => [
+                    'users' => [
+                        ['id' => '90', 'username' => 'bigkitchen', 'public_metrics' => ['followers_count' => 80000]],
+                        ['id' => '91', 'username' => 'smallkitchen', 'public_metrics' => ['followers_count' => 20]],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->getJson('/api/engagement/feed')
+            ->assertOk()
+            ->assertJsonPath('posts.0.id', '900')
+            ->assertJsonPath('posts.0.kind', 'ambition')
+            ->assertJsonPath('posts.0.fits', true)
+            ->assertJsonPath('posts.0.author', '@bigkitchen')
+            ->assertJsonPath('circle.0.author', '@bigkitchen')
+            ->assertJsonPath('circle.0.followers', 80000)
+            ->assertJsonPath('circle.0.likes', 40)
+            ->assertJsonPath('circle.0.replies', 6);
+
+        $this->assertNotContains('@smallkitchen', array_column($response->json('circle'), 'author'));
     }
 
     public function test_the_topics_page_drafts_a_few_current_topics(): void
@@ -417,7 +543,7 @@ class XLiveFeaturesTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/tweets/search/recent'));
     }
 
-    public function test_the_home_timeline_is_reused_for_eight_hours(): void
+    public function test_the_home_timeline_is_reused_for_a_day(): void
     {
         $user = User::factory()->create();
         $user->accountProfile()->create([
@@ -471,7 +597,7 @@ class XLiveFeaturesTest extends TestCase
         );
         $this->assertCount(1, $pulls());
 
-        $this->travel(3)->hours();
+        $this->travel(20)->hours();
         $engine->rankedInNiche($user);
         $this->assertCount(2, $pulls());
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/tweets/search/recent'));
@@ -652,7 +778,8 @@ class XLiveFeaturesTest extends TestCase
             ->getJson('/api/engagement/feed')
             ->assertOk()
             ->assertJsonCount(5, 'posts')
-            ->assertJsonPath('posts.0.id', '6')
+            ->assertJsonPath('posts.0.id', '3')
+            ->assertJsonFragment(['id' => '6'])
             ->assertJsonPath('stats.conversations', 5);
     }
 
@@ -1016,19 +1143,19 @@ class XLiveFeaturesTest extends TestCase
             ->assertJsonPath('metrics.2.sub', 'Results for the last seven days');
     }
 
-    public function test_posts_rotate_between_four_and_six_then_stop(): void
+    public function test_posts_rotate_between_six_and_eight_then_stop(): void
     {
         $user = User::factory()->create();
         $budget = app(ApiSpendService::class);
         $target = $budget->dailyPostTarget($user->id);
 
-        $this->assertContains($target, [4, 5, 6]);
+        $this->assertContains($target, [6, 7, 8]);
         for ($i = 0; $i < $target; $i++) {
             $this->assertTrue($budget->canPost($user->id));
             $budget->recordPost($user->id);
         }
         $this->assertFalse($budget->canPost($user->id));
-        for ($i = 0; $i < 3; $i++) {
+        for ($i = 0; $i < 2; $i++) {
             $this->assertTrue($budget->canReply($user->id));
             $budget->recordReply($user->id);
         }
@@ -1125,6 +1252,174 @@ class XLiveFeaturesTest extends TestCase
         $this->travel(8)->days();
         $this->actingAs($user, 'sanctum')->getJson('/api/dashboard/platform/x')->assertOk();
         $this->assertCount(2, $me());
+    }
+
+    public function test_the_x_desk_names_the_quiet_day_the_post_that_earned_visits_and_the_replies(): void
+    {
+        [$user] = $this->connectedCook();
+        $account = ConnectedAccount::query()->where('user_id', $user->id)->first();
+        $user->accountProfile->update([
+            'custom_niche' => 'budget cooking',
+            'description' => 'Cheap meals',
+        ]);
+
+        AiDecision::create([
+            'user_id' => $user->id,
+            'connected_account_id' => $account->id,
+            'decision' => 'WAIT',
+            'reason' => 'Nothing loud enough is happening to post',
+            'context' => [],
+        ]);
+        AiDecision::create([
+            'user_id' => $user->id,
+            'connected_account_id' => $account->id,
+            'decision' => 'ENGAGE',
+            'action_taken' => 'replied',
+            'reason' => 'Replied in this voice. No link.',
+            'context' => [
+                'author' => '@pantry',
+                'theirs' => 'What is a cheap dinner this week?',
+                'ours' => 'Rice, an egg, and whatever is already in the pan.',
+            ],
+        ]);
+
+        Http::fake([
+            'https://api.twitter.com/2/users/me*' => Http::response([
+                'data' => ['id' => '42', 'public_metrics' => ['followers_count' => 18]],
+            ]),
+            'https://api.twitter.com/2/users/42/tweets*' => Http::response([
+                'data' => [
+                    [
+                        'id' => '1',
+                        'text' => 'A cheap dinner is rice, an egg, and soy sauce',
+                        'author_id' => '42',
+                        'created_at' => now()->subHours(3)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 2, 'retweet_count' => 0, 'reply_count' => 4],
+                        'organic_metrics' => ['impression_count' => 80, 'user_profile_clicks' => 1],
+                    ],
+                    [
+                        'id' => '2',
+                        'text' => 'The weekly shop gets smaller when the meal is planned',
+                        'author_id' => '42',
+                        'created_at' => now()->subHours(5)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 1, 'retweet_count' => 0, 'reply_count' => 0],
+                        'organic_metrics' => ['impression_count' => 40, 'user_profile_clicks' => 6],
+                    ],
+                ],
+            ]),
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
+                'data' => [
+                    [
+                        'id' => '9',
+                        'text' => 'Arsenal scored in the second half',
+                        'author_id' => '7',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(12)->toIso8601String(),
+                    ],
+                    [
+                        'id' => '10',
+                        'text' => 'Budget cooking is how the week stays cheap',
+                        'author_id' => '8',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(20)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 3, 'reply_count' => 1, 'impression_count' => 20],
+                    ],
+                ],
+                'includes' => [
+                    'users' => [
+                        ['id' => '7', 'username' => 'arsenal', 'public_metrics' => ['followers_count' => 1000]],
+                        ['id' => '8', 'username' => 'meals', 'public_metrics' => ['followers_count' => 100]],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x')
+            ->assertOk()
+            ->assertJsonPath('judgment.line', 'It stayed quiet.')
+            ->assertJsonPath('judgment.reason', 'Nothing in this niche was loud enough. It did not post to fill the day.')
+            ->assertJsonPath('earned.profile.content', 'The weekly shop gets smaller when the meal is planned')
+            ->assertJsonPath('earned.profile.visits', 6)
+            ->assertJsonPath('earned.replies.content', 'A cheap dinner is rice, an egg, and soy sauce')
+            ->assertJsonPath('earned.replies.replies', 4)
+            ->assertJsonPath('reply_record.answered.0.author', '@pantry')
+            ->assertJsonPath('reply_record.answered.0.ours', 'Rice, an egg, and whatever is already in the pan.')
+            ->assertJsonPath('reply_record.skipped.0.author', '@arsenal')
+            ->assertJsonPath('reply_record.skipped.0.reason', 'It does not match what this account is for.');
+    }
+
+    public function test_each_x_account_is_watched_in_its_own_voice(): void
+    {
+        config(['openai.api_key' => '']);
+
+        $user = User::factory()->create();
+        $user->accountProfile()->create([
+            'custom_niche' => 'budget cooking',
+            'description' => 'Cheap meals',
+            'onboarding_completed' => true,
+            'engine_paused' => false,
+            'automation_level' => 1,
+        ]);
+        $cook = ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'cook',
+            'access_token' => 'cook-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+        $lender = ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '77',
+            'username' => 'lender',
+            'voice_niche' => 'money lending',
+            'voice_description' => 'Small loans for shops',
+            'voice_audience' => 'Shop owners',
+            'access_token' => 'lender-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api.twitter.com/2/users/*/timelines/reverse_chronological*' => Http::response(['data' => []]),
+        ]);
+
+        $decision = app(GrowthAgentService::class)->evaluateOpportunities($user->id);
+
+        $this->assertSame('WAIT', $decision);
+        $this->assertDatabaseHas('ai_decisions', [
+            'user_id' => $user->id,
+            'connected_account_id' => $cook->id,
+            'decision' => 'WAIT',
+        ]);
+        $this->assertDatabaseHas('ai_decisions', [
+            'user_id' => $user->id,
+            'connected_account_id' => $lender->id,
+            'decision' => 'WAIT',
+        ]);
+
+        $urls = collect(Http::recorded())->map(fn (array $pair) => $pair[0]->url())->implode(' ');
+        $this->assertStringContainsString('/users/42/timelines/reverse_chronological', $urls);
+        $this->assertStringContainsString('/users/77/timelines/reverse_chronological', $urls);
+
+        $this->actingAs($user, 'sanctum')
+            ->putJson("/api/connected-accounts/x/{$lender->id}/voice", [
+                'niche' => 'money lending',
+                'description' => 'Small loans for shops',
+                'audience' => 'Shop owners',
+            ])
+            ->assertOk()
+            ->assertJsonPath('accounts.1.niche', 'money lending');
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x?account='.$lender->id)
+            ->assertOk()
+            ->assertJsonPath('connected.username', 'lender')
+            ->assertJsonPath('voices.1.selected', true)
+            ->assertJsonPath('voices.1.uses_main_voice', false);
     }
 
     /**
