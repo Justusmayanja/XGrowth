@@ -1,18 +1,15 @@
-import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 export function DeskHeading({
   title,
   children,
+  actions,
 }: {
-  icon?: LucideIcon;
+  icon?: unknown;
   title: string;
   children?: ReactNode;
+  actions?: ReactNode;
 }) {
-  return (
-    <div>
-      <h1 className="text-xl font-medium tracking-tight">{title}</h1>
-      {children ? <div className="mt-1 text-sm text-[#a1a1aa]">{children}</div> : null}
-    </div>
-  );
+  return <PageHeader title={title} description={children} actions={actions} />;
 }

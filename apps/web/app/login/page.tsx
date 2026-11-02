@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AuthError, AuthLink } from "@/components/auth/AuthScreen";
 import { CodeDigits } from "@/components/auth/CodeDigits";
 import { BrandLogo } from "@/components/BrandLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { SocialName } from "@/components/SocialLogo";
 import { api, getToken, setToken } from "@/lib/api";
 import { getPostAuthPath, safeNext } from "@/lib/auth";
@@ -105,7 +106,8 @@ export default function LoginPage() {
   const registerHref = nextPath ? `/register?next=${encodeURIComponent(nextPath)}` : "/register";
 
   return (
-    <div className="landing-canvas auth-screen min-h-screen">
+    <div className="landing-canvas auth-screen relative min-h-screen">
+      <ThemeToggle className="theme-slot" />
       <div className="auth-desk">
         <aside className="auth-aside">
           <BrandLogo className="text-xl" />
@@ -141,8 +143,8 @@ export default function LoginPage() {
                 }}
                 className="flex flex-col gap-4"
               >
-                <p className="text-sm text-[#b7c6d8]">
-                  We sent a 6-digit code to <strong className="text-[#e7eef6]">{email}</strong>. It expires in 10 minutes.
+                <p className="text-sm text-muted-foreground">
+                  We sent a 6-digit code to <strong className="text-foreground">{email}</strong>. It expires in 10 minutes.
                 </p>
                 <div>
                   <p id="code-label" className="mb-1.5 text-sm font-medium text-foreground">
@@ -163,7 +165,7 @@ export default function LoginPage() {
                 <div className="flex items-center justify-between text-sm">
                   <button
                     type="button"
-                    className="text-[#9ec0ea] underline underline-offset-4"
+                    className="text-accent underline underline-offset-4"
                     onClick={() => {
                       setSent(false);
                       setError("");
@@ -173,7 +175,7 @@ export default function LoginPage() {
                   </button>
                   <button
                     type="button"
-                    className="text-[#9ec0ea] underline underline-offset-4"
+                    className="text-accent underline underline-offset-4"
                     disabled={loading}
                     onClick={() => void sendCode()}
                   >
@@ -194,14 +196,14 @@ export default function LoginPage() {
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                   />
-                  <p className="mt-1.5 text-xs text-[#7f93ab]">We email a code. It expires in 10 minutes.</p>
+                  <p className="mt-1.5 text-xs text-muted-foreground">We email a code. It expires in 10 minutes.</p>
                 </div>
                 <button type="submit" className="th-cta" disabled={loading}>
                   {loading ? "Logging in…" : "Login"}
                 </button>
               </form>
             )}
-            <p className="mt-6 text-sm text-[#b7c6d8]">
+            <p className="mt-6 text-sm text-muted-foreground">
               New here? <AuthLink href={registerHref}>Create an account</AuthLink>
             </p>
           </div>

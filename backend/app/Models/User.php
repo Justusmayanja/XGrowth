@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\TikTok\TikTokVideoService;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -91,5 +92,12 @@ class User extends Authenticatable
     public function blockedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'blocked_by');
+    }
+
+    protected static function booted(): void
+    {
+        static::deleting(function (User $user) {
+            app(TikTokVideoService::class)->deleteForUser($user->id);
+        });
     }
 }

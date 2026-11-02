@@ -47,6 +47,14 @@ return [
             'report' => false,
         ],
 
+        'tiktok_videos' => [
+            'driver' => 'local',
+            'root' => env('TIKTOK_VIDEO_ROOT', storage_path('app/private/tiktok')),
+            'visibility' => 'private',
+            'throw' => true,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

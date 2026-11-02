@@ -58,8 +58,8 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function StatusChip({ clip }: { clip: TikTokClip }) {
-  const confirmed = clip.status === "queued";
-  const Icon = clip.status === "posted" || clip.status === "learned" ? CircleCheck : confirmed ? Check : Clock;
+  const confirmed = clip.status === "queued" || clip.status === "uploading" || clip.status === "in_drafts" || clip.status === "upload_failed";
+  const Icon = clip.status === "posted" || clip.status === "learned" || clip.status === "in_drafts" ? CircleCheck : confirmed ? Check : Clock;
 
   return (
     <span className="inline-flex min-h-7 items-center gap-1.5 rounded-sm border border-border bg-muted/50 px-2 text-xs text-foreground">

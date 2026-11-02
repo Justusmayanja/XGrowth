@@ -80,6 +80,7 @@ jobs:
             --exclude storage/framework/sessions \
             --exclude storage/framework/views \
             --exclude storage/app/public \
+            --exclude storage/app/private/tiktok \
             --exclude 'bootstrap/cache/*.php' \
             backend/ "$DEST:/home/ytfucmimat/xpulse/backend/"
           rsync -az --delete -e "$RSYNC" \

@@ -10,6 +10,12 @@ class TikTokCatalog
 
     public const QUEUED = 'queued';
 
+    public const UPLOADING = 'uploading';
+
+    public const IN_DRAFTS = 'in_drafts';
+
+    public const UPLOAD_FAILED = 'upload_failed';
+
     public const POSTED = 'posted';
 
     public const LEARNED = 'learned';
@@ -64,9 +70,11 @@ class TikTokCatalog
 
     public const BLOCKER_TIKTOK_CONNECTION = 'tiktok_connection';
 
+    public const BLOCKER_TIKTOK_UPLOAD = 'tiktok_upload_permission';
+
     public const MAX_RESCHEDULE_DAYS = 14;
 
-    public const CONFIRM_NOTE = "Confirmed. We'll post once your video file is ready and your TikTok is connected.";
+    public const CONFIRM_NOTE = 'Confirmed. This sends the file to your TikTok drafts once the video is ready. It does not post it.';
 
     public const SOURCE_MODEL = 'model';
 
@@ -116,6 +124,9 @@ class TikTokCatalog
         self::DRAFTED => 'Draft',
         self::WAITING => 'Waiting for your yes',
         self::QUEUED => 'Confirmed, not posted yet',
+        self::UPLOADING => 'Sending to TikTok',
+        self::IN_DRAFTS => 'In your TikTok drafts',
+        self::UPLOAD_FAILED => "Couldn't send",
         self::POSTED => 'Posted',
         self::LEARNED => 'Results in',
         self::DISCARDED => 'Skipped',
@@ -128,6 +139,9 @@ class TikTokCatalog
             self::DRAFTED,
             self::WAITING,
             self::QUEUED,
+            self::UPLOADING,
+            self::IN_DRAFTS,
+            self::UPLOAD_FAILED,
             self::POSTED,
             self::LEARNED,
             self::DISCARDED,
@@ -150,7 +164,10 @@ class TikTokCatalog
         return [
             self::DRAFTED => [self::WAITING, self::DISCARDED],
             self::WAITING => [self::QUEUED, self::LEARNED, self::DISCARDED],
-            self::QUEUED => [self::POSTED, self::LEARNED, self::DISCARDED],
+            self::QUEUED => [self::UPLOADING, self::POSTED, self::LEARNED, self::DISCARDED],
+            self::UPLOADING => [self::IN_DRAFTS, self::UPLOAD_FAILED],
+            self::IN_DRAFTS => [self::POSTED],
+            self::UPLOAD_FAILED => [self::UPLOADING, self::DISCARDED],
             self::POSTED => [self::LEARNED],
             self::LEARNED => [],
             self::DISCARDED => [],

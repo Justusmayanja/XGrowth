@@ -81,7 +81,15 @@ export default function RootLayout({
         inter.variable,
         display.variable,
       )}
+      suppressHydrationWarning
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem("mackie17-theme")==="light")document.documentElement.classList.remove("dark")}catch(e){}`,
+          }}
+        />
+      </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <AppProviders>{children}</AppProviders>
       </body>

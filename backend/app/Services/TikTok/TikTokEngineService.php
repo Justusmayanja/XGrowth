@@ -290,7 +290,7 @@ class TikTokEngineService
     {
         $this->owned($user, $clip);
 
-        return DB::transaction(function () use ($user, $clip) {
+        $saved = DB::transaction(function () use ($user, $clip) {
             $fresh = $this->lock($clip);
             if ($fresh->status === TikTokCatalog::QUEUED) {
                 return $fresh;
@@ -315,6 +315,30 @@ class TikTokEngineService
             $queued->save();
 
             return $queued->fresh();
+        });
+
+        app(TikTokDraftService::class)->dispatchIfReady($saved);
+
+        return $saved->fresh() ?? $saved;
+    }
+
+    public function markPosted(User $user, TikTokClip $clip): TikTokClip
+    {
+        $this->owned($user, $clip);
+
+        return DB::transaction(function () use ($clip) {
+            $fresh = $this->lock($clip);
+            if ($fresh->status === TikTokCatalog::POSTED) {
+                return $fresh;
+            }
+            if ($fresh->status !== TikTokCatalog::IN_DRAFTS) {
+                throw new TikTokActionException(
+                    TikTokCatalog::ERROR_INVALID_STATE,
+                    'Tell us after the clip is in your TikTok drafts.',
+                );
+            }
+
+            return $fresh->transitionTo(TikTokCatalog::POSTED);
         });
     }
 
@@ -379,12 +403,12 @@ class TikTokEngineService
     {
         $this->owned($user, $clip);
 
-        return DB::transaction(function () use ($clip) {
+        $saved = DB::transaction(function () use ($clip) {
             $fresh = $this->lock($clip);
             if ($fresh->status === TikTokCatalog::DISCARDED) {
                 return $fresh;
             }
-            if (! in_array($fresh->status, [TikTokCatalog::DRAFTED, TikTokCatalog::WAITING, TikTokCatalog::QUEUED], true)) {
+            if (! in_array($fresh->status, [TikTokCatalog::DRAFTED, TikTokCatalog::WAITING, TikTokCatalog::QUEUED, TikTokCatalog::UPLOAD_FAILED], true)) {
                 throw new TikTokActionException(
                     TikTokCatalog::ERROR_INVALID_STATE,
                     'This clip can no longer be skipped.',
@@ -393,6 +417,10 @@ class TikTokEngineService
 
             return $fresh->transitionTo(TikTokCatalog::DISCARDED);
         });
+
+        app(TikTokVideoService::class)->deleteForClip($saved);
+
+        return $saved;
     }
 
     public function reschedule(User $user, TikTokClip $clip, CarbonInterface $at): TikTokClip
@@ -489,7 +517,7 @@ class TikTokEngineService
             request()->attributes->set('tiktok.connected.'.$user->id, $connected);
         }
 
-        $clip = TikTokClip::query()->forUser($user)->blocking()->latest('id')->first();
+        $clip = TikTokClip::query()->forUser($user)->blocking()->with('video')->latest('id')->first();
         $recent = TikTokClip::query()
             ->forUser($user)
             ->where('status', TikTokCatalog::LEARNED)
@@ -528,7 +556,10 @@ class TikTokEngineService
                 'ideas' => count($ranked),
                 'written' => $written,
                 'waiting' => (int) ($counts[TikTokCatalog::WAITING] ?? 0),
-                'confirmed' => (int) ($counts[TikTokCatalog::QUEUED] ?? 0),
+                'confirmed' => (int) ($counts[TikTokCatalog::QUEUED] ?? 0)
+                    + (int) ($counts[TikTokCatalog::UPLOADING] ?? 0)
+                    + (int) ($counts[TikTokCatalog::IN_DRAFTS] ?? 0)
+                    + (int) ($counts[TikTokCatalog::UPLOAD_FAILED] ?? 0),
                 'posted' => (int) ($counts[TikTokCatalog::POSTED] ?? 0),
             ],
             'allowance' => [
@@ -549,6 +580,8 @@ class TikTokEngineService
                 'display_name' => $link?->username,
                 'needs_reconnect' => $link !== null && ! $link->is_active,
                 'configured' => app(TikTokOAuthService::class)->isConfigured(),
+                'upload_configured' => app(TikTokDraftService::class)->uploadConfigured(),
+                'needs_upload_permission' => app(TikTokDraftService::class)->needsUploadPermission($user),
             ],
         ];
     }

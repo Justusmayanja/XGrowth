@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\DB;
 
 class TikTokClip extends Model
@@ -38,6 +39,16 @@ class TikTokClip extends Model
         'posted_at',
         'discarded_at',
         'platform_post_id',
+        'tiktok_publish_id',
+        'upload_url',
+        'upload_error',
+        'upload_progress',
+        'bytes_sent_at',
+        'drafted_at',
+    ];
+
+    protected $hidden = [
+        'upload_url',
     ];
 
     protected function casts(): array
@@ -49,6 +60,9 @@ class TikTokClip extends Model
             'queued_at' => 'datetime',
             'posted_at' => 'datetime',
             'discarded_at' => 'datetime',
+            'bytes_sent_at' => 'datetime',
+            'drafted_at' => 'datetime',
+            'upload_progress' => 'integer',
             'completion_percent' => 'decimal:2',
             'views' => 'integer',
             'follows' => 'integer',
@@ -59,6 +73,11 @@ class TikTokClip extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function video(): HasOne
+    {
+        return $this->hasOne(TikTokClipVideo::class, 'clip_id');
     }
 
     public function scopeForUser($query, User|int $user)
@@ -188,6 +207,8 @@ class TikTokClip extends Model
         if ($to === TikTokCatalog::QUEUED) {
             $this->confirmed_at ??= $now;
             $this->queued_at ??= $now;
+        } elseif ($to === TikTokCatalog::IN_DRAFTS) {
+            $this->drafted_at ??= $now;
         } elseif ($to === TikTokCatalog::POSTED) {
             $this->posted_at ??= $now;
         } elseif ($to === TikTokCatalog::LEARNED) {

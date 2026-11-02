@@ -9,8 +9,10 @@ use App\Services\Billing\BillingLifecycle;
 use App\Services\Billing\TrialService;
 use App\Services\GrowthAgent\GrowthAgentService;
 use App\Services\GrowthAgent\SafetyEngineService;
+use App\Services\TikTok\TikTokDraftService;
 use App\Services\TikTok\TikTokEngineService;
 use App\Services\TikTok\TikTokOAuthService;
+use App\Services\TikTok\TikTokVideoService;
 use App\Services\TrendEngine\TrendEngineService;
 use App\Services\YouTube\YouTubeEngineService;
 use Illuminate\Foundation\Inspiring;
@@ -156,6 +158,23 @@ Schedule::call(fn () => app(TikTokOAuthService::class)->refreshExpiring())
     ->daily()
     ->name('tiktok-token-refresh')
     ->withoutOverlapping(15);
+
+if (config('queue.default') === 'database') {
+    Schedule::command('queue:work --stop-when-empty --max-time=50 --tries=3')
+        ->everyMinute()
+        ->name('database-queue-drain')
+        ->withoutOverlapping(2);
+}
+
+Schedule::call(fn () => app(TikTokDraftService::class)->sweepStuck())
+    ->everyFiveMinutes()
+    ->name('tiktok-draft-sweep')
+    ->withoutOverlapping(10);
+
+Schedule::call(fn () => app(TikTokVideoService::class)->sweep())
+    ->daily()
+    ->name('tiktok-video-sweep')
+    ->withoutOverlapping(30);
 
 // Run in the scheduler process. A queued job never posts when no queue worker is running.
 Schedule::call(fn () => app(GrowthAgentService::class)->evaluateAllUsers())

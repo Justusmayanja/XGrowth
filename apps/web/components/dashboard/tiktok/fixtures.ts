@@ -215,6 +215,58 @@ export const tiktokStateFixtures: TikTokStateFixture[] = [
     }),
   },
   {
+    name: "Uploading",
+    tiktok: desk({
+      clip: clip({
+        status: "uploading",
+        status_label: "Sending to TikTok",
+        blockers: [],
+        video: { filename: "salt.mp4", size: 18_000_000, duration_seconds: 24, width: 1080, height: 1920, warning: null },
+        upload_progress: 40,
+      }),
+      connection: { connected: true, display_name: "Kitchen", configured: true, upload_configured: true },
+      pipeline: { ideas: 6, written: 2, waiting: 0, confirmed: 1, posted: 0 },
+    }),
+  },
+  {
+    name: "In TikTok drafts",
+    tiktok: desk({
+      clip: clip({
+        status: "in_drafts",
+        status_label: "In your TikTok drafts",
+        blockers: [],
+        video: { filename: "salt.mp4", size: 18_000_000, duration_seconds: 24, width: 1080, height: 1920, warning: null },
+      }),
+      connection: { connected: true, display_name: "Kitchen", configured: true, upload_configured: true },
+      pipeline: { ideas: 6, written: 2, waiting: 0, confirmed: 1, posted: 0 },
+    }),
+  },
+  {
+    name: "Upload failed",
+    tiktok: desk({
+      clip: clip({
+        status: "upload_failed",
+        status_label: "Couldn't send",
+        blockers: [],
+        upload_error: "The send stopped. You can try again.",
+        video: { filename: "salt.mp4", size: 18_000_000, duration_seconds: 24, width: 1080, height: 1920, warning: null },
+      }),
+      connection: { connected: true, display_name: "Kitchen", configured: true, upload_configured: true },
+    }),
+  },
+  {
+    name: "Needs upload permission",
+    tiktok: desk({
+      clip: clip({
+        status: "queued",
+        status_label: "Confirmed, not posted yet",
+        blockers: ["tiktok_upload_permission"],
+        video: { filename: "salt.mp4", size: 8_000_000, duration_seconds: 18, width: 1080, height: 1080, warning: "This video is not 9:16. TikTok can still take it. A vertical video fits the feed better." },
+      }),
+      connection: { connected: true, display_name: "Kitchen", configured: true, upload_configured: true, needs_upload_permission: true },
+    }),
+  },
+  {
     name: "Posted",
     tiktok: desk({
       clip: clip({
