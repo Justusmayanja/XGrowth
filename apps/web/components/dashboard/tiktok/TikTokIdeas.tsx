@@ -9,7 +9,7 @@ import { LoadingMark } from "@/components/LoadingMark";
 import { api } from "@/lib/api";
 import { PLATFORM_GOALS } from "@/lib/profile";
 import { fetchTikTokIdeas, type TikTokClip, type TikTokDesk, type TikTokIdea } from "@/lib/tiktok";
-import { VideoDropzone, VideoPreview, VideoSummary } from "./VideoDropzone";
+import { VideoDropzone, VideoPending, VideoPreview, VideoSummary } from "./VideoDropzone";
 
 const ACCEPTS_FILE = new Set(["waiting", "queued"]);
 
@@ -93,7 +93,7 @@ export function TikTokIdeas() {
                           type="button"
                           onClick={() => setPicked(index)}
                           aria-pressed={on}
-                          className={`flex w-full flex-col gap-1 py-3 text-left ${on ? "" : "opacity-80 hover:opacity-100"}`}
+                          className={`flex w-full flex-col gap-1 rounded-md px-3 py-3 text-left ${on ? "bg-muted" : "hover:bg-muted/60"}`}
                         >
                           <span className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
                             {idea.kind_label}
@@ -136,17 +136,18 @@ export function TikTokIdeas() {
                   <VideoDropzone clipId={clip.id} replacing={Boolean(clip.video)} onUploaded={() => void loadClip()} />
                 </div>
               ) : (
-                <div className="space-y-3 rounded-md border border-dashed border-border bg-muted/40 px-4 py-6 text-sm">
-                  <p className="font-medium">Add your video</p>
-                  <p className="text-muted-foreground">
-                    {clip
+                <VideoPending
+                  detail={
+                    clip
                       ? `This clip is ${clip.status_label.toLowerCase()}. The file is added while a clip is waiting or confirmed.`
-                      : "Today writes the clip first. The file is added there, then you confirm it."}
-                  </p>
-                  <Link href="/dashboard/tiktok" className="inline-block underline underline-offset-4">
-                    Open Today
-                  </Link>
-                </div>
+                      : "Today writes the clip first. The file is added on that clip, then you confirm it."
+                  }
+                  action={
+                    <Link href="/dashboard/tiktok#video" className="text-sm underline underline-offset-4">
+                      Open the video on Today
+                    </Link>
+                  }
+                />
               )}
             </CardContent>
           </Card>

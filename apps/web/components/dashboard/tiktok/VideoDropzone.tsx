@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { Film, Loader2 } from "lucide-react";
 import { ApiError, getToken } from "@/lib/api";
 import { fetchClipVideo, uploadClipVideo, type TikTokVideo } from "@/lib/tiktok";
@@ -66,6 +66,17 @@ export function VideoPreview({ clipId }: { clipId: number }) {
       src={url}
       className="aspect-[9/16] w-full max-w-[220px] rounded-sm bg-black sm:max-w-xs"
     />
+  );
+}
+
+export function VideoPending({ detail, action }: { detail: string; action?: ReactNode }) {
+  return (
+    <div className="flex min-h-36 flex-col items-center justify-center gap-2 rounded-sm border border-dashed border-border bg-muted/40 px-4 py-6 text-center">
+      <Film className="size-5" aria-hidden />
+      <span className="text-sm font-medium">Add your video</span>
+      <span className="max-w-sm text-xs text-muted-foreground">{detail}</span>
+      {action}
+    </div>
   );
 }
 

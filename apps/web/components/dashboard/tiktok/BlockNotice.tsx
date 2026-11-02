@@ -11,7 +11,7 @@ export function BlockNotice({ block }: { block: TikTokBlock }) {
 
   return (
     <Card className="h-full">
-      <CardContent className="flex min-h-[22rem] flex-col justify-between gap-8 p-6 sm:p-8">
+      <CardContent className="flex flex-col justify-between gap-6 p-6 sm:p-8">
         <div className="max-w-lg">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <CircleAlert className="size-4 shrink-0" aria-hidden />

@@ -33,7 +33,7 @@ import { QueuedPanel } from "./QueuedPanel";
 import { ReschedulePopover } from "./ReschedulePopover";
 import { ResultsForm } from "./ResultsForm";
 import { TimezoneNotice } from "./TimezoneNotice";
-import { VideoDropzone, VideoPreview, VideoSummary } from "./VideoDropzone";
+import { VideoDropzone, VideoPending, VideoPreview, VideoSummary } from "./VideoDropzone";
 
 export type TikTokReview = {
   writing?: boolean;
@@ -385,6 +385,57 @@ export function TikTokBody({
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 space-y-6">
 
+      <Card id="video" className="scroll-mt-24">
+        <CardContent className="space-y-4 pt-6">
+          <div>
+            <h2 className="text-sm font-medium">Your video</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              MP4 or MOV, up to 100 MB. A vertical 9:16 file fits the feed best. Confirming sends it to your TikTok drafts. It does not post.
+            </p>
+          </div>
+          {clip && showFile ? (
+            <div className="space-y-4">
+              {clip.topic && <p className="text-sm">For this clip: {clip.topic}</p>}
+              {clip.video && (
+                <div className="space-y-3">
+                  <VideoSummary video={clip.video} />
+                  <VideoPreview clipId={clip.id} />
+                </div>
+              )}
+              {clip.video && !replacing ? (
+                <Button type="button" variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => setReplacing(true)}>
+                  Replace video
+                </Button>
+              ) : (
+                <VideoDropzone
+                  clipId={clip.id}
+                  replacing={Boolean(clip.video)}
+                  onUploaded={() => {
+                    setReplacing(false);
+                    void reload();
+                  }}
+                />
+              )}
+            </div>
+          ) : (
+            <VideoPending
+              detail={
+                clip
+                  ? "The file is added while a clip is waiting for you, or after you confirm it."
+                  : "Today writes the clip first. The file is added on that clip, then you confirm it."
+              }
+              action={
+                tiktok.block?.action === "billing" ? (
+                  <Link href="/pricing" className="text-sm underline underline-offset-4">
+                    See plans
+                  </Link>
+                ) : undefined
+              }
+            />
+          )}
+        </CardContent>
+      </Card>
+
       {writing ? (
         <SkeletonCard />
       ) : learned ? (
@@ -462,30 +513,6 @@ export function TikTokBody({
                 initiallyOpen
                 onSave={(iso) => void reschedule(iso)}
               />
-            </div>
-          )}
-          {showFile && (
-            <div className="space-y-3">
-              {clip.video && clip.status === "waiting" && (
-                <div className="space-y-3">
-                  <VideoSummary video={clip.video} />
-                  <VideoPreview clipId={clip.id} />
-                </div>
-              )}
-              {clip.video && !replacing ? (
-                <Button type="button" variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => setReplacing(true)}>
-                  Replace video
-                </Button>
-              ) : (
-                <VideoDropzone
-                  clipId={clip.id}
-                  replacing={Boolean(clip.video)}
-                  onUploaded={() => {
-                    setReplacing(false);
-                    void reload();
-                  }}
-                />
-              )}
             </div>
           )}
           <ClipCard clip={clip} collapsed={clip.status === "queued" || clip.status === "posted" || clip.status === "in_drafts" || clip.status === "uploading"} />

@@ -31,39 +31,45 @@ export function TopBar({ onMenu, onSearch, menuRef }: { onMenu: () => void; onSe
   const section = NAV[platform].flatMap((group) => group.links).find((link) => navHrefActive(pathname, hash, link.href));
 
   return (
-    <header className="shell-header fixed left-0 right-0 top-0 flex h-14 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur-sm lg:left-64 lg:h-16">
-      <button
-        ref={menuRef}
-        type="button"
-        className="shell-hit rounded-md p-2 text-muted-foreground hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:hidden"
-        onClick={onMenu}
-        aria-label="Open menu"
-      >
-        <Menu className="size-5" />
-      </button>
-      <BrandLogo className="text-sm lg:hidden" />
-      <p className="hidden min-w-0 truncate text-sm text-muted-foreground lg:block">
-        {platformName(platform)}
-        {section ? <span> / {section.label}</span> : null}
-      </p>
+    <header className="shell-header fixed left-0 right-0 top-0 border-b border-border bg-background lg:left-64">
+      <div className="mx-auto grid h-14 w-full max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 sm:px-6 lg:h-16 lg:grid-cols-[minmax(0,1fr)_minmax(12rem,24rem)_minmax(0,1fr)] lg:px-8">
+      <div className="flex min-w-0 items-center gap-2">
+        <button
+          ref={menuRef}
+          type="button"
+          className="shell-hit inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:hidden"
+          onClick={onMenu}
+          aria-label="Open menu"
+        >
+          <Menu className="size-5" />
+        </button>
+        <BrandLogo className="shrink-0 text-sm lg:hidden" />
+        <p className="hidden min-w-0 truncate text-sm leading-none text-muted-foreground lg:block">
+          <span className="text-foreground">{platformName(platform)}</span>
+          {section ? <span> / {section.label}</span> : null}
+        </p>
+      </div>
       <button
         type="button"
         onClick={onSearch}
-        className="shell-hit ml-auto hidden h-9 min-w-56 items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring md:inline-flex"
+        className="shell-hit hidden h-9 w-full items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:inline-flex"
       >
-        <Search className="size-4" />
+        <Search className="size-4 shrink-0" />
         <span className="flex-1 text-left">Search pages…</span>
         <span className="text-xs">{keys}</span>
       </button>
-      <button
-        type="button"
-        onClick={onSearch}
-        className="shell-hit ml-auto inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring md:hidden"
-        aria-label="Search pages"
-      >
-        <Search className="size-4" />
-      </button>
-      <UserMenu />
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onSearch}
+          className="shell-hit inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:hidden"
+          aria-label="Search pages"
+        >
+          <Search className="size-4" />
+        </button>
+        <UserMenu />
+      </div>
+      </div>
     </header>
   );
 }
