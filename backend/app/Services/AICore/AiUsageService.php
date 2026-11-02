@@ -7,6 +7,7 @@ use App\Models\RateLimitBudget;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
+use App\Services\ApiSpend\ApiSpendService;
 use Illuminate\Support\Carbon;
 use RuntimeException;
 
@@ -18,10 +19,12 @@ class AiUsageService
 
     public function __construct(
         private readonly PlatformSettingsService $settings,
+        private readonly ApiSpendService $budget,
     ) {}
 
     public function assertCanGenerate(User $user): void
     {
+        $this->budget->assertCanSpend($user->id, ApiSpendService::TWEET_RESERVE_MILLS);
         if (! $this->canUse($user, self::ACTION_GENERATION)) {
             throw new RuntimeException($this->limitMessage($user, self::ACTION_GENERATION));
         }
@@ -33,13 +36,20 @@ class AiUsageService
             throw new RuntimeException('Web search is disabled on this platform.');
         }
 
-        if (! $this->canUse($user, self::ACTION_WEB_SEARCH)) {
+        if (! $this->canUse($user, self::ACTION_WEB_SEARCH) || ! $this->budget->canSearch($user->id)) {
             throw new RuntimeException($this->limitMessage($user, self::ACTION_WEB_SEARCH));
         }
+
+        $this->budget->assertCanSpend($user->id, ApiSpendService::SEARCH_RESERVE_MILLS);
     }
 
     public function canUse(User $user, string $actionType): bool
     {
+        // Writing a tweet is not capped. The daily count is still stored for the admin view.
+        if ($actionType === self::ACTION_GENERATION) {
+            return true;
+        }
+
         $budget = $this->budgetFor($user, $actionType);
 
         return $this->draftUses($user, $budget) < $budget->daily_limit;
@@ -67,6 +77,13 @@ class AiUsageService
         if ($webSearchCalls > 0) {
             $this->increment($user, self::ACTION_WEB_SEARCH, $webSearchCalls);
         }
+
+        $this->budget->chargeOpenAi(
+            $user->id,
+            (int) ($usage['input_tokens'] ?? 0),
+            (int) ($usage['output_tokens'] ?? 0),
+            $webSearchCalls,
+        );
 
         AiUsageLog::create([
             'user_id' => $user->id,

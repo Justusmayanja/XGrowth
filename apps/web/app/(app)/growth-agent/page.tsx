@@ -134,7 +134,7 @@ export default function GrowthAgentPage() {
               {settings.engine_paused
                 ? "Nothing is posted until you turn pause off."
                 : settings.automation_level >= 3 && settings.auto_post_enabled
-                  ? "A strong moment can be published while you are offline. Some big accounts are skipped. A quiet stretch ends within about four hours, not on a clock."
+                  ? "A strong moment can be published while you are offline. Some big accounts are skipped. A quiet timeline stays quiet. Nothing is due at a set hour."
                   : settings.automation_level === 2 && settings.auto_post_enabled
                     ? "Only a strong draft is published. The rest wait for you."
                     : "Drafts wait for your yes."}
@@ -144,7 +144,7 @@ export default function GrowthAgentPage() {
               <li>Replies: {settings.auto_reply_enabled ? "On" : "Off"}</li>
               <li>Likes: {settings.auto_engage_enabled ? "On" : "Off"}</li>
               <li>Likes and replies only sometimes</li>
-              <li>A quiet stretch ends within about four hours</li>
+              <li>A quiet timeline stays quiet</li>
             </ul>
             <Link href="/settings?platform=x">
               <Button type="button" variant="outline" size="sm">

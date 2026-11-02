@@ -40,6 +40,22 @@ const faqs = [
     q: "Do I have to be at the computer?",
     a: "Not for X, once posting is on: it sends when the moment is worth it. Not for YouTube, if you set it to post on its own. TikTok is the one you still open. It suggests a time, and it waits until you confirm.",
   },
+  {
+    q: "What happens when the free trial ends?",
+    a: "The trial needs no card. When it ends, you choose a package if you want Mackie17 to keep working. Until you do, the trial is over.",
+  },
+  {
+    q: "Can I cancel?",
+    a: "Yes. Cancel renewal from billing settings. A paid plan runs until the end of the period you already paid, then it stops.",
+  },
+  {
+    q: "Can I change a piece before it goes out?",
+    a: "Yes. Drafts stay editable. TikTok does not post until you confirm. YouTube posts on its own only if you set that. On X, pause from Settings and the next one waits.",
+  },
+  {
+    q: "Do you store my password?",
+    a: "No. You approve the connection on YouTube, TikTok, or X. Mackie17 never sees the password.",
+  },
 ];
 
 export function FaqList() {

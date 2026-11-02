@@ -22,10 +22,17 @@ class AiContextBuilder
      */
     public function profileDigest(AccountProfile $profile): array
     {
+        $goals = $profile->goalsFor('x');
+        if ($goals === []) {
+            $goals = [$profile->primaryGoal()];
+        }
+
         return [
             'niche' => $profile->resolvedNiche(),
             'tones' => $profile->tones() ?: ['professional'],
-            'goal' => $profile->primaryGoal(),
+            'goal' => $goals[0],
+            'goals' => $goals,
+            'aim' => $profile->goalSentenceFor('x'),
             'mode' => $profile->mode ?? 'reactive',
             'automation' => (int) ($profile->automation_level ?? 1),
             'auto_post' => (bool) ($profile->auto_post_enabled ?? false),

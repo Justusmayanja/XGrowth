@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import { usePlatform } from "@/lib/platform";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { type SocialBrand, SocialName } from "@/components/SocialLogo";
 import { TikTokConnectionCard } from "@/components/settings/TikTokConnectionCard";
 import type { XConnectStatus } from "@/lib/settings";
@@ -33,15 +36,18 @@ export function ConnectedAccountCard({ status, onDisconnected }: Props) {
     }
   }
 
-  async function disconnect() {
+  async function disconnect(accountId?: number) {
     try {
-      const next = await api<XConnectStatus>("/connected-accounts/x", { method: "DELETE" });
+      const path = accountId ? `/connected-accounts/x?account=${accountId}` : "/connected-accounts/x";
+      const next = await api<XConnectStatus>(path, { method: "DELETE" });
       onDisconnected?.(next);
-      toast.success("X disconnected");
+      toast.success(accountId ? "That X account was disconnected" : "X disconnected");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not disconnect X");
     }
   }
+
+  const several = (status?.accounts?.length ?? 0) > 1;
 
   return (
     <Card>
@@ -65,9 +71,11 @@ export function ConnectedAccountCard({ status, onDisconnected }: Props) {
             <>
               {status.username && <p className="mt-2 text-sm">@{status.username}</p>}
               <p className="mt-2 text-sm text-muted-foreground">{status.message}</p>
-              <Button variant="outline" size="sm" className="mt-3" onClick={() => void disconnect()}>
-                Disconnect
-              </Button>
+              {!several && (
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => void disconnect()}>
+                  Disconnect
+                </Button>
+              )}
             </>
           ) : (
             <>
@@ -92,6 +100,23 @@ export function ConnectedAccountCard({ status, onDisconnected }: Props) {
           )}
         </div>
 
+        {several && status?.accounts && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Each account posts in its own voice. Leave a field blank to keep using the voice on your profile.
+            </p>
+            {status.accounts.map((account, index) => (
+              <AccountVoiceForm
+                key={account.id}
+                account={account}
+                first={index === 0}
+                onSaved={onDisconnected}
+                onDisconnect={() => void disconnect(account.id)}
+              />
+            ))}
+          </div>
+        )}
+
         <TikTokConnectionCard />
 
         {platform !== "x" && pending.map((network) => (
@@ -111,5 +136,74 @@ export function ConnectedAccountCard({ status, onDisconnected }: Props) {
         ))}
       </CardContent>
     </Card>
+  );
+}
+
+function AccountVoiceForm({
+  account,
+  first,
+  onSaved,
+  onDisconnect,
+}: {
+  account: { id: number; username: string | null; niche: string; description: string; audience: string };
+  first: boolean;
+  onSaved?: (status: XConnectStatus) => void;
+  onDisconnect: () => void;
+}) {
+  const [niche, setNiche] = useState(account.niche);
+  const [description, setDescription] = useState(account.description);
+  const [audience, setAudience] = useState(account.audience);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setNiche(account.niche);
+    setDescription(account.description);
+    setAudience(account.audience);
+  }, [account.niche, account.description, account.audience]);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const next = await api<XConnectStatus>(`/connected-accounts/x/${account.id}/voice`, {
+        method: "PUT",
+        body: JSON.stringify({ niche, description, audience }),
+      });
+      onSaved?.(next);
+      toast.success(`Saved the voice for @${account.username || "this account"}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save that voice");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="space-y-3 rounded-[0.75rem] border border-border p-4" onSubmit={(event) => void save(event)}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm font-medium">@{account.username || "account"}</p>
+        <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={onDisconnect}>
+          Disconnect
+        </button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {first ? "This is the main account. A blank field keeps the voice on your profile." : "This account posts from these words, not the main account's."}
+      </p>
+      <label className="block text-xs text-muted-foreground">
+        Niche
+        <Input className="mt-1" value={niche} maxLength={80} onChange={(event) => setNiche(event.target.value)} />
+      </label>
+      <label className="block text-xs text-muted-foreground">
+        What this account is for
+        <Textarea className="mt-1" rows={3} value={description} maxLength={500} onChange={(event) => setDescription(event.target.value)} />
+      </label>
+      <label className="block text-xs text-muted-foreground">
+        Who it is for
+        <Input className="mt-1" value={audience} maxLength={200} onChange={(event) => setAudience(event.target.value)} />
+      </label>
+      <Button type="submit" size="sm" variant="secondary" disabled={busy}>
+        {busy ? "Saving…" : "Save this voice"}
+      </Button>
+    </form>
   );
 }

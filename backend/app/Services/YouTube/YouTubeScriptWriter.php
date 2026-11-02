@@ -6,6 +6,7 @@ use App\Models\AccountProfile;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use App\Services\AICore\AiUsageService;
+use App\Services\ApiSpend\ApiSpendService;
 use Illuminate\Support\Facades\Log;
 use OpenAI\Laravel\Facades\OpenAI;
 use Throwable;
@@ -17,6 +18,7 @@ class YouTubeScriptWriter
         private readonly PlatformSettingsService $settings,
         private readonly YouTubePackageWriter $packages,
         private readonly YouTubeWords $words,
+        private readonly ApiSpendService $budget,
     ) {}
 
     /**
@@ -87,6 +89,9 @@ class YouTubeScriptWriter
     {
         $key = config('openai.api_key');
         if (! is_string($key) || $key === '' || ! $this->usage->canUse($user, AiUsageService::ACTION_GENERATION)) {
+            return null;
+        }
+        if (! $this->budget->canSpend($user->id, ApiSpendService::SCRIPT_RESERVE_MILLS)) {
             return null;
         }
 

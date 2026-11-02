@@ -27,6 +27,7 @@ export type XConnectStatus = {
   username?: string;
   authorize_url?: string | null;
   message: string;
+  accounts?: { id: number; username: string | null; niche: string; description: string; audience: string }[];
 };
 
 export type SafetyStatus = {

@@ -113,11 +113,7 @@ class AnalyticsController extends Controller
             'series' => $series,
             'top_posts' => $topPosts,
             'insights' => $insights,
-            'note' => $viewsKnown
-                ? (($activity['ranked_for_niche'] ?? false)
-                    ? 'Follower count is current. Impressions are from your recent posts and comments, ranked by X for your niche. X does not provide a 30-day follower history here.'
-                    : 'Follower count is current. Impressions are from your recent posts and comments. X does not provide a 30-day follower history here.')
-                : 'Follower count is current. X did not send view counts, so reactions are likes, replies, and reposts from your recent posts. X does not provide a 30-day follower history here.',
+            'note' => 'Results for the last seven days. These figures are fetched once and again when the week ends.',
         ]);
     }
 

@@ -11,6 +11,7 @@ use App\Services\AICore\AICoreService;
 use App\Services\TrendEngine\OpportunityScorerService;
 use App\Services\TrendEngine\TrendEngineService;
 use App\Services\GrowthAgent\SafetyEngineService;
+use App\Services\GrowthAgent\XGoalPlan;
 use App\Services\XApi\XApiService;
 use App\Support\SetupCatalog;
 use Illuminate\Http\JsonResponse;
@@ -27,6 +28,7 @@ class ContentController extends Controller
         private readonly AiContextBuilder $contextBuilder,
         private readonly OpportunityScorerService $opportunityScorer,
         private readonly TrendEngineService $trends,
+        private readonly XGoalPlan $goals,
     ) {}
 
     public function generate(Request $request): JsonResponse
@@ -67,6 +69,8 @@ class ContentController extends Controller
                 'tone' => $tone,
                 'niche' => $niche,
                 'goal' => $goal,
+                'goal_instruction' => $platform === 'x' && $profile ? $this->goals->postBrief($profile) : null,
+                'goal_lesson' => $platform === 'x' && $profile ? $this->goals->results($profile)['lesson'] : null,
                 'purpose' => $profile?->purposeSentence(),
                 'content_type' => $contentType,
                 'audience' => $profile?->audience,
@@ -80,6 +84,12 @@ class ContentController extends Controller
                 ['message' => $e->getMessage()],
                 str_contains(strtolower($e->getMessage()), 'limit reached') ? 429 : 503
             );
+        }
+
+        if ($platform === 'x' && $profile) {
+            foreach ($result['variants'] as $index => $variant) {
+                $result['variants'][$index]['content'] = $this->goals->finishText($profile, (string) ($variant['content'] ?? ''));
+            }
         }
 
         return response()->json($result);
@@ -163,6 +173,10 @@ class ContentController extends Controller
 
         if (! $safety->canAct($request->user(), 'post')) {
             return response()->json(['message' => 'The daily post limit is reached.'], 429);
+        }
+
+        if (app(\App\Services\ApiSpend\ApiSpendService::class)->containsLink($post->content)) {
+            return response()->json(['message' => 'Links stay out of this app. Remove the link and post the words.'], 422);
         }
 
         try {

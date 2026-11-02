@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 use Throwable;
 
 class SocialAuthController extends Controller
@@ -278,6 +279,10 @@ class SocialAuthController extends Controller
 
         try {
             $this->x->connectFromCode($user, $code, (string) ($state['verifier'] ?? ''));
+        } catch (RuntimeException $e) {
+            $flag = str_contains($e->getMessage(), 'plan connects') ? 'account_limit' : 'error';
+
+            return redirect()->away($this->frontend($next.'?x='.$flag));
         } catch (Throwable) {
             return redirect()->away($this->frontend($next.'?x=error'));
         }

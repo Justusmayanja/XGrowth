@@ -7,6 +7,7 @@ use App\Models\AiRule;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use App\Services\AICore\AiUsageService;
+use App\Services\ApiSpend\ApiSpendService;
 use App\Support\TikTokCatalog;
 use Illuminate\Support\Facades\Log;
 use OpenAI\Laravel\Facades\OpenAI;
@@ -17,6 +18,7 @@ class TikTokScriptWriter
     public function __construct(
         private readonly AiUsageService $usage,
         private readonly PlatformSettingsService $settings,
+        private readonly ApiSpendService $budget,
     ) {}
 
     /**
@@ -74,6 +76,9 @@ class TikTokScriptWriter
     {
         $key = config('openai.api_key');
         if (! is_string($key) || $key === '' || ! $this->usage->canUse($user, AiUsageService::ACTION_GENERATION)) {
+            return null;
+        }
+        if (! $this->budget->canSpend($user->id, ApiSpendService::SCRIPT_RESERVE_MILLS)) {
             return null;
         }
 

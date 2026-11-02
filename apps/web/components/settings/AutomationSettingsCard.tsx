@@ -194,7 +194,7 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            It skips some big accounts, likes and replies only sometimes, and a quiet stretch ends somewhere between three and four hours. That length moves, so it is not a clock.
+            It skips some big accounts, and it likes and replies only sometimes. A post goes out when a moment in the niche is loud. A quiet timeline stays quiet, so there is no hour a tweet is due.
           </p>
 
           <Link href="/growth-agent">

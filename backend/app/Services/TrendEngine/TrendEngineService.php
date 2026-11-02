@@ -47,11 +47,12 @@ class TrendEngineService
      *
      * @return list<array{trend: Trend, opportunity_score: float, suggestion: string}>|null
      */
-    public function rankedInNiche(User $user): ?array
+    public function rankedInNiche(User $user, ?\App\Models\ConnectedAccount $account = null, ?string $niche = null, ?string $purpose = null): ?array
     {
-        $account = $user->connectedAccounts()
+        $account ??= $user->connectedAccounts()
             ->where('platform', 'x')
             ->where('is_active', true)
+            ->orderBy('id')
             ->first();
 
         if (! $account) {
@@ -59,13 +60,49 @@ class TrendEngineService
         }
 
         $profile = $user->accountProfile;
-        $niche = $profile?->resolvedNiche() ?? '';
-        $purpose = trim((string) ($profile?->description ?? '').' '.(string) ($profile?->audience ?? ''));
+        $niche ??= $account->nicheFor($profile);
+        $purpose ??= trim($account->descriptionFor($profile).' '.$account->audienceFor($profile));
 
         try {
             $topics = $this->x->homeFeed($account, $niche, $purpose);
         } catch (Throwable $e) {
             Log::warning('The home timeline was not available', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+
+        return $this->topicsAsRanked($topics);
+    }
+
+    /**
+     * A short look at the home timeline for stories that are still hot.
+     * Separate from the 7-day list shown on Topics. The model is not called here.
+     *
+     * @return list<array{trend: Trend, opportunity_score: float, suggestion: string}>|null
+     */
+    public function rankedForWatch(User $user, ?\App\Models\ConnectedAccount $account = null, ?string $niche = null, ?string $purpose = null): ?array
+    {
+        $account ??= $user->connectedAccounts()
+            ->where('platform', 'x')
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->first();
+
+        if (! $account) {
+            return null;
+        }
+
+        $profile = $user->accountProfile;
+        $niche ??= $account->nicheFor($profile);
+        $purpose ??= trim($account->descriptionFor($profile).' '.$account->audienceFor($profile));
+
+        try {
+            $topics = $this->x->homeFeed($account, $niche, $purpose, watch: true);
+        } catch (Throwable $e) {
+            Log::warning('The timeline watch was not available', [
                 'user_id' => $user->id,
                 'error' => $e->getMessage(),
             ]);
@@ -192,11 +229,12 @@ class TrendEngineService
      *
      * @return array{trends: list<array{name: string, angle: string, draft: string}>, source: string|null, note: string}
      */
-    public function topicsForPage(User $user): array
+    public function topicsForPage(User $user, ?\App\Models\ConnectedAccount $account = null): array
     {
-        $account = $user->connectedAccounts()
+        $account ??= $user->connectedAccounts()
             ->where('platform', 'x')
             ->where('is_active', true)
+            ->orderBy('id')
             ->first();
 
         if (! $account) {
@@ -208,8 +246,8 @@ class TrendEngineService
         }
 
         $profile = $user->accountProfile;
-        $niche = trim((string) ($profile?->resolvedNiche() ?? ''));
-        $purpose = trim((string) ($profile?->description ?? '').' '.(string) ($profile?->audience ?? ''));
+        $niche = trim($account->nicheFor($profile));
+        $purpose = trim($account->descriptionFor($profile).' '.$account->audienceFor($profile));
         $generic = $niche === '' || in_array(strtolower($niche), ['general', 'your niche', 'niche'], true);
         if ($generic && $purpose === '') {
             return [
@@ -219,7 +257,7 @@ class TrendEngineService
             ];
         }
 
-        $ranked = $this->rankedInNiche($user) ?? [];
+        $ranked = $this->rankedInNiche($user, $account, $niche, $purpose) ?? [];
         $trends = [];
         foreach (array_slice($ranked, 0, 5) as $row) {
             $name = trim((string) $row['trend']->name);
@@ -232,7 +270,7 @@ class TrendEngineService
             return [
                 'trends' => $trends,
                 'source' => 'home',
-                'note' => 'From the home timeline, kept when it fits this account.',
+                'note' => 'From this account\'s home timeline. It is read a few times a day, then reused.',
             ];
         }
 
@@ -248,8 +286,8 @@ class TrendEngineService
             'trends' => $own,
             'source' => $own === [] ? 'home' : 'posts',
             'note' => $own === []
-                ? 'Nothing on the home timeline fits this account right now.'
-                : 'From posts this account wrote itself. Nothing on the home timeline fit.',
+                ? 'Nothing on the home timeline fits this account. That check is reused for eight hours.'
+                : 'From posts this account wrote itself. Nothing on the home timeline fit, and that check is reused for eight hours.',
         ];
     }
 
@@ -266,13 +304,6 @@ class TrendEngineService
 
         if ($this->hasFreshLiveTrends()) {
             return;
-        }
-
-        if ($this->x->configured()) {
-            $this->fetchGlobalTrends(force: true);
-            if ($this->hasFreshLiveTrends()) {
-                return;
-            }
         }
 
         if (! $this->settings->getBool('web_search_enabled', true) || ! $this->ai->isConfigured()) {

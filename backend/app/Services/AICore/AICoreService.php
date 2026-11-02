@@ -83,6 +83,12 @@ class AICoreService
         }
 
         $userPrompt .= $this->voiceNotes($params, $niche, $tone, $goal);
+        if (! empty($params['goal_instruction'])) {
+            $userPrompt .= trim((string) $params['goal_instruction'])."\n";
+        }
+        if (! empty($params['goal_lesson'])) {
+            $userPrompt .= 'What already worked: '.trim((string) $params['goal_lesson'])."\n";
+        }
         $loyalty = is_string($params['loyalty'] ?? null) ? trim($params['loyalty']) : '';
         $userPrompt .= $this->bridgeInstructions($joinLive, $params['conversation'] ?? null, $useWebSearch, $loyalty);
         if (is_array($params['reaction'] ?? null)) {
@@ -238,6 +244,7 @@ PROMPT;
         $text .= "Pattern, do not copy these situations: everyone is talking about businesses losing money and costs going up, and the account lends money, so the post is the lender's side of that pain. Everyone is praising two rival teams for being in form, and the account is the third club, so the post answers that praise from the third club's side.\n";
         $text .= "Write a view, the way a person types after seeing it. Not a bulletin, not a plan, not a list of tips. One opinion. Length should change: sometimes one sentence, sometimes two.\n";
         $text .= "Do not explain the link. Do not start with \"as a\". Do not copy another account's sentence.\n";
+        $text .= "Do not include a URL, a www address, or any other link.\n";
 
         $name = is_string($conversation) ? trim($conversation) : '';
         if ($name !== '') {
@@ -793,6 +800,7 @@ PROMPT;
         $postContent = $params['post_content'] ?? null;
 
         $human = (bool) ($params['human'] ?? false);
+        $allowLink = (bool) ($params['allow_link'] ?? false);
         $systemPrompt = $this->buildSystemPrompt(
             'reply_drafts',
             $human
@@ -801,7 +809,9 @@ PROMPT;
         );
 
         $userPrompt = $human
-            ? "Write exactly 1 reply in a {$tone} voice.\nOne or two sentences. No hashtags, no link, and do not start by repeating their name.\nDo not add a job title, score, or price that the post did not state.\n"
+            ? "Write exactly 1 reply in a {$tone} voice.\n".($allowLink
+                ? "One or two sentences. No hashtags. One link is allowed, and only the destination already in the voice notes.\n"
+                : "One or two sentences. No hashtags, no link, and do not start by repeating their name.\n")."Do not add a job title, score, or price that the post did not state.\n"
             : "Generate exactly 3 reply drafts in a {$tone} tone for someone in the {$niche} niche.\n";
         if (! $human) {
             $userPrompt .= "Conversation context: {$context}\n";
@@ -812,6 +822,14 @@ PROMPT;
         if ($postContent) {
             $userPrompt .= "Original post: {$postContent}\n";
         }
+
+        $voice = trim((string) ($params['voice'] ?? ''));
+        if ($voice !== '') {
+            $userPrompt .= "Write as this account, in its own voice. Do not sound like a generic commenter:\n{$voice}\n";
+        }
+        $userPrompt .= $allowLink
+            ? "If a destination URL is in the voice notes, include that URL once. Do not invent a different URL.\n"
+            : "Do not include a URL or a www address.\n";
 
         if ($useWebSearch) {
             $userPrompt .= "\nUse web search only if you need current facts to reply accurately.\n";
@@ -1106,8 +1124,14 @@ PROMPT;
                 continue;
             }
 
+            $content = trim((string) preg_replace('/https?:\/\/\S+|www\.\S+/i', '', (string) $draft['content']));
+            $content = trim((string) preg_replace('/\s+/', ' ', $content));
+            if ($content === '') {
+                continue;
+            }
+
             $normalized[] = [
-                'content' => trim((string) $draft['content']),
+                'content' => $content,
                 'tone' => (string) ($draft['tone'] ?? $tone),
             ];
         }
