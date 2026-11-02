@@ -7,9 +7,11 @@ import { useBillingStatus } from "@/components/shell/BillingState";
 
 function Row({ children, action, tone }: { children: React.ReactNode; action: React.ReactNode; tone?: string }) {
   return (
-    <div className={`flex h-10 items-center justify-between gap-3 border-b border-border px-4 text-sm ${tone ?? "bg-muted/70"}`}>
-      <p className="flex min-w-0 items-center gap-2 truncate">{children}</p>
-      {action}
+    <div className={`border-b border-border ${tone ?? "bg-muted/70"}`}>
+      <div className="mx-auto flex h-10 w-full max-w-6xl items-center justify-between gap-3 px-4 text-sm sm:px-6 lg:px-8">
+        <p className="flex min-w-0 items-center gap-2 truncate">{children}</p>
+        {action}
+      </div>
     </div>
   );
 }
