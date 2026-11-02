@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Clock, Loader2 } from "lucide-react";
+import { trialEndsLine, useBillingStatus } from "@/components/shell/BillingState";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,8 +13,10 @@ import {
   confirmClip,
   discardClip,
   formatWhen,
+  markClipPosted,
   postUrl,
   rescheduleClip,
+  retryClipUpload,
   runTikTok,
   saveTimezone,
   submitResults,
@@ -30,6 +33,7 @@ import { QueuedPanel } from "./QueuedPanel";
 import { ReschedulePopover } from "./ReschedulePopover";
 import { ResultsForm } from "./ResultsForm";
 import { TimezoneNotice } from "./TimezoneNotice";
+import { VideoDropzone, VideoPreview, VideoSummary } from "./VideoDropzone";
 
 export type TikTokReview = {
   writing?: boolean;
@@ -51,8 +55,8 @@ function SkeletonCard() {
 
 function currentStep(tiktok: TikTokDesk): "ideas" | "written" | "waiting" | "confirmed" | "posted" {
   const status = tiktok.clip?.status;
-  if (status === "posted") return "posted";
-  if (status === "queued") return "confirmed";
+  if (status === "posted" || status === "learned") return "posted";
+  if (status === "queued" || status === "uploading" || status === "in_drafts" || status === "upload_failed") return "confirmed";
   if (status === "waiting") return "waiting";
   if (tiktok.pipeline.written > 0) return "written";
   return "ideas";
@@ -64,18 +68,23 @@ function timeHasPassed(iso: string | null | undefined): boolean {
   return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
 }
 
-function Meter({ label, used, limit, detail }: { label: string; used: number; limit: number; detail: string }) {
-  const width = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+function Meter({ label, used, limit, detail, empty = false }: { label: string; used: number; limit: number; detail: string; empty?: boolean }) {
+  const width = !empty && limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
 
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3 text-xs">
         <span className="text-muted-foreground">{label}</span>
-        <span className="tabular-nums">
-          {used} of {limit}
-        </span>
+        <span className="tabular-nums">{empty ? "—" : `${used} of ${limit}`}</span>
       </div>
-      <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted" aria-hidden>
+      <div
+        className="mt-2 h-1 overflow-hidden rounded-full bg-muted"
+        role="progressbar"
+        aria-valuenow={empty ? 0 : used}
+        aria-valuemin={0}
+        aria-valuemax={empty ? 0 : limit}
+        aria-label={label}
+      >
         <div className="h-full bg-foreground/70" style={{ width: `${width}%` }} />
       </div>
       <p className="mt-2 text-xs text-muted-foreground">{detail}</p>
@@ -84,8 +93,10 @@ function Meter({ label, used, limit, detail }: { label: string; used: number; li
 }
 
 function DeskRail({ tiktok }: { tiktok: TikTokDesk }) {
+  const billing = useBillingStatus();
   const zone = tiktok.timezone.value || "UTC";
   const renews = tiktok.allowance.period_end ? formatWhen(tiktok.allowance.period_end, zone) : "when the period ends";
+  const trialLine = trialEndsLine(billing?.subscription);
   const capDetail = tiktok.daily_cap.reached
     ? `You can confirm again at ${formatWhen(tiktok.daily_cap.available_at, zone)}.`
     : "Confirm up to this many clips in a rolling day.";
@@ -98,7 +109,14 @@ function DeskRail({ tiktok }: { tiktok: TikTokDesk }) {
             label="This month"
             used={tiktok.allowance.used}
             limit={tiktok.allowance.limit}
-            detail={tiktok.allowance.plan_found ? `Renews ${renews}.` : "TikTok is not on this account."}
+            empty={!tiktok.allowance.plan_found}
+            detail={
+              trialLine && tiktok.allowance.plan_found
+                ? trialLine
+                : tiktok.allowance.plan_found
+                  ? `Renews ${renews}.`
+                  : "Turns on when TikTok is on the account."
+            }
           />
           <Meter label="Today" used={tiktok.daily_cap.used} limit={tiktok.daily_cap.cap} detail={capDetail} />
           <p className="text-xs text-muted-foreground">
@@ -154,6 +172,7 @@ export function TikTokBody({
   const [timeError, setTimeError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [focusConfirmed, setFocusConfirmed] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [live, setLive] = useState("");
 
   const clip = tiktok.clip;
@@ -161,11 +180,28 @@ export function TikTokBody({
   const timePassed = clip?.status === "waiting" && timeHasPassed(clip.suggested_for);
 
   useEffect(() => {
-    if (focusConfirmed && clip?.status === "queued") {
+    if (focusConfirmed && (clip?.status === "queued" || clip?.status === "uploading" || clip?.status === "in_drafts")) {
       headingRef.current?.focus();
       setFocusConfirmed(false);
     }
   }, [focusConfirmed, clip?.status, clip?.id]);
+
+  useEffect(() => {
+    if (!onReload || !clip) return;
+    const sending = clip.status === "uploading";
+    const waitingOnWorker =
+      clip.status === "queued" &&
+      Boolean(clip.video) &&
+      !clip.blockers.includes("video_file") &&
+      !clip.blockers.includes("tiktok_connection") &&
+      !clip.blockers.includes("tiktok_upload_permission") &&
+      Boolean(tiktok.connection.upload_configured);
+    if (!sending && !waitingOnWorker) return;
+    const timer = window.setInterval(() => {
+      void onReload();
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [clip, onReload, tiktok.connection.upload_configured]);
 
   function fail(err: unknown, where: "confirm" | "time" | "form" | "run") {
     const error = err instanceof ApiError ? err : new ApiError("Something went wrong. We're checking what happened.", 0);
@@ -222,7 +258,7 @@ export function TikTokBody({
     setInline(null);
     try {
       await confirmClip(clip.id);
-      setLive("Confirmed. Not posted yet.");
+      setLive(clip.video ? "Sending to your TikTok drafts." : "Confirmed. Not posted yet.");
       setFocusConfirmed(true);
       await reload();
     } catch (err) {
@@ -275,6 +311,38 @@ export function TikTokBody({
     }
   }
 
+  async function retryUpload() {
+    if (!clip || !onReload) return;
+    setBusy("retry");
+    setInline(null);
+    try {
+      await retryClipUpload(clip.id);
+      setLive("Sending to TikTok…");
+      await reload();
+    } catch (err) {
+      fail(err, "confirm");
+      await reload();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function postedIt() {
+    if (!clip || !onReload) return;
+    setBusy("posted");
+    try {
+      await markClipPosted(clip.id);
+      setResultsOpen(true);
+      setLive("Posted. Add how it did.");
+      await reload();
+    } catch (err) {
+      fail(err, "confirm");
+      await reload();
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function saveResults(values: { views: number; completion_percent: number; follows: number }) {
     if (!clip || !onReload) return;
     setBusy("results");
@@ -305,6 +373,8 @@ export function TikTokBody({
   }
 
   const showResults = clip?.status === "queued" || clip?.status === "posted";
+  const showFile = clip?.status === "waiting" || clip?.status === "queued";
+  const tracked = clip?.status === "queued" || clip?.status === "uploading" || clip?.status === "in_drafts" || clip?.status === "upload_failed";
 
   return (
     <div className="space-y-6 pb-28 md:pb-0">
@@ -312,8 +382,8 @@ export function TikTokBody({
         {live}
       </div>
       <PipelineStrip pipeline={tiktok.pipeline} current={currentStep(tiktok)} />
-      <div className="grid items-start gap-6 lg:grid-cols-3">
-      <div className="min-w-0 space-y-6 lg:col-span-2">
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="min-w-0 space-y-6">
 
       {writing ? (
         <SkeletonCard />
@@ -322,35 +392,48 @@ export function TikTokBody({
       ) : !clip && tiktok.block ? (
         <BlockNotice block={tiktok.block} />
       ) : !clip ? (
-        <Card>
-          <CardContent className="space-y-5 pt-6">
-            <div>
-              <h2 className="text-base font-medium">No clip yet</h2>
-              <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+        <Card className="h-full">
+          <CardContent className="flex min-h-[22rem] flex-col justify-between gap-8 p-6 sm:p-8">
+            <div className="max-w-lg">
+              <h2 className="text-2xl font-medium tracking-tight">No clip yet</h2>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
                 We'll look for an idea that fits your niche and write the clip. Nothing goes out without your yes.
               </p>
             </div>
-            <Button type="button" className="min-h-11" disabled={!onReload} aria-busy={false} onClick={() => void findIdea()}>
-              Find an idea
-            </Button>
-            {inline && (
-              <div className="space-y-2">
-                <p className="text-sm" role="status">
-                  {inline}
-                </p>
-                {(tiktok.block?.action === "billing" || inline === "TikTok is not on this account.") && (
-                  <Link href="/pricing" className="inline-block text-sm underline underline-offset-4">
-                    See plans
-                  </Link>
-                )}
-              </div>
-            )}
+            <div className="space-y-4">
+              <Button type="button" className="min-h-11 w-full sm:w-auto" disabled={!onReload} aria-busy={false} onClick={() => void findIdea()}>
+                Find an idea
+              </Button>
+              {inline && (
+                <div className="space-y-2">
+                  <p className="text-sm" role="status">
+                    {inline}
+                  </p>
+                  {(tiktok.block?.action === "billing" || inline === "TikTok is not on this account.") && (
+                    <Link href="/pricing" className="inline-block text-sm underline underline-offset-4">
+                      See plans
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-6">
-          {clip.status === "queued" && (
-            <QueuedPanel blockers={clip.blockers} connection={tiktok.connection} headingRef={headingRef} />
+          {tracked && (
+            <QueuedPanel
+              clipId={clip.id}
+              status={clip.status}
+              blockers={clip.blockers}
+              connection={tiktok.connection}
+              video={clip.video}
+              uploadError={clip.upload_error}
+              uploadProgress={clip.upload_progress}
+              headingRef={headingRef}
+              retrying={busy === "retry"}
+              onRetry={() => void retryUpload()}
+            />
           )}
           {clip.status === "posted" && (
             <Card>
@@ -366,19 +449,53 @@ export function TikTokBody({
             </Card>
           )}
           {clip.status === "waiting" && timePassed && (
-            <p className="text-sm">This time has passed. Pick a new one.</p>
+            <div className="flex flex-col items-start gap-3 rounded-md border border-border bg-muted/50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="flex items-start gap-2 text-sm">
+                <Clock className="mt-0.5 size-4 shrink-0" aria-hidden />
+                This time has passed. Pick a new one.
+              </p>
+              <ReschedulePopover
+                profileZone={tiktok.timezone.assumed ? null : tiktok.timezone.value}
+                assumed={tiktok.timezone.assumed || clip.timezone_assumed}
+                error={timeError}
+                busy={busy === "time"}
+                initiallyOpen
+                onSave={(iso) => void reschedule(iso)}
+              />
+            </div>
           )}
-          <ClipCard clip={clip} collapsed={clip.status === "queued" || clip.status === "posted"} />
+          {showFile && (
+            <div className="space-y-3">
+              {clip.video && clip.status === "waiting" && (
+                <div className="space-y-3">
+                  <VideoSummary video={clip.video} />
+                  <VideoPreview clipId={clip.id} />
+                </div>
+              )}
+              {clip.video && !replacing ? (
+                <Button type="button" variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => setReplacing(true)}>
+                  Replace video
+                </Button>
+              ) : (
+                <VideoDropzone
+                  clipId={clip.id}
+                  replacing={Boolean(clip.video)}
+                  onUploaded={() => {
+                    setReplacing(false);
+                    void reload();
+                  }}
+                />
+              )}
+            </div>
+          )}
+          <ClipCard clip={clip} collapsed={clip.status === "queued" || clip.status === "posted" || clip.status === "in_drafts" || clip.status === "uploading"} />
           {clip.status === "waiting" && (clip.timezone_assumed || tiktok.timezone.assumed) && (
             <TimezoneNotice busy={busy === "zone"} onUse={(name) => void useZone(name)} />
-          )}
-          {clip.status === "waiting" && !timePassed && (
-            <p className="text-sm">Suggested time: {formatWhen(clip.suggested_for, zone)}.</p>
           )}
           {clip.status === "waiting" && (
             <ConfirmBar
               time={formatWhen(clip.suggested_for, zone)}
-              label={timePassed ? "Yes, go ahead" : undefined}
+              label="Yes, send to my TikTok drafts"
               busy={busy === "confirm"}
               disabled={capReached || allowanceSpent || !tiktok.allowance.plan_found}
               reason={confirmReason}
@@ -392,14 +509,15 @@ export function TikTokBody({
           )}
           {clip.status === "waiting" && (
             <div className="flex flex-col items-start gap-4 pt-6">
-              <ReschedulePopover
-                profileZone={tiktok.timezone.assumed ? null : tiktok.timezone.value}
-                assumed={tiktok.timezone.assumed || clip.timezone_assumed}
-                error={timeError}
-                busy={busy === "time"}
-                initiallyOpen={timePassed}
-                onSave={(iso) => void reschedule(iso)}
-              />
+              {!timePassed && (
+                <ReschedulePopover
+                  profileZone={tiktok.timezone.assumed ? null : tiktok.timezone.value}
+                  assumed={tiktok.timezone.assumed || clip.timezone_assumed}
+                  error={timeError}
+                  busy={busy === "time"}
+                  onSave={(iso) => void reschedule(iso)}
+                />
+              )}
               {skipping ? (
                 <SkipDialog busy={busy === "skip"} onKeep={() => setSkipping(false)} onSkip={() => void skip()} />
               ) : (
@@ -409,7 +527,13 @@ export function TikTokBody({
               )}
             </div>
           )}
-          {clip.status === "queued" && (
+          {clip.status === "in_drafts" && (
+            <Button type="button" className="min-h-11 w-full sm:w-auto" disabled={busy === "posted"} aria-busy={busy === "posted"} onClick={() => void postedIt()}>
+              {busy === "posted" && <Loader2 className="motion-safe:animate-spin" aria-hidden />}
+              I posted it
+            </Button>
+          )}
+          {(clip.status === "queued" || clip.status === "upload_failed") && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">Skipping frees this clip's slot for the month.</p>
               {skipping ? (

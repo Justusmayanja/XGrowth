@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use App\Models\ConnectedAccount;
 use App\Models\TikTokClip;
+use App\Services\TikTok\TikTokDraftService;
 use App\Support\TikTokCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -49,6 +50,9 @@ class TikTokClipResource extends JsonResource
             'publish_note' => $package['publish']['note'] ?? null,
             'platform_post_id' => $this->platform_post_id,
             'blockers' => $this->blockers($package),
+            'video' => $this->videoPayload(),
+            'upload_error' => $this->upload_error,
+            'upload_progress' => $this->upload_progress,
         ];
     }
 
@@ -90,8 +94,30 @@ class TikTokClipResource extends JsonResource
         // is_active false means the link needs a fresh sign-in and still blocks posting.
         if (! $connected) {
             $blockers[] = TikTokCatalog::BLOCKER_TIKTOK_CONNECTION;
+        } elseif ($this->user && app(TikTokDraftService::class)->needsUploadPermission($this->user)) {
+            $blockers[] = TikTokCatalog::BLOCKER_TIKTOK_UPLOAD;
         }
 
         return $blockers;
+    }
+
+    /**
+     * @return array{filename: string, size: int, duration_seconds: int|null, width: int|null, height: int|null, warning: string|null}|null
+     */
+    private function videoPayload(): ?array
+    {
+        $video = $this->video;
+        if (! $video || ! $video->ready) {
+            return null;
+        }
+
+        return [
+            'filename' => $video->original_filename,
+            'size' => (int) $video->size,
+            'duration_seconds' => $video->duration_seconds,
+            'width' => $video->width,
+            'height' => $video->height,
+            'warning' => $video->aspect_warning,
+        ];
     }
 }

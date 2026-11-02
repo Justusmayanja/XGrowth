@@ -134,6 +134,7 @@ class TikTokOAuthService
                 : $refreshToken,
             'token_expires_at' => now()->addSeconds((int) ($body['expires_in'] ?? 86400)),
             'is_active' => true,
+            'scopes' => is_string($body['scope'] ?? null) && $body['scope'] !== '' ? $body['scope'] : $account->scopes,
         ])->save();
 
         return $account->fresh() ?? $account;
@@ -239,6 +240,7 @@ class TikTokOAuthService
                     'refresh_token' => is_string($token['refresh_token'] ?? null) ? $token['refresh_token'] : null,
                     'token_expires_at' => now()->addSeconds((int) ($token['expires_in'] ?? 86400)),
                     'is_active' => true,
+                    'scopes' => is_string($token['scope'] ?? null) && $token['scope'] !== '' ? $token['scope'] : null,
                 ],
             );
         });

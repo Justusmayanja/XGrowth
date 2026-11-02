@@ -40,13 +40,13 @@ label {
 
 .auth-screen input {
   border-radius: 0.7rem;
-  border: 1px solid #243246;
-  background: #141c2a;
-  color: #e7eef6;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--foreground);
 }
 
 .auth-screen input:focus-visible {
-  outline: 2px solid #2c6cb8;
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
@@ -68,32 +68,100 @@ label {
   opacity: 0.45;
 }
 
+/*
+  One switch: html.dark. Desk, setup, and the landing canvas read these tokens.
+  Components do not set their own light or dark colors.
+*/
+:root {
+  --desk-background: #f4f6f8;
+  --desk-foreground: #18181b;
+  --desk-card: #ffffff;
+  --desk-primary: #2c6cb8;
+  --desk-primary-hover: #245a98;
+  --desk-primary-foreground: #f4f8fc;
+  --desk-secondary: #eef0f3;
+  --desk-muted: #eef0f3;
+  --desk-muted-foreground: #52525b;
+  --desk-border: #e4e4e7;
+  --desk-ring: #2c6cb8;
+  --desk-sidebar: #f7f8fa;
+  --desk-surface: #ffffff;
+  --desk-surface-2: #f4f5f7;
+  --desk-nav: #e8eaee;
+
+  --canvas-background: #f4f7fb;
+  --canvas-foreground: #10141c;
+  --canvas-card: #ffffff;
+  --canvas-primary: #2c6cb8;
+  --canvas-primary-hover: #245a98;
+  --canvas-primary-foreground: #f4f8fc;
+  --canvas-accent: #1d4f8f;
+  --canvas-accent-foreground: #f4f8fc;
+  --canvas-muted: #e7edf5;
+  --canvas-muted-foreground: #4b5b70;
+  --canvas-border: #d5deea;
+  --canvas-secondary: #e7edf5;
+  --canvas-surface-2: #eef3f8;
+}
+
+.dark {
+  --desk-background: #101113;
+  --desk-foreground: #ececee;
+  --desk-card: #16171a;
+  --desk-primary: #2c6cb8;
+  --desk-primary-hover: #3b7dcc;
+  --desk-primary-foreground: #f4f8fc;
+  --desk-secondary: #1c1d21;
+  --desk-muted: #1c1d21;
+  --desk-muted-foreground: #a1a1aa;
+  --desk-border: #2a2b31;
+  --desk-ring: #52525b;
+  --desk-sidebar: #101113;
+  --desk-surface: #16171a;
+  --desk-surface-2: #1c1d21;
+  --desk-nav: #232429;
+
+  --canvas-background: #05070d;
+  --canvas-foreground: #e7eef6;
+  --canvas-card: #0c121c;
+  --canvas-primary: #2c6cb8;
+  --canvas-primary-hover: #3b7dcc;
+  --canvas-primary-foreground: #f4f8fc;
+  --canvas-accent: #9ec0ea;
+  --canvas-accent-foreground: #071018;
+  --canvas-muted: #121a28;
+  --canvas-muted-foreground: #b7c6d8;
+  --canvas-border: #243246;
+  --canvas-secondary: #121a28;
+  --canvas-surface-2: #141c2a;
+}
+
 .desk {
-  --background: #101113;
-  --foreground: #ececee;
-  --card: #16171a;
-  --card-foreground: #ececee;
-  --popover: #16171a;
-  --popover-foreground: #ececee;
-  --primary: #2c6cb8;
-  --primary-hover: #3b7dcc;
-  --primary-foreground: #f4f8fc;
-  --secondary: #1c1d21;
-  --secondary-foreground: #ececee;
-  --muted: #1c1d21;
-  --muted-foreground: #a1a1aa;
-  --accent: #1c1d21;
-  --accent-foreground: #ececee;
-  --border: #2a2b31;
-  --input: #2a2b31;
-  --ring: #52525b;
-  --sidebar: #101113;
-  --sidebar-foreground: #ececee;
-  --sidebar-border: #2a2b31;
-  --surface: #16171a;
-  --surface-2: #1c1d21;
+  --background: var(--desk-background);
+  --foreground: var(--desk-foreground);
+  --card: var(--desk-card);
+  --card-foreground: var(--desk-foreground);
+  --popover: var(--desk-card);
+  --popover-foreground: var(--desk-foreground);
+  --primary: var(--desk-primary);
+  --primary-hover: var(--desk-primary-hover);
+  --primary-foreground: var(--desk-primary-foreground);
+  --secondary: var(--desk-secondary);
+  --secondary-foreground: var(--desk-foreground);
+  --muted: var(--desk-muted);
+  --muted-foreground: var(--desk-muted-foreground);
+  --accent: var(--desk-muted);
+  --accent-foreground: var(--desk-foreground);
+  --border: var(--desk-border);
+  --input: var(--desk-border);
+  --ring: var(--desk-ring);
+  --sidebar: var(--desk-sidebar);
+  --sidebar-foreground: var(--desk-foreground);
+  --sidebar-border: var(--desk-border);
+  --surface: var(--desk-surface);
+  --surface-2: var(--desk-surface-2);
   --radius: 8px;
-  background: #101113;
+  background: var(--desk-background);
   color: var(--foreground);
 }
 
@@ -104,9 +172,9 @@ label {
 .setup textarea,
 .setup select {
   border-radius: 8px;
-  border-color: #2a2b31;
-  background: #16171a;
-  color: #ececee;
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--foreground);
 }
 
 .desk input:focus-visible,
@@ -115,7 +183,7 @@ label {
 .setup input:focus-visible,
 .setup textarea:focus-visible,
 .setup select:focus-visible {
-  outline: 1px solid #52525b;
+  outline: 1px solid var(--ring);
   outline-offset: 0;
 }
 
@@ -140,9 +208,9 @@ input.code-digit {
 .auth-screen input.code-digit:focus-visible,
 .setup input.code-digit:focus-visible,
 input.code-digit:focus-visible {
-  outline: 1px solid #2c6cb8;
+  outline: 1px solid var(--primary);
   outline-offset: 1px;
-  border-color: #2c6cb8;
+  border-color: var(--primary);
 }
 
 .desk input[type="checkbox"],
@@ -173,34 +241,59 @@ input[type="radio"] {
 }
 
 .desk [data-slot="card"]:hover {
-  border-color: #3a3b42;
+  border-color: var(--border);
 }
 
 .desk-nav-link {
   display: flex;
+  min-height: 2.5rem;
   align-items: center;
   gap: 0.55rem;
   border-radius: 6px;
-  padding: 0.35rem 0.5rem;
+  padding: 0.35rem 0.65rem;
   font-size: 0.875rem;
-  color: #a1a1aa;
+  color: var(--muted-foreground);
 }
 
 .desk-nav-link:hover {
-  background: #1c1d21;
-  color: #ececee;
+  background: var(--surface-2);
+  color: var(--foreground);
 }
 
 .desk-nav-link.is-on {
-  background: #232429;
-  color: #f4f4f5;
+  background: var(--surface-2);
+  box-shadow: inset 2px 0 0 var(--primary);
+  color: var(--foreground);
+  font-weight: 500;
 }
 
 .desk-nav-link svg {
-  height: 0.95rem;
-  width: 0.95rem;
+  height: 1.125rem;
+  width: 1.125rem;
   flex: none;
   opacity: 0.8;
+}
+
+/*
+  Stacking: content < confirm bar < header < drawer overlay < drawer < dialogs < toasts.
+*/
+.shell-header { z-index: 40; }
+.shell-overlay { z-index: 45; }
+.shell-drawer { z-index: 50; }
+.shell-dialog { z-index: 60; }
+
+@media (pointer: coarse) {
+  .shell-hit {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-drawer,
+  .shell-overlay {
+    transition: none;
+  }
 }
 
 @keyframes desk-arrive {
@@ -221,16 +314,23 @@ input[type="radio"] {
 }
 
 .setup {
-  --primary: #2c6cb8;
-  --primary-hover: #3b7dcc;
-  --primary-foreground: #f4f8fc;
-  --foreground: #ececee;
-  --muted-foreground: #a1a1aa;
-  --border: #2a2b31;
-  --surface-2: #1c1d21;
+  --background: var(--desk-background);
+  --foreground: var(--desk-foreground);
+  --card: var(--desk-card);
+  --card-foreground: var(--desk-foreground);
+  --primary: var(--desk-primary);
+  --primary-hover: var(--desk-primary-hover);
+  --primary-foreground: var(--desk-primary-foreground);
+  --muted: var(--desk-muted);
+  --muted-foreground: var(--desk-muted-foreground);
+  --border: var(--desk-border);
+  --input: var(--desk-border);
+  --surface: var(--desk-surface);
+  --surface-2: var(--desk-surface-2);
+  --ring: var(--desk-ring);
   min-height: 100vh;
-  background: #101113;
-  color: #ececee;
+  background: var(--desk-background);
+  color: var(--foreground);
   font-family: var(--font-inter), Inter, sans-serif;
 }
 
@@ -249,11 +349,11 @@ input[type="radio"] {
 .setup-progress span {
   height: 2px;
   width: 2rem;
-  background: #2a2b31;
+  background: var(--border);
 }
 
 .setup-progress span.is-on {
-  background: #2c6cb8;
+  background: var(--primary);
 }
 
 .setup .th-cta {
@@ -351,21 +451,50 @@ input[type="radio"] {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
-  border: 1px solid #2a2b31;
+  border: 1px solid var(--border);
   border-radius: 8px;
   background: transparent;
   padding: 0.8rem 0.9rem;
   text-align: left;
-  color: #ececee;
+  color: var(--foreground);
 }
 
 .choice-row:hover {
-  background: #16171a;
+  background: var(--surface-2);
 }
 
 .choice-row.is-on {
-  border-color: #3f3f46;
-  background: #1c1d21;
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+
+.choice-chip {
+  display: flex;
+  min-height: 2.75rem;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0.45rem 0.75rem;
+  text-align: left;
+  font-size: 0.875rem;
+  color: var(--foreground);
+}
+
+.choice-chip:hover {
+  border-color: var(--ring);
+}
+
+.choice-chip.is-on {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+}
+
+.choice-chip strong {
+  font-weight: 500;
 }
 
 .choice-row strong {
@@ -383,12 +512,12 @@ input[type="radio"] {
   display: block;
   margin-top: 0.15rem;
   font-style: normal;
-  color: #a1a1aa;
+  color: var(--muted-foreground);
   font-size: 0.875rem;
 }
 
 .choice-note {
-  border: 1px solid #2a2b31;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.9rem 1rem;
 }
@@ -403,7 +532,7 @@ input[type="radio"] {
     position: sticky;
     top: 1.5rem;
     border-top: 0;
-    border-left: 1px solid #2a2b31;
+    border-left: 1px solid var(--border);
     padding: 0.25rem 0 0 1.25rem;
   }
 }
@@ -411,6 +540,7 @@ input[type="radio"] {
 .auth-desk {
   display: grid;
   min-height: 100vh;
+  align-content: center;
 }
 
 .auth-aside {
@@ -431,7 +561,7 @@ input[type="radio"] {
 .auth-line {
   margin: 0;
   max-width: 11ch;
-  color: #f7f8f8;
+  color: var(--foreground);
   font-family: var(--font-display), "Times New Roman", serif;
   font-style: italic;
   font-weight: 400;
@@ -451,17 +581,17 @@ input[type="radio"] {
   grid-template-columns: 6.75rem 1fr;
   gap: 0.85rem;
   padding: 0.9rem 0;
-  border-top: 1px solid #243246;
+  border-top: 1px solid var(--border);
 }
 
 .auth-note strong {
   font-weight: 500;
-  color: #e7eef6;
+  color: var(--foreground);
 }
 
 .auth-note p {
   margin: 0;
-  color: #b7c6d8;
+  color: var(--muted-foreground);
 }
 
 .auth-form-wrap {
@@ -487,7 +617,7 @@ input[type="radio"] {
   align-items: center;
   gap: 0.75rem;
   margin: 1.15rem 0;
-  color: #7f93ab;
+  color: var(--muted-foreground);
   font-size: 0.8125rem;
 }
 
@@ -496,7 +626,7 @@ input[type="radio"] {
   content: "";
   height: 1px;
   flex: 1;
-  background: #243246;
+  background: var(--border);
 }
 
 .auth-socials {
@@ -511,21 +641,21 @@ input[type="radio"] {
   justify-content: center;
   gap: 0.5rem;
   height: 2.65rem;
-  border: 1px solid #243246;
+  border: 1px solid var(--border);
   border-radius: 8px;
   background: transparent;
-  color: #e7eef6;
+  color: var(--foreground);
   font-size: 0.875rem;
   font-weight: 500;
 }
 
 .auth-social:hover {
-  border-color: #3b7dcc;
-  background: rgba(44, 108, 184, 0.14);
+  border-color: var(--primary-hover);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
 }
 
 .auth-social:focus-visible {
-  outline: 2px solid #2c6cb8;
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
@@ -852,6 +982,34 @@ input[type="radio"] {
   color: var(--foreground);
 }
 
+.auth-screen {
+  --background: var(--canvas-background);
+  --foreground: var(--canvas-foreground);
+  --card: var(--canvas-card);
+  --card-foreground: var(--canvas-foreground);
+  --popover: var(--canvas-card);
+  --popover-foreground: var(--canvas-foreground);
+  --primary: var(--canvas-primary);
+  --primary-hover: var(--canvas-primary-hover);
+  --primary-foreground: var(--canvas-primary-foreground);
+  --accent: var(--canvas-accent);
+  --accent-foreground: var(--canvas-accent-foreground);
+  --muted: var(--canvas-muted);
+  --muted-foreground: var(--canvas-muted-foreground);
+  --border: var(--canvas-border);
+  --input: var(--canvas-border);
+  --secondary: var(--canvas-secondary);
+  --secondary-foreground: var(--canvas-foreground);
+  --surface-2: var(--canvas-surface-2);
+  background-color: var(--canvas-background);
+  color: var(--foreground);
+}
+
+.auth-screen.landing-canvas::before {
+  background-color: var(--canvas-background);
+  background-image: none;
+}
+
 .landing-canvas::before {
   content: "";
   position: fixed;
@@ -880,6 +1038,13 @@ input[type="radio"] {
 .landing-canvas > * {
   position: relative;
   z-index: 1;
+}
+
+.landing-canvas > .theme-slot {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 20;
 }
 
 .landing-canvas > header {
@@ -1596,7 +1761,43 @@ input[type="radio"] {
     --font-heading: var(--font-heading);
     --font-sans: var(--font-sans);
   }
-  :root,
+  :root {
+    --background: #f7f4ef;
+    --foreground: #1c1915;
+    --card: #ffffff;
+    --card-foreground: #1c1915;
+    --popover: #ffffff;
+    --popover-foreground: #1c1915;
+    --primary: #c73d2a;
+    --primary-hover: #a83222;
+    --primary-foreground: #fff8f5;
+    --secondary: #efeae3;
+    --secondary-foreground: #1c1915;
+    --muted: #efeae3;
+    --muted-foreground: #5c564e;
+    --accent: #c73d2a;
+    --accent-foreground: #fff8f5;
+    --destructive: #c73d2a;
+    --border: #e4ddd3;
+    --input: #e4ddd3;
+    --ring: #1c1915;
+    --chart-1: #c73d2a;
+    --chart-2: #8f867a;
+    --chart-3: #5c564e;
+    --chart-4: #e7d3a1;
+    --chart-5: #e4ddd3;
+    --radius: 0.25rem;
+    --sidebar: #fbf9f6;
+    --sidebar-foreground: #1c1915;
+    --sidebar-primary: #c73d2a;
+    --sidebar-primary-foreground: #fff8f5;
+    --sidebar-accent: #efeae3;
+    --sidebar-accent-foreground: #1c1915;
+    --sidebar-border: #e4ddd3;
+    --sidebar-ring: #1c1915;
+    --surface: #ffffff;
+    --surface-2: #f3efe8;
+  }
   .dark {
     --background: #12110e;
     --foreground: #f3eee6;

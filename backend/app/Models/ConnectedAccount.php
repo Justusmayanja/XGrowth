@@ -20,6 +20,7 @@ class ConnectedAccount extends Model
         'refresh_token',
         'token_expires_at',
         'is_active',
+        'scopes',
     ];
 
     protected $hidden = [

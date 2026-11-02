@@ -50,7 +50,7 @@ class TikTokController extends Controller
             ], 422);
         }
 
-        $query = TikTokClip::query()->forUser($request->user())->latest('id');
+        $query = TikTokClip::query()->forUser($request->user())->with('video')->latest('id');
         if (is_string($status) && $status !== '') {
             $query->where('status', $status);
         } else {

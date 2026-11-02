@@ -37,6 +37,7 @@ export function TikTokConnectionCard() {
             avatar_url: null,
             connected_at: null,
             needs_reconnect: false,
+            needs_upload_permission: false,
           });
         }
       });
@@ -122,6 +123,14 @@ export function TikTokConnectionCard() {
             Reconnect
           </Button>
         </div>
+      ) : status.connected && status.needs_upload_permission ? (
+        <div className="mt-3 space-y-3">
+          <p className="text-sm">TikTok needs one more permission. Reconnect to continue.</p>
+          <Button type="button" className="min-h-11 w-full sm:w-auto" disabled={redirecting} aria-busy={redirecting} onClick={() => void connect()}>
+            {redirecting && <Loader2 className="motion-safe:animate-spin" aria-hidden />}
+            Reconnect
+          </Button>
+        </div>
       ) : status.connected ? (
         <div className="mt-3 space-y-3">
           <div className="flex items-center gap-3">
@@ -144,7 +153,7 @@ export function TikTokConnectionCard() {
               )}
             </div>
           </div>
-          <p className="text-sm text-muted-foreground">Connected. Posting still needs your video file.</p>
+          <p className="text-sm text-muted-foreground">Connected. Sending a clip to your drafts still needs your video file.</p>
           {confirming ? (
             <div role="dialog" aria-labelledby="disconnect-tiktok-title" className="max-w-md space-y-3 rounded-sm border border-border p-4">
               <p id="disconnect-tiktok-title" className="text-sm">
@@ -169,7 +178,7 @@ export function TikTokConnectionCard() {
       ) : (
         <div className="mt-3 space-y-3">
           <p className="text-sm text-muted-foreground">
-            Connecting lets us post clips you've confirmed, once video posting is ready. Nothing is posted by connecting.
+            Connecting lets us send clips you've confirmed to your TikTok drafts. Nothing is posted by connecting.
           </p>
           <Button type="button" className="min-h-11" disabled={redirecting} aria-busy={redirecting} onClick={() => void connect()}>
             {redirecting && <Loader2 className="motion-safe:animate-spin" aria-hidden />}

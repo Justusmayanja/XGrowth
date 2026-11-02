@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 
 const RELOAD_KEY = "mackie17-chunk-reload";
@@ -38,9 +39,9 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <>
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="mackie17-theme" disableTransitionOnChange>
       {children}
-      <Toaster richColors position="bottom-right" theme="dark" />
-    </>
+      <Toaster richColors position="bottom-right" />
+    </ThemeProvider>
   );
 }

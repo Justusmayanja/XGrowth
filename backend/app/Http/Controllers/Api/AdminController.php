@@ -442,7 +442,7 @@ class AdminController extends Controller
                     $queued->where('status', TikTokCatalog::QUEUED)
                         ->whereNotNull('queued_at')
                         ->where('queued_at', '<=', now()->subDays(14));
-                });
+                })->orWhere('status', TikTokCatalog::UPLOAD_FAILED);
             })
             ->orderBy('id')
             ->limit(50)

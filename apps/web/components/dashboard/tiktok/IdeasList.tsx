@@ -10,10 +10,9 @@ export function IdeasList({ ideas, title = "What we're looking at" }: { ideas: T
         <ul className="mt-3 divide-y divide-border">
           {ideas.map((idea) => (
             <li key={`${idea.kind}-${idea.topic}`} className="py-3 first:pt-0 last:pb-0">
-              <p className="text-xs text-muted-foreground">{idea.kind_label}</p>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{idea.kind_label}</p>
               <p className="mt-1 font-medium break-words">{idea.topic}</p>
-              <p className="mt-1 text-sm break-words text-muted-foreground">{idea.angle}</p>
-              <p className="mt-1 text-sm break-words">{idea.reason}</p>
+              <p className="mt-1 text-sm leading-snug break-words text-muted-foreground">{idea.angle || idea.reason}</p>
             </li>
           ))}
         </ul>

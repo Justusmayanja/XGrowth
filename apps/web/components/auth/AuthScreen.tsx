@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ReactNode } from "react";
 import { BrandLogo } from "@/components/BrandLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function AuthScreen({
   kicker,
@@ -16,15 +17,16 @@ export function AuthScreen({
   footer: ReactNode;
 }) {
   return (
-    <div className="landing-canvas auth-screen min-h-screen">
+    <div className="landing-canvas auth-screen relative min-h-screen">
+      <ThemeToggle className="theme-slot" />
       <div className="flex min-h-screen items-center justify-center px-4 py-10">
-        <div className="w-full max-w-md rounded-[0.9rem] border border-[#243246] bg-[#0c121c] p-6 shadow-[0_24px_48px_rgba(0,0,0,0.35)] sm:p-8">
+        <div className="w-full max-w-md rounded-[0.9rem] border border-border bg-card p-6 text-card-foreground shadow-[0_24px_48px_rgba(0,0,0,0.12)] sm:p-8">
           <BrandLogo className="mb-6 text-xl" />
-          <p className="text-sm font-medium text-[#9ec0ea]">{kicker}</p>
-          <h1 className="display mt-2 text-3xl text-[#e7eef6]">{title}</h1>
-          <p className="mb-6 mt-2 text-sm leading-relaxed text-[#b7c6d8]">{lede}</p>
+          <p className="text-sm font-medium text-accent">{kicker}</p>
+          <h1 className="display mt-2 text-3xl text-foreground">{title}</h1>
+          <p className="mb-6 mt-2 text-sm leading-relaxed text-muted-foreground">{lede}</p>
           {children}
-          <div className="mt-6 text-center text-sm text-[#b7c6d8]">{footer}</div>
+          <div className="mt-6 text-center text-sm text-muted-foreground">{footer}</div>
         </div>
       </div>
     </div>
@@ -35,7 +37,7 @@ export function AuthError({ children }: { children: string }) {
   if (!children) return null;
 
   return (
-    <div className="mb-4 rounded-[0.7rem] border border-[#c73d2a]/50 bg-[#c73d2a]/10 p-3 text-sm text-[#f3c7c0]" role="alert">
+    <div className="mb-4 rounded-[0.7rem] border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
       {children}
     </div>
   );
@@ -59,14 +61,14 @@ export function AuthChoice({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex w-full items-center gap-3 rounded-[0.7rem] border border-[#243246] bg-[#141c2a] px-3 py-3 text-left transition hover:border-[#2c6cb8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2c6cb8] disabled:cursor-not-allowed disabled:opacity-45"
+      className="flex w-full items-center gap-3 rounded-[0.7rem] border border-border bg-surface-2 px-3 py-3 text-left transition hover:border-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-45"
     >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#0c121c] text-[#9ec0ea]">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-card text-accent">
         {children}
       </span>
       <span>
-        <span className="block text-sm font-medium text-[#e7eef6]">{label}</span>
-        <span className="block text-sm text-[#b7c6d8]">{detail}</span>
+        <span className="block text-sm font-medium text-foreground">{label}</span>
+        <span className="block text-sm text-muted-foreground">{detail}</span>
       </span>
     </button>
   );
@@ -85,7 +87,7 @@ export function GoogleMark() {
 
 export function XMark() {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#e7eef6]" aria-hidden="true">
+    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden="true">
       <path d="M14.7 10.3 21.4 3h-1.6l-5.8 6.4L9.3 3H3.5l7 10.1L3.5 21h1.6l6.2-6.8 4.9 6.8h5.8l-7.3-10.7Zm-2.2 2.4-.7-1-5.7-7.8h2.4l4.6 6.3.7 1 6 8.2h-2.4l-4.9-6.7Z" />
     </svg>
   );
@@ -111,7 +113,7 @@ export function PenMark() {
 
 export function AuthLink({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <Link href={href} className="text-[#9ec0ea] underline underline-offset-4">
+    <Link href={href} className="text-accent underline underline-offset-4">
       {children}
     </Link>
   );

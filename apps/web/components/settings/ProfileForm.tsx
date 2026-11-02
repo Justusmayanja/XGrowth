@@ -166,6 +166,7 @@ export function ProfileForm() {
             <Label>Niches</Label>
             <SelectionHint selectedCount={profile.niches.length} />
             <MultiSelectCards
+              compact
               options={NICHES}
               selected={profile.niches}
               onChange={(niches) => update({ ...profile, niches })}
@@ -188,7 +189,7 @@ export function ProfileForm() {
             <Label htmlFor="description">About your account</Label>
             <Textarea
               id="description"
-              rows={4}
+              rows={3}
               value={profile.description}
               onChange={(e) => update({ ...profile, description: e.target.value })}
               required
@@ -199,7 +200,7 @@ export function ProfileForm() {
             <Label htmlFor="audience">Audience</Label>
             <Textarea
               id="audience"
-              rows={3}
+              rows={2}
               value={profile.audience}
               onChange={(e) => update({ ...profile, audience: e.target.value })}
             />
@@ -209,11 +210,11 @@ export function ProfileForm() {
             <Label>Voice</Label>
             <SelectionHint selectedCount={profile.tones.length} />
             <MultiSelectCards
+              compact
               options={TONES}
               selected={profile.tones}
               onChange={(tones) => update({ ...profile, tones })}
               onLimitReached={showLimitError}
-              columns={1}
             />
           </div>
 

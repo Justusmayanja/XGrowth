@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\SafetyController;
 use App\Http\Controllers\Api\SocialAuthController;
 use App\Http\Controllers\Api\SubscriptionPlanController;
 use App\Http\Controllers\Api\TikTokController;
+use App\Http\Controllers\Api\TikTokVideoController;
 use App\Http\Controllers\Api\YouTubeController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -91,6 +92,12 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::post('/tiktok/clips/{clip}/results', [TikTokController::class, 'results']);
         Route::post('/tiktok/clips/{clip}/discard', [TikTokController::class, 'discard']);
         Route::post('/tiktok/clips/{clip}/reschedule', [TikTokController::class, 'reschedule']);
+        Route::post('/tiktok/clips/{clip}/video', [TikTokVideoController::class, 'start']);
+        Route::put('/tiktok/clips/{clip}/video/chunks/{index}', [TikTokVideoController::class, 'chunk'])->whereNumber('index');
+        Route::post('/tiktok/clips/{clip}/video/complete', [TikTokVideoController::class, 'complete']);
+        Route::get('/tiktok/clips/{clip}/video', [TikTokVideoController::class, 'show']);
+        Route::post('/tiktok/clips/{clip}/upload/retry', [TikTokVideoController::class, 'retry']);
+        Route::post('/tiktok/clips/{clip}/posted', [TikTokVideoController::class, 'posted']);
 
         Route::post('/youtube/run', [YouTubeController::class, 'run']);
         Route::post('/youtube/listings', [YouTubeController::class, 'listings']);

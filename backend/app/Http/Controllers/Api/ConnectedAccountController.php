@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Exceptions\TikTokOAuthException;
 use App\Http\Controllers\Controller;
+use App\Services\TikTok\TikTokDraftService;
 use App\Services\TikTok\TikTokOAuthService;
 use App\Services\XApi\XApiService;
 use Illuminate\Http\JsonResponse;
@@ -181,7 +182,7 @@ class ConnectedAccountController extends Controller
         return redirect()->away($this->frontend($target));
     }
 
-    public function tiktokStatus(Request $request): JsonResponse
+    public function tiktokStatus(Request $request, TikTokDraftService $drafts): JsonResponse
     {
         $account = $request->user()
             ->connectedAccounts()
@@ -196,6 +197,7 @@ class ConnectedAccountController extends Controller
                 'avatar_url' => null,
                 'connected_at' => $account?->created_at?->utc()->toIso8601String(),
                 'needs_reconnect' => $account !== null && ! $account->is_active,
+                'needs_upload_permission' => $drafts->needsUploadPermission($request->user()),
             ],
         ]);
     }
@@ -212,6 +214,7 @@ class ConnectedAccountController extends Controller
                 'avatar_url' => null,
                 'connected_at' => null,
                 'needs_reconnect' => false,
+                'needs_upload_permission' => false,
             ],
         ]);
     }

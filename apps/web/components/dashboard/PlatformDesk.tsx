@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Info, Link2 } from "lucide-react";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { LoadingMark } from "@/components/LoadingMark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -377,6 +378,24 @@ function XBody({ desk }: { desk: Desk }) {
   );
 }
 
+function TikTokDeskSkeleton() {
+  return (
+    <div className="space-y-6" aria-hidden>
+      <div className="h-24 animate-pulse rounded-md bg-muted" />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="h-28 animate-pulse rounded-md bg-muted" />
+        <div className="h-28 animate-pulse rounded-md bg-muted" />
+        <div className="h-28 animate-pulse rounded-md bg-muted" />
+      </div>
+      <div className="h-16 animate-pulse rounded-md bg-muted" />
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="h-80 animate-pulse rounded-md bg-muted" />
+        <div className="h-64 animate-pulse rounded-md bg-muted" />
+      </div>
+    </div>
+  );
+}
+
 function ReplyRecord({ desk }: { desk: Desk }) {
   const selected = desk.voices?.find((voice) => voice.selected);
   const href = !desk.connected
@@ -474,13 +493,7 @@ function XDeskView({
   const selected = voices.find((voice) => voice.selected);
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-medium">X</h1>
-          <p className="mt-1 max-w-xl text-sm text-muted-foreground">{postingLine(desk)}</p>
-        </div>
-        <AddPlatforms chosen={chosen} />
-      </div>
+      <PageHeader title="X" description={postingLine(desk)} actions={<AddPlatforms chosen={chosen} />} />
 
       {voices.length > 1 && (
         <div className="flex flex-wrap gap-2">
@@ -1010,15 +1023,11 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
   const name = platformName(platform);
 
   const header = (
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h1 className="text-xl font-medium">{name}</h1>
-        <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-          {platform === "x" && desk ? postingLine(desk) : LEDE[platform]}
-        </p>
-      </div>
-      {chosen.length > 0 && <AddPlatforms chosen={chosen} />}
-    </div>
+    <PageHeader
+      title={name}
+      description={platform === "x" && desk ? postingLine(desk) : LEDE[platform]}
+      actions={chosen.length > 0 ? <AddPlatforms chosen={chosen} /> : undefined}
+    />
   );
 
   if (error) {
@@ -1034,7 +1043,7 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
     return (
       <div className="space-y-6">
         {header}
-        {platform === "x" ? <XDeskSkeleton /> : <LoadingMark className="min-h-[40vh]" />}
+        {platform === "x" ? <XDeskSkeleton /> : platform === "tiktok" ? <TikTokDeskSkeleton /> : <LoadingMark className="min-h-[40vh]" />}
       </div>
     );
   }
@@ -1071,25 +1080,43 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
       {header}
 
       <Card>
-        <CardContent className="grid gap-0 p-0 sm:grid-cols-3">
+        <CardContent className="grid gap-0 divide-y divide-border p-0 md:grid-cols-3 md:divide-x md:divide-y-0">
           <div className="p-5">
             <p className="text-xs text-muted-foreground">Posting</p>
             <p className="mt-1 text-sm">{postingLine(desk)}</p>
           </div>
-          <div className="border-t border-border p-5 sm:border-l sm:border-t-0">
+          <div className="p-5">
             <p className="text-xs text-muted-foreground">Goals</p>
-            <p className="mt-1 text-sm">{goals}</p>
-            <Link href={`/onboarding?platform=${platform}`} className="mt-1 inline-block text-xs text-muted-foreground hover:text-foreground">
-              Change
+            <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Goals">
+              {(desk.setup.goals.length ? desk.setup.goals : ["Not set"]).map((goal) => (
+                <li key={goal} className="rounded-full border border-border px-2 py-0.5 text-xs">
+                  {desk.setup.goals.length ? formatMultiLabels([goal], PLATFORM_GOALS[platform]) : "Not set"}
+                </li>
+              ))}
+            </ul>
+            <Link href={`/onboarding?platform=${platform}`}>
+              <Button variant="ghost" size="sm" className="mt-2 h-8 px-2 text-xs text-muted-foreground">
+                Change
+              </Button>
             </Link>
           </div>
-          <div className="border-t border-border p-5 sm:border-l sm:border-t-0">
+          <div className="p-5">
             <p className="text-xs text-muted-foreground">Account</p>
-            {desk.connected ? (
-              <p className="mt-1 text-sm">{desk.connected.username ? `@${desk.connected.username}` : "Connected"}</p>
-            ) : (
-              <Link href="/settings" className="mt-1 inline-block text-sm underline underline-offset-4">
-                Connect {name}
+            <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs">
+              <Link2 className="size-3.5" aria-hidden />
+              {platform === "tiktok" && desk.tiktok?.connection.needs_reconnect
+                ? "Needs reconnect"
+                : desk.connected
+                  ? desk.connected.username
+                    ? `Connected as ${desk.connected.username}`
+                    : "Connected"
+                  : "Not connected"}
+            </p>
+            {(!desk.connected || (platform === "tiktok" && desk.tiktok?.connection.needs_reconnect)) && (
+              <Link href="/settings" className="mt-3 inline-block">
+                <Button variant="outline" size="sm">
+                  Connect {name}
+                </Button>
               </Link>
             )}
           </div>
@@ -1097,7 +1124,10 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
       </Card>
 
       {platform === "tiktok" && desk.preview && (
-        <p className="text-sm text-muted-foreground">These numbers are a preview until your TikTok is connected.</p>
+        <p className="flex items-start gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+          These numbers are a preview until your TikTok is connected.
+        </p>
       )}
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -1112,7 +1142,7 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
                   </Badge>
                 )}
               </div>
-              <p className="mt-2 font-mono text-2xl tabular-nums">
+              <p className="mt-2 text-2xl font-medium tabular-nums">
                 {metric.value == null ? "—" : `${metric.value.toLocaleString()}${metric.suffix ?? ""}`}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">{metric.sub}</p>

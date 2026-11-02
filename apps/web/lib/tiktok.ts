@@ -1,6 +1,24 @@
-import { ApiError, api } from "@/lib/api";
+import { ApiError, api, getToken, readApiError } from "@/lib/api";
 
-export type TikTokClipStatus = "drafted" | "waiting" | "queued" | "posted" | "learned" | "discarded";
+export type TikTokClipStatus =
+  | "drafted"
+  | "waiting"
+  | "queued"
+  | "uploading"
+  | "in_drafts"
+  | "upload_failed"
+  | "posted"
+  | "learned"
+  | "discarded";
+
+export type TikTokVideo = {
+  filename: string;
+  size: number;
+  duration_seconds: number | null;
+  width: number | null;
+  height: number | null;
+  warning: string | null;
+};
 
 export type TikTokLine = string | { text?: string; prompt?: string; at?: string; seconds?: number };
 
@@ -31,6 +49,9 @@ export type TikTokClip = {
   publish_note: string | null;
   platform_post_id: string | null;
   blockers: string[];
+  video?: TikTokVideo | null;
+  upload_error?: string | null;
+  upload_progress?: number | null;
 };
 
 export type TikTokIdea = {
@@ -62,6 +83,8 @@ export type TikTokDesk = {
     display_name?: string | null;
     needs_reconnect?: boolean;
     configured?: boolean;
+    upload_configured?: boolean;
+    needs_upload_permission?: boolean;
   };
 };
 
@@ -72,6 +95,7 @@ export type TikTokConnectionStatus = {
   avatar_url: string | null;
   connected_at: string | null;
   needs_reconnect: boolean;
+  needs_upload_permission?: boolean;
 };
 
 export type TikTokRun = {
@@ -144,6 +168,69 @@ export function runTikTok() {
 
 export function confirmClip(id: number) {
   return call<{ data: TikTokClip }>(`/tiktok/clips/${id}/confirm`, { method: "POST" });
+}
+
+export function retryClipUpload(id: number) {
+  return call<{ data: TikTokClip }>(`/tiktok/clips/${id}/upload/retry`, { method: "POST" });
+}
+
+export function markClipPosted(id: number) {
+  return call<{ data: TikTokClip }>(`/tiktok/clips/${id}/posted`, { method: "POST" });
+}
+
+async function uploadRequest(path: string, init: RequestInit, timeoutMs: number): Promise<unknown> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    ...(init.headers as Record<string, string>),
+  };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`/api${path}`, { ...init, headers, signal: controller.signal });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw readApiError(response, data);
+    return data;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError("The upload timed out. Try a shorter video.", 0);
+    }
+    throw err instanceof ApiError ? err : new ApiError(NETWORK, 0);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function uploadClipVideo(id: number, file: File, onProgress: (percent: number) => void): Promise<TikTokClip> {
+  const started = (await uploadRequest(
+    `/tiktok/clips/${id}/video`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: file.name, size: file.size }) },
+    30000,
+  )) as { data: { chunk_bytes: number; chunk_count: number } };
+  const chunkBytes = started.data.chunk_bytes;
+  const chunkCount = started.data.chunk_count;
+  for (let index = 0; index < chunkCount; index++) {
+    const slice = file.slice(index * chunkBytes, Math.min(file.size, (index + 1) * chunkBytes));
+    await uploadRequest(
+      `/tiktok/clips/${id}/video/chunks/${index}`,
+      { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: slice },
+      120000,
+    );
+    onProgress(Math.round(((index + 1) / chunkCount) * 90));
+  }
+  const done = (await uploadRequest(`/tiktok/clips/${id}/video/complete`, { method: "POST" }, 120000)) as { data: TikTokClip };
+  onProgress(100);
+  return done.data;
+}
+
+export async function fetchClipVideo(id: number): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(`/api/tiktok/clips/${id}/video`, { headers });
+  if (!response.ok) throw new ApiError("The video isn't available.", response.status);
+  return response.blob();
 }
 
 export function discardClip(id: number) {
