@@ -17,12 +17,14 @@ export class ApiError extends Error {
 export function readApiError(response: Response, data: unknown): ApiError {
   const body = (data ?? {}) as {
     message?: string;
-    error?: { code?: string; message?: string };
+    error?: { code?: string; message?: string; fields?: Record<string, string[] | string> };
     errors?: Record<string, string[] | string>;
   };
   const fields: Record<string, string> = {};
-  if (body.errors && typeof body.errors === "object") {
-    for (const [key, messages] of Object.entries(body.errors)) {
+  const sources = [body.errors, body.error?.fields];
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    for (const [key, messages] of Object.entries(source)) {
       const first = Array.isArray(messages) ? messages.find(Boolean) : messages;
       if (first) fields[key] = String(first);
     }
@@ -140,11 +142,7 @@ export async function apiForm<T = unknown>(path: string, body: FormData, timeout
   }
 
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const errors = (data as { errors?: Record<string, string[]> }).errors;
-    const firstFieldError = errors ? Object.values(errors).flat().find(Boolean) : undefined;
-    throw new Error(firstFieldError || (data as { message?: string }).message || `Request failed (${response.status})`);
-  }
+  if (!response.ok) throw readApiError(response, data);
 
   return data as T;
 }

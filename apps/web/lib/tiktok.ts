@@ -187,7 +187,7 @@ export function markClipPosted(id: number) {
   return call<{ data: TikTokClip }>(`/tiktok/clips/${id}/posted`, { method: "POST" });
 }
 
-async function uploadRequest(path: string, init: RequestInit, timeoutMs: number): Promise<unknown> {
+async function uploadRequest(path: string, init: RequestInit, timeoutMs: number, signal?: AbortSignal): Promise<unknown> {
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...(init.headers as Record<string, string>),
@@ -196,40 +196,53 @@ async function uploadRequest(path: string, init: RequestInit, timeoutMs: number)
   if (token) headers.Authorization = `Bearer ${token}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const onAbort = () => controller.abort();
+  signal?.addEventListener("abort", onAbort);
   try {
     const response = await fetch(`/api${path}`, { ...init, headers, signal: controller.signal });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw readApiError(response, data);
     return data;
   } catch (err) {
+    if (signal?.aborted) throw new ApiError("Upload cancelled.", 0, "cancelled");
     if (err instanceof DOMException && err.name === "AbortError") {
       throw new ApiError("The upload timed out. Try a shorter video.", 0);
     }
     throw err instanceof ApiError ? err : new ApiError(NETWORK, 0);
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener("abort", onAbort);
   }
 }
 
-export async function uploadClipVideo(id: number, file: File, onProgress: (percent: number) => void): Promise<TikTokClip> {
+export async function uploadClipVideo(
+  id: number,
+  file: File,
+  onProgress: (percent: number, loaded: number, total: number) => void,
+  signal?: AbortSignal,
+): Promise<TikTokClip> {
   const started = (await uploadRequest(
     `/tiktok/clips/${id}/video`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: file.name, size: file.size }) },
     30000,
+    signal,
   )) as { data: { chunk_bytes: number; chunk_count: number } };
   const chunkBytes = started.data.chunk_bytes;
   const chunkCount = started.data.chunk_count;
   for (let index = 0; index < chunkCount; index++) {
+    if (signal?.aborted) throw new ApiError("Upload cancelled.", 0, "cancelled");
     const slice = file.slice(index * chunkBytes, Math.min(file.size, (index + 1) * chunkBytes));
     await uploadRequest(
       `/tiktok/clips/${id}/video/chunks/${index}`,
       { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: slice },
       120000,
+      signal,
     );
-    onProgress(Math.round(((index + 1) / chunkCount) * 90));
+    const loaded = Math.min(file.size, (index + 1) * chunkBytes);
+    onProgress(Math.round(((index + 1) / chunkCount) * 90), loaded, file.size);
   }
-  const done = (await uploadRequest(`/tiktok/clips/${id}/video/complete`, { method: "POST" }, 120000)) as { data: TikTokClip };
-  onProgress(100);
+  const done = (await uploadRequest(`/tiktok/clips/${id}/video/complete`, { method: "POST" }, 120000, signal)) as { data: TikTokClip };
+  onProgress(100, file.size, file.size);
   return done.data;
 }
 

@@ -364,4 +364,137 @@ export const tiktokStateFixtures: TikTokStateFixture[] = [
       }),
     }),
   },
+  {
+    name: "Video rendering, long",
+    tiktok: desk({
+      clip: clip({
+        render: {
+          status: "rendering",
+          label: "Making your video",
+          note: null,
+          ready: false,
+          provider: "pending",
+          ai_generated: false,
+          can_regenerate: false,
+        },
+      }),
+    }),
+    review: { elapsedSeconds: 45 },
+  },
+  {
+    name: "Video rendering, stalled",
+    tiktok: desk({
+      clip: clip({
+        render: {
+          status: "rendering",
+          label: "Making your video",
+          note: null,
+          ready: false,
+          provider: "pending",
+          ai_generated: false,
+          can_regenerate: false,
+        },
+      }),
+    }),
+    review: { stalled: true, elapsedSeconds: 600 },
+  },
+  {
+    name: "Video ready, safe area",
+    tiktok: desk({
+      clip: clip({
+        blockers: ["tiktok_connection"],
+        script_lines: [
+          "You are salting the water too late.",
+          "The water should taste like the sea first.",
+          "Then the pasta goes in.",
+          "Taste it again before you plate.",
+          "Then stop and plate the bowl.",
+        ],
+        render: {
+          status: "ready",
+          label: "Ready to watch",
+          note: null,
+          ready: true,
+          provider: "ffmpeg",
+          ai_generated: true,
+          can_regenerate: true,
+        },
+        video: { filename: "clip.mp4", size: 4_194_304, duration_seconds: 22, width: 1080, height: 1920, warning: null },
+      }),
+    }),
+    review: { safeArea: true },
+  },
+  {
+    name: "Video failed",
+    tiktok: desk({
+      clip: clip({
+        render: {
+          status: "failed",
+          label: "Couldn't make the video",
+          note: "We couldn't make the video. Try again, or add your own.",
+          ready: false,
+          provider: "pending",
+          ai_generated: false,
+          can_regenerate: true,
+        },
+      }),
+    }),
+  },
+  {
+    name: "Regenerate limit reached",
+    tiktok: desk({
+      clip: clip({
+        blockers: ["tiktok_connection"],
+        render: {
+          status: "ready",
+          label: "Ready to watch",
+          note: null,
+          ready: true,
+          provider: "ffmpeg",
+          ai_generated: true,
+          can_regenerate: false,
+        },
+        video: { filename: "clip.mp4", size: 4_000_000, duration_seconds: 22, width: 1080, height: 1920, warning: null },
+      }),
+    }),
+  },
+  {
+    name: "Your video",
+    tiktok: desk({
+      clip: clip({
+        blockers: ["tiktok_connection"],
+        render: {
+          status: "ready",
+          label: "Ready to watch",
+          note: null,
+          ready: true,
+          provider: "user",
+          ai_generated: false,
+          can_regenerate: false,
+        },
+        video: {
+          filename: "salt.mp4",
+          size: 8_000_000,
+          duration_seconds: 18,
+          width: 1080,
+          height: 1080,
+          warning: "This video is not 9:16. TikTok can still take it. A vertical video fits the feed better.",
+        },
+      }),
+    }),
+  },
+  {
+    name: "Upload in progress",
+    tiktok: desk({
+      clip: clip({ blockers: ["video_file", "tiktok_connection"] }),
+    }),
+    review: { upload: { progress: 42, loaded: 4_200_000, total: 10_000_000 } },
+  },
+  {
+    name: "Upload error",
+    tiktok: desk({
+      clip: clip({ blockers: ["video_file", "tiktok_connection"] }),
+    }),
+    review: { upload: { error: "This file is over 100 MB. Export a shorter clip and try again." } },
+  },
 ];

@@ -84,9 +84,8 @@ class TikTokFfmpegRenderTest extends TestCase
             ->assertOk()
             ->json('data');
         $this->assertNotSame('', $preview['preview_url']);
-        $this->actingAs($user, 'sanctum')
-            ->get('/api/tiktok/clips/'.$clip->id.'/video/preview/file')
-            ->assertOk();
+        $this->assertStringContainsString('signature=', (string) $preview['preview_url']);
+        $this->get($preview['preview_url'])->assertOk();
 
         $disk = Storage::disk('tiktok_videos');
         $source = $disk->path($clip->video->path);

@@ -5,6 +5,7 @@ import { Check, CircleCheck, Clock, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { lineText, type TikTokClip } from "@/lib/tiktok";
+import { ClipTimeline } from "./video/ClipTimeline";
 
 async function copyText(text: string) {
   if (navigator.clipboard?.writeText) {
@@ -27,12 +28,12 @@ function CopyControl({ text, label }: { text: string; label: string }) {
   const name = copied ? "Copied" : label;
 
   return (
+    <span className="group relative inline-flex">
     <Button
       type="button"
       variant="ghost"
       size="icon"
       className="size-11 shrink-0"
-      title={name}
       aria-label={name}
       onClick={() => {
         void copyText(text)
@@ -45,6 +46,10 @@ function CopyControl({ text, label }: { text: string; label: string }) {
     >
       {copied ? <Check className="size-4" aria-hidden /> : <Copy className="size-4" aria-hidden />}
     </Button>
+    <span role="tooltip" className="pointer-events-none absolute top-full right-0 z-10 mt-1 hidden rounded-sm border border-border bg-background px-2 py-1 text-xs group-hover:block group-focus-within:block">
+      {name}
+    </span>
+    </span>
   );
 }
 
@@ -74,7 +79,7 @@ function CaptionText({ caption }: { caption: string }) {
     <p className="whitespace-pre-wrap break-words rounded-sm border border-border bg-muted/40 p-3 text-sm">
       {caption.split(/(#[^\s#]+)/g).map((part, index) =>
         part.startsWith("#") ? (
-          <span key={`${index}-${part}`} className="text-muted-foreground">
+          <span key={`${index}-${part}`} className="mx-0.5 inline-flex items-center rounded-sm border border-border bg-background px-1.5 py-0.5 text-xs">
             {part}
           </span>
         ) : (
@@ -85,7 +90,7 @@ function CaptionText({ caption }: { caption: string }) {
   );
 }
 
-export function ClipCard({ clip, collapsed = false }: { clip: TikTokClip; collapsed?: boolean }) {
+export function ClipCard({ clip, collapsed = false, aside }: { clip: TikTokClip; collapsed?: boolean; aside?: ReactNode }) {
   const lines = clip.script_lines.filter(Boolean);
   const long = lines.length > 4;
   const [open, setOpen] = useState(!collapsed);
@@ -101,10 +106,11 @@ export function ClipCard({ clip, collapsed = false }: { clip: TikTokClip; collap
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 space-y-2">
             <StatusChip clip={clip} />
-            <h3 className="text-xl font-medium break-words sm:text-2xl">{clip.hook || clip.topic || "Clip"}</h3>
+            <h3 className="text-balance text-xl font-medium break-words sm:text-2xl">{clip.hook || clip.topic || "Clip"}</h3>
+            <ClipTimeline clip={clip} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {clip.hook && <CopyControl text={clip.hook} label="Copy hook" />}
+            {clip.hook && !open && <CopyControl text={clip.hook} label="Copy hook" />}
             {collapsed && (
               <Button type="button" variant="outline" className="min-h-11" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
                 {open ? "Hide full script" : "Show full script"}
@@ -113,8 +119,17 @@ export function ClipCard({ clip, collapsed = false }: { clip: TikTokClip; collap
           </div>
         </div>
 
-        {open && (
-          <div className="space-y-5">
+        {(open || aside) && (
+          <div className={aside ? "grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]" : "space-y-5"}>
+            {open && <div className="order-2 space-y-5 lg:order-1">
+            {clip.hook && (
+              <Section label="Hook">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm text-balance">{clip.hook}</p>
+                  <CopyControl text={clip.hook} label="Copy hook" />
+                </div>
+              </Section>
+            )}
             {script && (
               <Section label="Script">
                 <div className="flex items-start justify-end">
@@ -174,6 +189,8 @@ export function ClipCard({ clip, collapsed = false }: { clip: TikTokClip; collap
                 <p className="text-sm break-words text-muted-foreground">{clip.sound_note}</p>
               </Section>
             )}
+            </div>}
+            {aside && <div id="video" className="order-1 mx-auto w-full max-w-[320px] scroll-mt-24 lg:order-2 lg:mx-0">{aside}</div>}
           </div>
         )}
       </CardContent>

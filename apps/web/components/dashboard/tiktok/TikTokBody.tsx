@@ -33,13 +33,17 @@ import { QueuedPanel } from "./QueuedPanel";
 import { ReschedulePopover } from "./ReschedulePopover";
 import { ResultsForm } from "./ResultsForm";
 import { TimezoneNotice } from "./TimezoneNotice";
-import { VideoDropzone, VideoPending, VideoPreview, VideoSummary } from "./VideoDropzone";
+import { VideoDropzone, VideoPending, VideoPreview, VideoSummary, type UploadFixture } from "./VideoDropzone";
 import { VideoPanel } from "./VideoPanel";
 
 export type TikTokReview = {
   writing?: boolean;
   resultsOpen?: boolean;
   learned?: { note: string; next: TikTokRun | null } | null;
+  elapsedSeconds?: number;
+  stalled?: boolean;
+  safeArea?: boolean;
+  upload?: UploadFixture;
 };
 
 function SkeletonCard() {
@@ -130,6 +134,63 @@ function DeskRail({ tiktok }: { tiktok: TikTokDesk }) {
           <IdeasList ideas={tiktok.ideas} />
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ClipVideo({
+  clip,
+  review,
+  replacing,
+  onReplace,
+  onUploaded,
+  onChanged,
+}: {
+  clip: NonNullable<TikTokDesk["clip"]>;
+  review?: TikTokReview;
+  replacing: boolean;
+  onReplace: () => void;
+  onUploaded: () => void;
+  onChanged: () => void;
+}) {
+  const render = clip.render;
+  const making = Boolean(render && (render.status === "queued" || render.status === "rendering") && render.provider !== "user");
+  const generatedReady = render?.provider === "ffmpeg" && render.status === "ready" && !replacing;
+  const panelDrop = render?.status === "failed" || render?.status === "skipped";
+  const drop = (
+    <VideoDropzone
+      clipId={clip.id}
+      replacing={Boolean(clip.video)}
+      onUploaded={onUploaded}
+      fixture={review?.upload}
+    />
+  );
+
+  return (
+    <div className="space-y-4">
+      <VideoPanel
+        clip={clip}
+        onChanged={onChanged}
+        onUseOwn={onReplace}
+        dropzone={panelDrop ? drop : undefined}
+        elapsedSeconds={review?.elapsedSeconds}
+        stalled={review?.stalled}
+        safeAreaDefault={review?.safeArea}
+        skipFetch={Boolean(review)}
+      />
+      {!making && (
+        <>
+          {clip.video && <VideoSummary video={clip.video} />}
+          {clip.video && !generatedReady && <VideoPreview clipId={clip.id} />}
+          {clip.video && !replacing && render?.provider !== "ffmpeg" ? (
+            <Button type="button" variant="outline" className="min-h-11 w-full sm:w-auto" onClick={onReplace}>
+              Replace video
+            </Button>
+          ) : generatedReady || panelDrop ? null : (
+            drop
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -386,61 +447,32 @@ export function TikTokBody({
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 space-y-6">
 
+      {!(clip && showFile) && (
       <Card id="video" className="scroll-mt-24">
         <CardContent className="space-y-4 pt-6">
           <div>
             <h2 className="text-sm font-medium">Your video</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              MP4 or MOV, up to 100 MB. A vertical 9:16 file fits the feed best. Confirming sends it to your TikTok drafts. It does not post.
+              MP4 or MOV, up to 100 MB and 10 minutes. A vertical 9:16 file fits the feed best. Confirming sends it to your TikTok drafts. It does not post.
             </p>
           </div>
-          {clip && showFile ? (
-            <div className="space-y-4">
-              {clip.topic && <p className="text-sm">For this clip: {clip.topic}</p>}
-              <VideoPanel clip={clip} onChanged={() => void reload()} onUseOwn={() => setReplacing(true)} />
-              {clip.render && (clip.render.status === "queued" || clip.render.status === "rendering") && clip.render.provider !== "user" ? null : (
-                <>
-              {clip.video && (
-                <div className="space-y-3">
-                  <VideoSummary video={clip.video} />
-                  <VideoPreview clipId={clip.id} />
-                </div>
-              )}
-              {clip.video && !replacing && clip.render?.provider !== "ffmpeg" ? (
-                <Button type="button" variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => setReplacing(true)}>
-                  Replace video
-                </Button>
-              ) : clip.render?.provider === "ffmpeg" && clip.render.status === "ready" && !replacing ? null : (
-                <VideoDropzone
-                  clipId={clip.id}
-                  replacing={Boolean(clip.video)}
-                  onUploaded={() => {
-                    setReplacing(false);
-                    void reload();
-                  }}
-                />
-              )}
-                </>
-              )}
-            </div>
-          ) : (
-            <VideoPending
-              detail={
-                clip
-                  ? "The file is added while a clip is waiting for you, or after you confirm it."
-                  : "Today writes the clip first. The file is added on that clip, then you confirm it."
-              }
-              action={
-                tiktok.block?.action === "billing" ? (
-                  <Link href="/pricing" className="text-sm underline underline-offset-4">
-                    See plans
-                  </Link>
-                ) : undefined
-              }
-            />
-          )}
+          <VideoPending
+            detail={
+              clip
+                ? "The file is added while a clip is waiting for you, or after you confirm it."
+                : "Today writes the clip first. The file is added on that clip, then you confirm it."
+            }
+            action={
+              tiktok.block?.action === "billing" ? (
+                <Link href="/pricing" className="text-sm underline underline-offset-4">
+                  See plans
+                </Link>
+              ) : undefined
+            }
+          />
         </CardContent>
       </Card>
+      )}
 
       {writing ? (
         <SkeletonCard />
@@ -521,7 +553,11 @@ export function TikTokBody({
               />
             </div>
           )}
-          <ClipCard clip={clip} collapsed={clip.status === "queued" || clip.status === "posted" || clip.status === "in_drafts" || clip.status === "uploading"} />
+          <ClipCard
+            clip={clip}
+            collapsed={clip.status === "queued" || clip.status === "posted" || clip.status === "in_drafts" || clip.status === "uploading"}
+            aside={showFile ? <ClipVideo clip={clip} review={review} replacing={replacing} onReplace={() => setReplacing(true)} onUploaded={() => { setReplacing(false); void reload(); }} onChanged={() => void reload()} /> : undefined}
+          />
           {clip.status === "waiting" && (clip.timezone_assumed || tiktok.timezone.assumed) && (
             <TimezoneNotice busy={busy === "zone"} onUse={(name) => void useZone(name)} />
           )}
