@@ -1,63 +1,102 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
 import type { TikTokClip } from "@/lib/tiktok";
+import { RenderStatusCard } from "./video/RenderStatusCard";
 
-function formatBytes(bytes: number | null): string {
-  if (!bytes || bytes < 1) return "a short video";
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+type PreviewBody = {
+  data: {
+    preview_url: string;
+    poster_url: string | null;
+    preview_bytes: number | null;
+    duration_seconds: number | null;
+  };
+};
 
 export function VideoPanel({
   clip,
   onChanged,
   onUseOwn,
+  dropzone,
+  elapsedSeconds,
+  stalled = false,
+  safeAreaDefault = false,
+  skipFetch = false,
 }: {
   clip: TikTokClip;
   onChanged: () => void;
   onUseOwn: () => void;
+  dropzone?: ReactNode;
+  elapsedSeconds?: number;
+  stalled?: boolean;
+  safeAreaDefault?: boolean;
+  skipFetch?: boolean;
 }) {
   const render = clip.render;
   const [preview, setPreview] = useState<string | null>(null);
-  const [size, setSize] = useState<number | null>(null);
+  const [poster, setPoster] = useState<string | null>(null);
+  const [size, setSize] = useState<number | null>(clip.video?.size ?? null);
+  const [duration, setDuration] = useState<number | null>(clip.video?.duration_seconds ?? null);
   const [busy, setBusy] = useState(false);
+  const [held, setHeld] = useState(stalled);
+  const [elapsed, setElapsed] = useState(elapsedSeconds ?? 0);
+  const [announcement, setAnnouncement] = useState("");
+  const announced = useRef(render?.status ?? "");
+  const changed = useRef(onChanged);
+  changed.current = onChanged;
 
   const active = render?.status === "queued" || render?.status === "rendering";
 
   useEffect(() => {
-    if (!active) return;
-    const started = Date.now();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      if (Date.now() - started > 10 * 60 * 1000) {
-        window.clearInterval(timer);
-        return;
-      }
-      void onChanged();
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [active, clip.id, onChanged]);
+    if (render?.status && announced.current !== render.status) {
+      announced.current = render.status;
+      setAnnouncement(render.label || render.status);
+    }
+  }, [render?.status, render?.label]);
 
   useEffect(() => {
-    if (!render?.ready || render.provider === "user") return;
+    if (!active || stalled) return;
+    const started = Date.now() - (elapsedSeconds ?? 0) * 1000;
+    let delay = 5000;
+    let timer = 0;
+    const tick = () => {
+      const seconds = Math.floor((Date.now() - started) / 1000);
+      setElapsed(seconds);
+      if (seconds >= 10 * 60) {
+        setHeld(true);
+        setAnnouncement("This is taking longer than usual. We'll keep working on it.");
+        return;
+      }
+      if (document.visibilityState === "visible") changed.current();
+      delay = Math.min(30000, Math.round(delay * 1.5));
+      timer = window.setTimeout(tick, delay);
+    };
+    timer = window.setTimeout(tick, document.visibilityState === "visible" ? delay : 1000);
+    return () => window.clearTimeout(timer);
+  }, [active, stalled, clip.id, elapsedSeconds]);
+
+  async function loadPreview() {
+    const body = await api<PreviewBody>(`/tiktok/clips/${clip.id}/video/preview`);
+    setPreview(body.data.preview_url);
+    setPoster(body.data.poster_url);
+    setSize(body.data.preview_bytes);
+    setDuration(body.data.duration_seconds);
+    return { src: body.data.preview_url, poster: body.data.poster_url };
+  }
+
+  useEffect(() => {
+    if (skipFetch || !render?.ready || render.provider === "user") return;
     let cancelled = false;
-    api<{ data: { preview_url: string; preview_bytes: number | null } }>(`/tiktok/clips/${clip.id}/video/preview`)
-      .then((body) => {
-        if (cancelled) return;
-        setPreview(body.data.preview_url);
-        setSize(body.data.preview_bytes);
-      })
-      .catch(() => {
-        if (!cancelled) setPreview(null);
-      });
+    loadPreview().catch(() => {
+      if (!cancelled) setPreview(null);
+    });
     return () => {
       cancelled = true;
     };
-  }, [clip.id, render?.ready, render?.provider]);
+    // The preview URL is kept in component state only. It is not written to storage or the address bar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clip.id, render?.ready, render?.provider, skipFetch]);
 
   if (!render || render.provider === "user" || render.status === "none") return null;
 
@@ -71,66 +110,33 @@ export function VideoPanel({
     }
   }
 
-  if (active) {
-    return (
-      <div className="mx-auto aspect-[9/16] w-full max-w-[220px] animate-pulse rounded-sm bg-muted" role="status">
-        <p className="flex h-full items-end p-3 text-sm text-muted-foreground">Making your video…</p>
+  return (
+    <div className="space-y-3">
+      <div aria-live="polite" className="sr-only">
+        {announcement}
       </div>
-    );
-  }
-
-  if (render.status === "ready" && render.provider !== "user") {
-    return (
-      <div className="space-y-3">
-        {preview ? (
-          <video
-            className="mx-auto aspect-[9/16] w-full max-w-[220px] rounded-sm bg-black"
-            controls
-            playsInline
-            src={preview}
-          />
-        ) : (
-          <div className="mx-auto aspect-[9/16] w-full max-w-[220px] rounded-sm bg-muted" />
-        )}
-        <p className="text-sm">About {formatBytes(size)} to watch. Nothing is sent to TikTok until you confirm.</p>
-        <p className="text-sm text-muted-foreground">Made with Mackie17. Check it before you post.</p>
-        <div className="flex flex-wrap gap-2">
-          {render.can_regenerate && (
-            <Button type="button" variant="outline" className="min-h-11" disabled={busy} onClick={() => void again()}>
-              Make it again
-            </Button>
-          )}
-          <Button type="button" variant="outline" className="min-h-11" onClick={onUseOwn}>
-            Use my own video instead
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (render.status === "failed") {
-    return (
-      <div className="space-y-3" role="alert">
-        <p className="text-sm text-destructive">{render.note || "We couldn't make the video. Try again, or add your own."}</p>
-        {render.can_regenerate && (
-          <Button type="button" variant="outline" className="min-h-11" disabled={busy} onClick={() => void again()}>
-            Make it again
-          </Button>
-        )}
-      </div>
-    );
-  }
-
-  if (render.status === "skipped") {
-    return (
-      <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">{render.note || "A video was not made for this clip."}</p>
-        <Link href="/settings" className="text-sm underline underline-offset-4">
-          Video settings
-        </Link>
-      </div>
-    );
-  }
-
-  return null;
+      <RenderStatusCard
+        clip={clip}
+        src={preview}
+        poster={poster}
+        bytes={size}
+        durationSeconds={duration}
+        busy={busy}
+        stalled={held}
+        elapsedSeconds={elapsed}
+        safeAreaDefault={safeAreaDefault}
+        dropzone={dropzone}
+        onAgain={() => void again()}
+        onUseOwn={onUseOwn}
+        onRefresh={async () => {
+          if (skipFetch) return null;
+          try {
+            return await loadPreview();
+          } catch {
+            return null;
+          }
+        }}
+      />
+    </div>
+  );
 }

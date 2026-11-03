@@ -16,6 +16,7 @@ use App\Support\TikTokCatalog;
 use App\Support\TikTokVideoCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class TikTokVideoController extends Controller
@@ -148,14 +149,17 @@ class TikTokVideoController extends Controller
             abort(404);
         }
         $expires = now()->addMinutes(TikTokVideoCatalog::SIGNED_URL_MINUTES);
+        $signed = ['clip' => $found->id, 'owner' => $found->user_id];
         if ($this->media->supportsTemporaryUrls()) {
             $preview = $this->media->temporaryUrl($video->preview_path, $expires);
             $poster = is_string($video->poster_path) && $video->poster_path !== ''
                 ? $this->media->temporaryUrl($video->poster_path, $expires)
                 : null;
         } else {
-            $preview = url('/api/tiktok/clips/'.$found->id.'/video/preview/file');
-            $poster = url('/api/tiktok/clips/'.$found->id.'/video/poster');
+            $preview = URL::temporarySignedRoute('tiktok.video.preview-file', $expires, $signed);
+            $poster = is_string($video->poster_path) && $video->poster_path !== ''
+                ? URL::temporarySignedRoute('tiktok.video.poster', $expires, $signed)
+                : null;
         }
 
         return response()->json(['data' => [
@@ -167,19 +171,20 @@ class TikTokVideoController extends Controller
         ]]);
     }
 
-    public function previewFile(Request $request, int $clip): \Symfony\Component\HttpFoundation\BinaryFileResponse
+    public function previewFile(Request $request, int $clip): BinaryFileResponse
     {
-        return $this->streamExtra($request, $clip, 'preview_path', 'video/mp4');
+        return $this->streamOwned($request, $clip, 'preview_path', 'video/mp4');
     }
 
-    public function poster(Request $request, int $clip): \Symfony\Component\HttpFoundation\BinaryFileResponse
+    public function poster(Request $request, int $clip): BinaryFileResponse
     {
-        return $this->streamExtra($request, $clip, 'poster_path', 'image/jpeg');
+        return $this->streamOwned($request, $clip, 'poster_path', 'image/jpeg');
     }
 
-    private function streamExtra(Request $request, int $clip, string $column, string $type): \Symfony\Component\HttpFoundation\BinaryFileResponse
+    private function streamOwned(Request $request, int $clip, string $column, string $type): BinaryFileResponse
     {
-        $found = $this->clip($request, $clip)->load('video');
+        $owner = (int) $request->query('owner');
+        $found = TikTokClip::query()->whereKey($clip)->where('user_id', $owner)->firstOrFail()->load('video');
         $video = $found->video;
         $key = $video?->{$column} ?? null;
         if (! $video || ! $video->ready || ! is_string($key) || $key === '') {

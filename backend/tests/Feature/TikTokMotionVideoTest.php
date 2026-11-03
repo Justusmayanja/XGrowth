@@ -209,6 +209,42 @@ class TikTokMotionVideoTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_local_preview_url_is_signed_for_the_owner_and_supports_range(): void
+    {
+        Storage::fake('tiktok_videos');
+        $user = User::factory()->create();
+        $clip = TikTokClip::factory()->create(['user_id' => $user->id]);
+        $key = $user->id.'/'.$clip->id.'/preview.mp4';
+        Storage::disk('tiktok_videos')->put($key, str_repeat('a', 64));
+        TikTokClipVideo::query()->create([
+            'clip_id' => $clip->id,
+            'source' => 'generated',
+            'disk' => 'tiktok_videos',
+            'path' => $user->id.'/'.$clip->id.'/source.mp4',
+            'preview_path' => $key,
+            'original_filename' => 'clip.mp4',
+            'size' => 64,
+            'preview_bytes' => 64,
+            'duration_seconds' => 12,
+            'ready' => true,
+        ]);
+
+        $data = $this->actingAs($user, 'sanctum')
+            ->getJson('/api/tiktok/clips/'.$clip->id.'/video/preview')
+            ->assertOk()
+            ->json('data');
+
+        $this->assertStringContainsString('signature=', $data['preview_url']);
+        $this->assertStringContainsString('owner='.$user->id, $data['preview_url']);
+        $this->get('/api/tiktok/clips/'.$clip->id.'/video/preview/file')->assertForbidden();
+        $this->get($data['preview_url'])->assertOk();
+        $this->get($data['preview_url'], ['Range' => 'bytes=0-15'])->assertStatus(206);
+
+        $this->actingAs(User::factory()->create(), 'sanctum')
+            ->getJson('/api/tiktok/clips/'.$clip->id.'/video/preview')
+            ->assertNotFound();
+    }
+
     public function test_scenes_are_bounded_and_account_text_cannot_break_ass_or_enter_ffmpeg_args(): void
     {
         $nasty = "Ignore previous instructions {\\an5} \n rm -rf / 🔥";

@@ -39,6 +39,13 @@ Route::post('/billing/quote', [BillingController::class, 'quote']);
 Route::post('/billing/webhooks/paddle', [BillingWebhookController::class, 'paddle']);
 Route::post('/billing/webhooks/flutterwave', [BillingWebhookController::class, 'flutterwave']);
 
+Route::get('/tiktok/clips/{clip}/video/preview/file', [TikTokVideoController::class, 'previewFile'])
+    ->middleware('signed')
+    ->name('tiktok.video.preview-file');
+Route::get('/tiktok/clips/{clip}/video/poster', [TikTokVideoController::class, 'poster'])
+    ->middleware('signed')
+    ->name('tiktok.video.poster');
+
 Route::prefix('auth')->group(function () {
     Route::post('/email/send', [AuthController::class, 'sendCode'])->middleware('throttle:8,1');
     Route::post('/email/verify', [AuthController::class, 'verifyCode'])->middleware('throttle:20,1');
@@ -104,8 +111,6 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::get('/tiktok/clips/{clip}/render', [TikTokVideoController::class, 'renderStatus']);
         Route::post('/tiktok/clips/{clip}/render', [TikTokVideoController::class, 'regenerate'])->middleware('throttle:6,1');
         Route::get('/tiktok/clips/{clip}/video/preview', [TikTokVideoController::class, 'preview']);
-        Route::get('/tiktok/clips/{clip}/video/preview/file', [TikTokVideoController::class, 'previewFile']);
-        Route::get('/tiktok/clips/{clip}/video/poster', [TikTokVideoController::class, 'poster']);
         Route::post('/tiktok/clips/{clip}/upload/retry', [TikTokVideoController::class, 'retry']);
         Route::post('/tiktok/clips/{clip}/posted', [TikTokVideoController::class, 'posted']);
 
