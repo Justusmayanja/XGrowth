@@ -7,6 +7,8 @@ use App\Exceptions\TikTokVideoException;
 use App\Models\TikTokClip;
 use App\Models\TikTokClipVideo;
 use App\Models\User;
+use App\Services\Storage\LocalObject;
+use App\Services\Storage\MediaStore;
 use App\Support\TikTokCatalog;
 use App\Support\TikTokContentPosting;
 use Illuminate\Support\Facades\Cache;
@@ -60,7 +62,14 @@ class TikTokVideoService
             throw new TikTokVideoException('This upload was incomplete. Try again.');
         }
 
-        Storage::disk(TikTokContentPosting::DISK)->put($this->partPath($user->id, $clip->id, $index), $body);
+        $part = $this->partPath($clip->id, $index);
+        $directory = dirname($part);
+        if (! is_dir($directory) && ! mkdir($directory, 0755, true) && ! is_dir($directory)) {
+            throw new TikTokVideoException("We couldn't store this video. Try again.");
+        }
+        if (file_put_contents($part, $body) === false) {
+            throw new TikTokVideoException("We couldn't store this video. Try again.");
+        }
 
         return $index;
     }
@@ -71,8 +80,7 @@ class TikTokVideoService
         $session = $this->session($clip, $user);
         $disk = Storage::disk(TikTokContentPosting::DISK);
         $final = $user->id.'/'.$clip->id.'/source.mp4';
-        $incoming = $user->id.'/'.$clip->id.'/incoming.mp4';
-        $absolute = $disk->path($incoming);
+        $absolute = $this->stagingDir($clip->id).'/incoming.mp4';
         $directory = dirname($absolute);
         if (! is_dir($directory) && ! mkdir($directory, 0755, true) && ! is_dir($directory)) {
             throw new TikTokVideoException("We couldn't store this video. Try again.");
@@ -85,11 +93,11 @@ class TikTokVideoService
 
         try {
             for ($index = 0; $index < $session['chunks']; $index++) {
-                $part = $this->partPath($user->id, $clip->id, $index);
-                if (! $disk->exists($part)) {
+                $part = $this->partPath($clip->id, $index);
+                if (! is_file($part)) {
                     throw new TikTokVideoException('This upload was incomplete. Try again.');
                 }
-                $in = fopen($disk->path($part), 'rb');
+                $in = fopen($part, 'rb');
                 if ($in === false) {
                     throw new TikTokVideoException('This upload was incomplete. Try again.');
                 }
@@ -98,21 +106,21 @@ class TikTokVideoService
             }
         } catch (TikTokVideoException $e) {
             fclose($out);
-            $disk->delete($incoming);
+            @unlink($absolute);
             throw $e;
         }
         fclose($out);
 
         $bytes = filesize($absolute);
         if ($bytes !== $session['size']) {
-            $disk->delete($incoming);
+            @unlink($absolute);
             throw new TikTokVideoException('This upload was incomplete. Try again.');
         }
 
         try {
-            $accepted = $this->accept($this->probe->inspect($absolute));
+            $accepted = $this->acceptProbe($this->probe->inspect($absolute));
         } catch (TikTokVideoException $e) {
-            $disk->delete($incoming);
+            @unlink($absolute);
             $this->clearParts($user->id, $clip->id);
             Cache::forget($this->sessionKey($clip->id));
             throw $e;
@@ -122,7 +130,7 @@ class TikTokVideoService
         $oldPath = null;
 
         try {
-            DB::transaction(function () use ($clip, $session, $incoming, $checksum, $accepted, &$oldPath) {
+            DB::transaction(function () use ($clip, $session, $final, $checksum, $accepted, &$oldPath) {
                 $fresh = TikTokClip::query()->whereKey($clip->id)->lockForUpdate()->first();
                 if (! $fresh || ! in_array($fresh->status, [TikTokCatalog::WAITING, TikTokCatalog::QUEUED], true)) {
                     throw new TikTokVideoException('Only a clip that is waiting or confirmed can take a video.');
@@ -139,7 +147,7 @@ class TikTokVideoService
                     'clip_id' => $fresh->id,
                     'source' => 'user',
                     'disk' => TikTokContentPosting::DISK,
-                    'path' => $incoming,
+                    'path' => $final,
                     'original_filename' => $session['filename'],
                     'size' => $session['size'],
                     'duration_seconds' => $accepted['duration'],
@@ -154,22 +162,45 @@ class TikTokVideoService
                 $package = $fresh->package;
                 $package['render']['ready'] = true;
                 $package['render']['provider'] = 'user';
+                $package['render']['status'] = TikTokCatalog::RENDER_READY;
+                $package['render']['ai_generated'] = false;
+                $package['render']['note'] = null;
                 $fresh->package = $package;
                 $fresh->save();
             });
         } catch (TikTokVideoException $e) {
-            $disk->delete($incoming);
+            @unlink($absolute);
             throw $e;
         }
 
-        if (is_string($oldPath) && $oldPath !== '' && $oldPath !== $final) {
-            $disk->delete($oldPath);
+        $uploaded = fopen($absolute, 'rb');
+        if ($uploaded === false) {
+            throw new TikTokVideoException("We couldn't store this video. Try again.");
         }
-        if ($disk->exists($final)) {
-            $disk->delete($final);
+        try {
+            if (is_string($oldPath) && $oldPath !== '' && $oldPath !== $final && $disk->exists($oldPath)) {
+                $disk->delete($oldPath);
+            }
+            if ($disk->exists($final)) {
+                $disk->delete($final);
+            }
+            app(MediaStore::class)->putStream($final, $uploaded);
+        } catch (\Throwable $e) {
+            TikTokClipVideo::query()->where('clip_id', $clip->id)->delete();
+            $fresh = $clip->fresh();
+            if ($fresh) {
+                $this->markFileMissing($fresh);
+            }
+            if ($disk->exists($final)) {
+                $disk->delete($final);
+            }
+            throw new TikTokVideoException("We couldn't store this video. Try again.");
+        } finally {
+            if (is_resource($uploaded)) {
+                fclose($uploaded);
+            }
+            @unlink($absolute);
         }
-        $disk->move($incoming, $final);
-        TikTokClipVideo::query()->where('clip_id', $clip->id)->update(['path' => $final]);
 
         $this->clearParts($user->id, $clip->id);
         Cache::forget($this->sessionKey($clip->id));
@@ -182,7 +213,7 @@ class TikTokVideoService
         return $saved->fresh() ?? $saved;
     }
 
-    public function stream(User $user, TikTokClip $clip): string
+    public function stream(User $user, TikTokClip $clip): LocalObject
     {
         $video = $clip->video;
         if (! $video || ! $video->ready || ! is_string($video->path) || $video->path === '' || $video->purged_at !== null) {
@@ -197,7 +228,7 @@ class TikTokVideoService
             throw (new \Illuminate\Database\Eloquent\ModelNotFoundException)->setModel(TikTokClipVideo::class);
         }
 
-        return $disk->path($video->path);
+        return app(MediaStore::class)->materialize($video->disk ?: TikTokContentPosting::DISK, $video->path);
     }
 
     public function deleteForClip(TikTokClip $clip): void
@@ -251,14 +282,19 @@ class TikTokVideoService
             });
 
         $known = TikTokClipVideo::query()->whereNotNull('path')->pluck('path')->all();
-        foreach ($disk->allFiles() as $file) {
-            if (str_contains($file, '/parts/')) {
-                continue;
-            }
-            if (! in_array($file, $known, true)) {
-                $disk->delete($file);
+        $userIds = TikTokClip::query()->distinct()->pluck('user_id');
+        foreach ($userIds as $userId) {
+            foreach (app(MediaStore::class)->listPrefix((string) $userId) as $file) {
+                if (str_contains($file, '/parts/')) {
+                    continue;
+                }
+                if (! in_array($file, $known, true)) {
+                    $disk->delete($file);
+                }
             }
         }
+
+        app(TikTokWorkspace::class)->sweep();
     }
 
     private function acceptsFile(TikTokClip $clip): void
@@ -275,7 +311,7 @@ class TikTokVideoService
      * @param  array{format: string, video_codec: string, audio_codec: string, duration: float, width: int, height: int}  $probe
      * @return array{duration: int, width: int, height: int, warning: ?string}
      */
-    private function accept(array $probe): array
+    public function acceptProbe(array $probe): array
     {
         $format = strtolower($probe['format']);
         $container = str_contains($format, 'mp4') || str_contains($format, 'mov') || str_contains($format, 'quicktime');
@@ -343,12 +379,32 @@ class TikTokVideoService
 
     private function clearParts(int $userId, int $clipId): void
     {
+        $staging = $this->stagingDir($clipId);
+        if (is_dir($staging)) {
+            foreach (glob($staging.'/parts/*') ?: [] as $part) {
+                if (is_file($part)) {
+                    unlink($part);
+                }
+            }
+            @rmdir($staging.'/parts');
+            foreach (glob($staging.'/*') ?: [] as $file) {
+                if (is_file($file)) {
+                    unlink($file);
+                }
+            }
+            @rmdir($staging);
+        }
         Storage::disk(TikTokContentPosting::DISK)->deleteDirectory($userId.'/'.$clipId.'/parts');
     }
 
-    private function partPath(int $userId, int $clipId, int $index): string
+    private function stagingDir(int $clipId): string
     {
-        return $userId.'/'.$clipId.'/parts/'.$index;
+        return storage_path('app/tiktok-staging/'.$clipId);
+    }
+
+    private function partPath(int $clipId, int $index): string
+    {
+        return $this->stagingDir($clipId).'/parts/'.$index;
     }
 
     private function sessionKey(int $clipId): string

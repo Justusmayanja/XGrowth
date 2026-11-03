@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\SocialAuthController;
 use App\Http\Controllers\Api\SubscriptionPlanController;
 use App\Http\Controllers\Api\TikTokController;
 use App\Http\Controllers\Api\TikTokVideoController;
+use App\Http\Controllers\Api\TikTokVideoSettingsController;
 use App\Http\Controllers\Api\YouTubeController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -96,6 +97,15 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::put('/tiktok/clips/{clip}/video/chunks/{index}', [TikTokVideoController::class, 'chunk'])->whereNumber('index');
         Route::post('/tiktok/clips/{clip}/video/complete', [TikTokVideoController::class, 'complete']);
         Route::get('/tiktok/clips/{clip}/video', [TikTokVideoController::class, 'show']);
+        Route::get('/tiktok/video-settings', [TikTokVideoSettingsController::class, 'show']);
+        Route::put('/tiktok/video-settings', [TikTokVideoSettingsController::class, 'update'])->middleware('throttle:30,1');
+        Route::post('/tiktok/video-settings/logo', [TikTokVideoSettingsController::class, 'storeLogo'])->middleware('throttle:20,1');
+        Route::delete('/tiktok/video-settings/logo', [TikTokVideoSettingsController::class, 'destroyLogo'])->middleware('throttle:20,1');
+        Route::get('/tiktok/clips/{clip}/render', [TikTokVideoController::class, 'renderStatus']);
+        Route::post('/tiktok/clips/{clip}/render', [TikTokVideoController::class, 'regenerate'])->middleware('throttle:6,1');
+        Route::get('/tiktok/clips/{clip}/video/preview', [TikTokVideoController::class, 'preview']);
+        Route::get('/tiktok/clips/{clip}/video/preview/file', [TikTokVideoController::class, 'previewFile']);
+        Route::get('/tiktok/clips/{clip}/video/poster', [TikTokVideoController::class, 'poster']);
         Route::post('/tiktok/clips/{clip}/upload/retry', [TikTokVideoController::class, 'retry']);
         Route::post('/tiktok/clips/{clip}/posted', [TikTokVideoController::class, 'posted']);
 

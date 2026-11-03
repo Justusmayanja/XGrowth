@@ -52,6 +52,15 @@ export type TikTokClip = {
   video?: TikTokVideo | null;
   upload_error?: string | null;
   upload_progress?: number | null;
+  render?: {
+    status: string;
+    label: string;
+    note: string | null;
+    ready: boolean;
+    provider: string;
+    ai_generated: boolean;
+    can_regenerate: boolean;
+  };
 };
 
 export type TikTokIdea = {

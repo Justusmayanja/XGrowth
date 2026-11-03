@@ -6,6 +6,7 @@ use App\Models\ConnectedAccount;
 use App\Models\TikTokClip;
 use App\Services\TikTok\TikTokDraftService;
 use App\Support\TikTokCatalog;
+use App\Support\TikTokVideoCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -50,6 +51,7 @@ class TikTokClipResource extends JsonResource
             'publish_note' => $package['publish']['note'] ?? null,
             'platform_post_id' => $this->platform_post_id,
             'blockers' => $this->blockers($package),
+            'render' => $this->renderPayload($package),
             'video' => $this->videoPayload(),
             'upload_error' => $this->upload_error,
             'upload_progress' => $this->upload_progress,
@@ -99,6 +101,29 @@ class TikTokClipResource extends JsonResource
         }
 
         return $blockers;
+    }
+
+    /**
+     * @param  array<string, mixed>  $package
+     * @return array{status: string, label: string, note: ?string, ready: bool, provider: string, ai_generated: bool, can_regenerate: bool}
+     */
+    private function renderPayload(array $package): array
+    {
+        $render = is_array($package['render'] ?? null) ? $package['render'] : [];
+        $status = (string) ($render['status'] ?? TikTokCatalog::RENDER_NONE);
+        $regenerations = (int) ($render['regenerations'] ?? 0);
+
+        return [
+            'status' => $status,
+            'label' => TikTokCatalog::renderLabel($status),
+            'note' => TikTokCatalog::renderNote($render),
+            'ready' => (bool) ($render['ready'] ?? false),
+            'provider' => (string) ($render['provider'] ?? 'pending'),
+            'ai_generated' => (bool) ($render['ai_generated'] ?? false),
+            'can_regenerate' => in_array($this->status, [TikTokCatalog::WAITING, TikTokCatalog::QUEUED], true)
+                && in_array($status, [TikTokCatalog::RENDER_FAILED, TikTokCatalog::RENDER_READY], true)
+                && $regenerations < TikTokVideoCatalog::MAX_REGENERATIONS,
+        ];
     }
 
     /**

@@ -12,6 +12,7 @@ import { NotificationSettingsCard } from "@/components/settings/NotificationSett
 import { PrivacySettingsCard } from "@/components/settings/PrivacySettingsCard";
 import { ProfileForm } from "@/components/settings/ProfileForm";
 import { TimezoneCard } from "@/components/settings/TimezoneCard";
+import { VideoSettingsCard } from "@/components/settings/VideoSettingsCard";
 import { SafetySummaryCard } from "@/components/settings/SafetySummaryCard";
 import { PlatformSetupCard } from "@/components/setup/PlatformSetupCard";
 import { toast } from "sonner";
@@ -93,6 +94,8 @@ export default function SettingsPage() {
       <ProfileForm />
 
       <TimezoneCard />
+
+      {platform === "tiktok" && <VideoSettingsCard />}
 
       <ConnectedAccountCard
         status={xStatus}

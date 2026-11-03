@@ -17,6 +17,9 @@ type Attention = {
 
 type TikTokOps = {
   counts: Record<string, number>;
+  renders?: Record<string, number>;
+  oldest_queued_minutes?: number | null;
+  worker_warning?: boolean;
   created_24h: number;
   created_7d: number;
   attention: Attention[];
@@ -26,6 +29,7 @@ type Diagnosis = {
   user_id: number;
   email: string;
   diagnose: { can_run: boolean; reason: string | null; message: string | null };
+  render?: { status: string; note: string | null; why: string | null } | null;
 };
 
 type RunSummary = {
@@ -107,6 +111,13 @@ export function TikTokOperations() {
             <p className="text-sm text-muted-foreground">
               {info.created_24h} created in the last 24 hours. {info.created_7d} in the last 7 days.
             </p>
+            {info.renders && (
+              <p className="text-sm text-muted-foreground">
+                Renders: {Object.entries(info.renders).map(([status, count]) => `${status} ${count}`).join(", ")}.
+                {info.oldest_queued_minutes != null ? ` Oldest queued ${info.oldest_queued_minutes} min.` : ""}
+                {info.worker_warning ? " A render has been queued for more than 10 minutes." : ""}
+              </p>
+            )}
             <div>
               <p className="text-sm font-medium">Needs attention</p>
               {info.attention.length === 0 ? (
@@ -134,9 +145,15 @@ export function TikTokOperations() {
           </Button>
         </form>
         {diagnosis && (
-          <p className="text-sm">
-            {diagnosis.email}: {diagnosis.diagnose.can_run ? "Ready for a new clip." : diagnosis.diagnose.message}
-          </p>
+          <div className="space-y-1 text-sm">
+            <p>{diagnosis.email}: {diagnosis.diagnose.can_run ? "Ready for a new clip." : diagnosis.diagnose.message}</p>
+            {diagnosis.render && (
+              <p className="text-muted-foreground">
+                Video: {diagnosis.render.status}{diagnosis.render.note ? `. ${diagnosis.render.note}` : ""}
+                {diagnosis.render.why ? ` ${diagnosis.render.why}` : ""}
+              </p>
+            )}
+          </div>
         )}
 
         <div className="space-y-2">

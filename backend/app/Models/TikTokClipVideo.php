@@ -16,6 +16,9 @@ class TikTokClipVideo extends Model
         'source',
         'disk',
         'path',
+        'preview_path',
+        'poster_path',
+        'preview_bytes',
         'original_filename',
         'size',
         'duration_seconds',
@@ -32,6 +35,7 @@ class TikTokClipVideo extends Model
     {
         return [
             'size' => 'integer',
+            'preview_bytes' => 'integer',
             'duration_seconds' => 'integer',
             'width' => 'integer',
             'height' => 'integer',
@@ -48,7 +52,11 @@ class TikTokClipVideo extends Model
             }
 
             $disk = $video->disk ?: TikTokContentPosting::DISK;
-            Storage::disk($disk)->delete($video->path);
+            Storage::disk($disk)->delete(array_values(array_filter([
+                $video->path,
+                $video->preview_path,
+                $video->poster_path,
+            ])));
         });
     }
 

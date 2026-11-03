@@ -176,7 +176,8 @@ backend/
   app/Services/TrendEngine/        Shared trend catalog and opportunity scores
   app/Services/AICore/             Model calls, prompts, usage limits
   app/Services/YouTube/            Shorts, series, footage plans, confirm, learning
-  app/Services/TikTok/             Clip engine, ideas, scripts, allowance, desk
+  app/Services/TikTok/             Clip engine, ideas, scripts, motion render, allowance, desk
+  app/Services/Storage/           Shared private media store used by TikTok and later features
   app/Services/XApi/               X OAuth publish and account activity
   app/Services/Billing/            Quotes, trials, Paddle, Flutterwave
   app/Services/Auth/               Email codes
@@ -190,7 +191,7 @@ docs/                              Specs. This file is the one that matches the 
 docker-compose.yml                 postgres:16 and redis:7
 ```
 
-`app/Services/TikTok/` prepares clips, ranks ideas, writes scripts, counts the monthly allowance, and links a TikTok account when `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, and `TIKTOK_REDIRECT_URI` are set. Clips live in `tiktok_clips`. `php artisan tiktok:run` runs hourly as `tiktok-engine`. `php artisan tiktok:refresh-tokens` runs daily. Render and upload are still absent: `render.ready` and `uploaded` stay false, and confirm only queues.
+`app/Services/TikTok/` prepares clips, ranks ideas, writes scripts, counts the monthly allowance, renders a vertical motion video, and links a TikTok account when `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, and `TIKTOK_REDIRECT_URI` are set. Clips live in `tiktok_clips`. `php artisan tiktok:run` runs hourly as `tiktok-engine`. `php artisan tiktok:refresh-tokens` runs daily. Confirm still only queues. A generated file can be ready before confirm, and nothing is sent to TikTok until the user confirms and `video.upload` is on the app. See `docs/VIDEO_RENDERING.md`.
 
 ## 5. Auth and who can call what
 
@@ -252,7 +253,7 @@ Important columns: `purpose`, `platforms` (comma-separated), `goal` (legacy X go
 | Platform | `settings` today |
 |---|---|
 | `x` | `automation_level`, `mode` |
-| `tiktok` | `publish: confirm` |
+| `tiktok` | `publish: confirm`, plus `video` (type, voice, captions, length, music, generate, brand, context). Saving goals merges into this object and keeps `video`. |
 | `youtube` | `publish`, `video_mode`, `format` |
 
 ### `posts`
@@ -300,6 +301,8 @@ Trials are layered on subscriptions (`TrialService`). Picking platforms during s
 ### Other tables
 
 `ai_rules` (admin drafting rules injected into prompts), `ai_usage_logs`, `platform_settings` (runtime overrides), `email_login_codes`, `personal_access_tokens`, Laravel `jobs`, `cache`, `sessions`.
+
+`tiktok_clip_videos` stores one file row per clip: `source` (`user` or `generated`), disk, object key, preview and poster keys, size, duration, dimensions, checksum, and `ready`. Rendering does not add a table. `package.render` holds status (`none`, `queued`, `rendering`, `ready`, `failed`, `skipped`), the note, attempts, regenerations, and `ai_generated`. `TikTokRenderState::succeed()` is the generated path that sets `render.ready`. A user upload sets `ready` with `provider: user`.
 
 ## 8. Desks and navigation
 
@@ -409,8 +412,9 @@ Where the TikTok boundaries are enforced:
 | Blocked accounts | `EnsureNotBlocked` on the customer routes. `runAll` queries `is_blocked = false`. `TikTokHardeningTest`. |
 | No likes, follows, comments, or DMs | No TikTok route or job sends them. |
 | No TikTok scrape | `TikTokDemandService` ranks a local list from the account niche and goals. |
-| No upload on confirm | `package.render.ready` and `uploaded` stay false. The queued checklist names `video_file` and `tiktok_connection`. |
-| Account text stays data | `TikTokScriptWriterTest` keeps “ignore previous instructions” inside the account block, out of the system prompt. |
+| No post on confirm | Confirm moves `waiting` to `queued`. The file goes to TikTok drafts only from `SendTikTokDraft`, and only when the file is ready and `video.upload` is granted. The checklist says the video file is not ready while that blocker is set. |
+| Account text stays data | `TikTokScriptWriterTest` keeps “ignore previous instructions” inside the account block. Scene text is escaped before it is written to an ASS file, and it is not placed on an ffmpeg argument. |
+| Disabled location and contact stay out | `TikTokVideoPreferences::enabledContext()` omits them. The script writer, scene builder, and renderer only see that list. |
 | Another user’s clips stay hidden | Clip routes use `forUser`. `TikTokScheduleTest` checks ideas and learned history. |
 
 ## 13. Scheduler, jobs, and commands
@@ -425,6 +429,8 @@ Defined in `backend/routes/console.php`.
 | Hourly | Expire trials, billing sweep |
 | Daily at configured times | Refresh the X trend catalog |
 | Daily 00:05 | Delete expired safety budget rows |
+| Every 10 minutes | `TikTokRenderService::sweep()`, name `tiktok-render-sweep`. A render queued for 30 minutes or rendering for 15 minutes becomes failed. |
+| Daily | `TikTokVideoService::sweep()`, name `tiktok-video-sweep` |
 
 | Command | Purpose |
 |---|---|
@@ -437,6 +443,12 @@ Defined in `backend/routes/console.php`.
 | `php artisan xpulse:billing-sweep` | End lapsed plans, flag unconfirmed renewals |
 | `php artisan youtube:run` | YouTube engine for every eligible account |
 | `php artisan tiktok:run {--user=}` | TikTok engine for every eligible account, or one user |
+| `php artisan tiktok:render {--clip=} {--force}` | Queue one motion render |
+| `php artisan tiktok:sweep-renders` | Fail stale renders |
+| `php artisan tiktok:storage-check` | Write, read, and delete a private canary object |
+| `php artisan tiktok:migrate-videos {--from=local} {--to=s3} {--dry-run}` | Copy legacy files onto the shared disk. The source is left in place. |
+
+Render jobs use the Redis connection `renders` (`retry_after` 900, above the 600 second job timeout). The database queue and the 50 second scheduler drain stay for short jobs. See `docs/QUEUE_WORKER.md`.
 
 Jobs in `backend/app/Jobs/`: `FetchGlobalTrendsJob`, `SafetyResetJob`, `EvaluateGrowthOpportunitiesJob`, `EvaluateAllGrowthOpportunitiesJob`. The scheduled growth pass does not use those evaluate jobs.
 
@@ -461,6 +473,8 @@ Platform settings are the runtime knobs for model name, web search, growth brain
 | `YouTubeScriptWriter` | Short and episode JSON, with a local fallback |
 | `YouTubeEditPlanner` | Edit plan for uploaded footage |
 | `YouTubeDemandService` | Local niche ideas, adjusted by what the account already learned |
+| `TikTokScriptWriter` | Clip JSON, feature `tiktok_script`, local fallback. The prompt refuses prices and claims that are not in the account data. |
+| `OpenAiSpeechProvider` | Speech for a scene, feature `tiktok_tts`. Spend is reserved first and released if the call fails. |
 
 The model call pattern to copy: build a system prompt with the feature name, pass the account niche, tone, audience, goal sentence, and the last learning note, require JSON, normalize it, and record tokens against a feature string (`youtube_script`, `desk_moments`, and so on). If the model is down, YouTube still stores a locally written package so the desk is not empty.
 
@@ -508,7 +522,7 @@ Generation:
 
 - Demand is niche plus TikTok goals. `for_you` should prefer a fast hook. `traffic` should prefer a clip that can carry a link. `followers` should prefer a reason to stay. Do not rank with the X post threshold of 82.
 - The script is short. One question, one answer, a spoken hook in the first line. Caption rules already exist for `tiktok_caption`.
-- Render stays `provider: pending` until a video model or FFmpeg step is actually connected. Do not mark `ready: true` for a script alone.
+- Motion graphics render through `MotionGraphicsProvider` and `FfmpegRunner`. `provider` stays `pending` until `TikTokRenderState::succeed()` or a user upload. A script alone does not set `ready: true`. Cartoon, real person, and stock stay unavailable. Music stays off while `resources/video/music` is empty. Voice language is English only.
 - Optional footage, matching YouTube’s footage mode, is reasonable later. It is not required for the first engine pass.
 
 Connect:
@@ -531,7 +545,7 @@ Already present:
 |---|---|---|
 | GET | `/api/dashboard/platform/tiktok` | Today desk, including the read-only `tiktok` object |
 | POST | `/api/account/setup/platforms` | User can choose `tiktok` |
-| POST | `/api/account/setup/platforms/tiktok` | Saves goals and `publish: confirm` |
+| POST | `/api/account/setup/platforms/tiktok` | Saves goals and merges `publish: confirm` into the stored settings |
 | POST | `/api/content/generate` | Can emit `tiktok_caption` |
 | POST | `/api/content/drafts` | Saves that caption |
 | POST | `/api/content/drafts/{post}/publish` | Refuses TikTok |
@@ -549,15 +563,25 @@ Present for the clip loop:
 | POST | `/api/tiktok/clips/{clip}/discard` | Skip the clip and free its slot |
 | POST | `/api/tiktok/clips/{clip}/reschedule` | User picks a new time |
 | PUT | `/api/account/timezone` | Save a timezone and refresh an assumed waiting time |
-| GET | `/api/admin/tiktok` | Counts, recent creates, clips that need attention |
-| GET | `/api/admin/tiktok/diagnose` | Read-only reason a user would not get a clip |
+| GET | `/api/admin/tiktok` | Counts, render counts, oldest queued render, clips that need attention |
+| GET | `/api/admin/tiktok/diagnose` | Read-only reason a user would not get a clip, plus why a video was not made |
 | POST | `/api/admin/tiktok/run` | `runAll` and the summary |
 | POST | `/api/connected-accounts/tiktok/connect` | Start Login Kit. 503 until the keys exist |
 | GET | `/api/connected-accounts/tiktok/status` | Configured, connected, display name, needs-reconnect |
 | DELETE | `/api/connected-accounts/tiktok` | Revoke, best effort, then delete the row |
 | GET | `/api/auth/tiktok/callback` | TikTok redirects here. The browser is sent to Settings |
 
-Still absent: render, upload, and posting scopes (`video.upload`, `video.publish`).
+Still absent: Direct Post and the `video.publish` scope. `video.upload` stays out of `TIKTOK_SCOPES` until it is added there. Inbox upload is built and sends only `source_info`.
+
+Video routes:
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET, PUT | `/api/tiktok/video-settings` | Read and save video preferences |
+| POST, DELETE | `/api/tiktok/video-settings/logo` | Store or remove a PNG, JPG, or WebP logo |
+| GET, POST | `/api/tiktok/clips/{clip}/render` | Read render status, or make the clip again (twice at most) |
+| GET | `/api/tiktok/clips/{clip}/video/preview` | Short-lived preview URL. Another user's clip is 404 |
+| POST, PUT, POST | `/api/tiktok/clips/{clip}/video` and `.../chunks/{index}` and `.../complete` | Chunked upload of the user's own file |
 
 ## 18. Docs that will mislead you
 
@@ -586,5 +610,6 @@ TikTok specifically:
 
 - Setup, the hourly engine, `tiktok_clips`, confirm, reschedule, discard, results, allowance, and the daily cap are in place.
 - The desk, Ideas, and What landed read that loop. Numbers on What landed are what the user typed.
-- Confirm queues a clip and says the video file and the TikTok connection are still missing.
-- Login Kit linking is built and inert until the TikTok keys are set. A linked account clears the connection blocker only. Render and upload are not built. `render.ready` and `uploaded` stay false. Dashboard preview numbers stay placeholders; this phase does not read TikTok stats.
+- Confirm queues a clip. The checklist says the video file is not ready until a generated file or an upload is stored.
+- A motion video can be made when the clip is written, or when the user confirms, from Settings. Nothing is sent to TikTok before confirm.
+- Login Kit linking is built and inert until the TikTok keys are set. A linked account clears the connection blocker only. The draft send stays inert until `video.upload` is on the app and on the account. Dashboard preview numbers stay placeholders; this phase does not read TikTok stats.

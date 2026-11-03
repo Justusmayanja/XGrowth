@@ -8,6 +8,7 @@ use App\Jobs\SendTikTokDraft;
 use App\Models\ConnectedAccount;
 use App\Models\TikTokClip;
 use App\Models\User;
+use App\Services\Storage\MediaStore;
 use App\Support\TikTokCatalog;
 use App\Support\TikTokContentPosting;
 use GuzzleHttp\Psr7\LimitStream;
@@ -222,35 +223,40 @@ class TikTokDraftService
     private function uploadBytes(TikTokClip $clip): bool
     {
         $video = $clip->video;
-        $disk = Storage::disk($video->disk ?: TikTokContentPosting::DISK);
-        if (! is_string($video->path) || ! $disk->exists($video->path)) {
+        $diskName = $video->disk ?: TikTokContentPosting::DISK;
+        if (! is_string($video->path) || ! Storage::disk($diskName)->exists($video->path)) {
             $this->fail($clip, 'The video file is missing. Add it again.');
 
             return false;
         }
 
-        $size = (int) $video->size;
-        $plan = $this->chunkPlan($size);
-        $absolute = $disk->path($video->path);
+        $local = app(MediaStore::class)->materialize($diskName, $video->path);
+        try {
+            $size = (int) $video->size;
+            $plan = $this->chunkPlan($size);
+            $absolute = $local->path;
 
-        for ($index = 0; $index < $plan['total']; $index++) {
-            $start = $index * $plan['chunk_size'];
-            $length = $index === $plan['total'] - 1 ? $size - $start : $plan['chunk_size'];
-            $end = $start + $length - 1;
-            $response = $this->putChunk($absolute, (string) $clip->upload_url, $start, $length, $end, $size);
-            if ($response->serverError()) {
-                $this->fail($clip, 'The send stopped. You can try again.');
+            for ($index = 0; $index < $plan['total']; $index++) {
+                $start = $index * $plan['chunk_size'];
+                $length = $index === $plan['total'] - 1 ? $size - $start : $plan['chunk_size'];
+                $end = $start + $length - 1;
+                $response = $this->putChunk($absolute, (string) $clip->upload_url, $start, $length, $end, $size);
+                if ($response->serverError()) {
+                    $this->fail($clip, 'The send stopped. You can try again.');
 
-                return false;
+                    return false;
+                }
+                if ($response->failed()) {
+                    $this->fail($clip, "TikTok couldn't take this video. You can try again.");
+
+                    return false;
+                }
             }
-            if ($response->failed()) {
-                $this->fail($clip, "TikTok couldn't take this video. You can try again.");
 
-                return false;
-            }
+            return true;
+        } finally {
+            $local->cleanup();
         }
-
-        return true;
     }
 
     private function putChunk(string $absolute, string $url, int $start, int $length, int $end, int $size): Response

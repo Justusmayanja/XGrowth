@@ -150,6 +150,14 @@ class AccountSetupController extends Controller
             default => ['publish' => 'confirm'],
         };
 
+        $existing = PlatformSetup::query()
+            ->where('user_id', $user->id)
+            ->where('platform', $platform)
+            ->first();
+        if (is_array($existing?->settings)) {
+            $settings = array_merge($existing->settings, $settings);
+        }
+
         PlatformSetup::updateOrCreate(
             ['user_id' => $user->id, 'platform' => $platform],
             ['goals' => $goals, 'settings' => $settings, 'completed_at' => now()],

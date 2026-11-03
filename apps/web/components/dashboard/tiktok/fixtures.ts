@@ -314,4 +314,54 @@ export const tiktokStateFixtures: TikTokStateFixture[] = [
       },
     },
   },
+  {
+    name: "Video rendering",
+    tiktok: desk({
+      clip: clip({
+        render: {
+          status: "rendering",
+          label: "Making your video",
+          note: null,
+          ready: false,
+          provider: "pending",
+          ai_generated: false,
+          can_regenerate: false,
+        },
+      }),
+    }),
+  },
+  {
+    name: "Video ready",
+    tiktok: desk({
+      clip: clip({
+        blockers: ["tiktok_connection"],
+        render: {
+          status: "ready",
+          label: "Ready to watch",
+          note: null,
+          ready: true,
+          provider: "ffmpeg",
+          ai_generated: true,
+          can_regenerate: true,
+        },
+        video: { filename: "clip.mp4", size: 4_000_000, duration_seconds: 22, width: 1080, height: 1920, warning: null },
+      }),
+    }),
+  },
+  {
+    name: "Video skipped",
+    tiktok: desk({
+      clip: clip({
+        render: {
+          status: "skipped",
+          label: "Not made",
+          note: "Voice isn't available right now. Try again later, or add your own video.",
+          ready: false,
+          provider: "pending",
+          ai_generated: false,
+          can_regenerate: false,
+        },
+      }),
+    }),
+  },
 ];

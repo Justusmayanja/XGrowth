@@ -119,8 +119,8 @@ class TikTokVideoUploadTest extends TestCase
 
     public function test_the_sweep_drops_orphans_missing_files_and_old_drafts(): void
     {
-        Storage::disk(TikTokContentPosting::DISK)->put('stray/orphan.mp4', 'x');
         $user = User::factory()->create();
+        Storage::disk(TikTokContentPosting::DISK)->put($user->id.'/stray.mp4', 'x');
         $missing = TikTokClip::factory()->waiting()->create(['user_id' => $user->id]);
         $this->attach($user, $missing);
         $row = TikTokClipVideo::query()->first();
@@ -144,7 +144,7 @@ class TikTokVideoUploadTest extends TestCase
 
         app(TikTokVideoService::class)->sweep();
 
-        Storage::disk(TikTokContentPosting::DISK)->assertMissing('stray/orphan.mp4');
+        Storage::disk(TikTokContentPosting::DISK)->assertMissing($user->id.'/stray.mp4');
         Storage::disk(TikTokContentPosting::DISK)->assertMissing($user->id.'/'.$old->id.'/source.mp4');
         $this->assertFalse($row->fresh()->ready);
         $this->assertFalse($missing->fresh()->package['render']['ready']);

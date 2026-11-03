@@ -7,10 +7,13 @@ use App\Exceptions\TikTokVideoException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\TikTokClipResource;
 use App\Models\TikTokClip;
+use App\Services\Storage\MediaStore;
 use App\Services\TikTok\TikTokDraftService;
 use App\Services\TikTok\TikTokEngineService;
+use App\Services\TikTok\TikTokRenderService;
 use App\Services\TikTok\TikTokVideoService;
 use App\Support\TikTokCatalog;
+use App\Support\TikTokVideoCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -21,6 +24,8 @@ class TikTokVideoController extends Controller
         private readonly TikTokVideoService $videos,
         private readonly TikTokDraftService $drafts,
         private readonly TikTokEngineService $engine,
+        private readonly TikTokRenderService $renders,
+        private readonly MediaStore $media,
     ) {}
 
     public function start(Request $request, int $clip): JsonResponse
@@ -74,14 +79,19 @@ class TikTokVideoController extends Controller
     public function show(Request $request, int $clip): BinaryFileResponse
     {
         $found = $this->clip($request, $clip);
-        $path = $this->videos->stream($request->user(), $found);
+        $local = $this->videos->stream($request->user(), $found);
         $name = $found->video?->original_filename ?: 'video.mp4';
         $safe = str_replace(['"', "\r", "\n"], '', $name);
 
-        return response()->file($path, [
+        $response = response()->file($local->path, [
             'Content-Type' => 'video/mp4',
             'Content-Disposition' => 'inline; filename="'.$safe.'"',
         ]);
+        if ($local->temporary) {
+            $response->deleteFileAfterSend(true);
+        }
+
+        return $response;
     }
 
     public function retry(Request $request, int $clip): JsonResponse
@@ -93,6 +103,115 @@ class TikTokVideoController extends Controller
         }
 
         return TikTokClipResource::make($saved->load('video'))->response();
+    }
+
+    public function renderStatus(Request $request, int $clip): JsonResponse
+    {
+        $found = $this->clip($request, $clip);
+        $render = $found->package['render'] ?? [];
+
+        return response()->json(['data' => $this->renderPayload($found, $render)]);
+    }
+
+    public function regenerate(Request $request, int $clip): JsonResponse
+    {
+        $found = $this->clip($request, $clip);
+        $render = $found->package['render'] ?? [];
+        if (! in_array($found->status, [TikTokCatalog::WAITING, TikTokCatalog::QUEUED], true)) {
+            return $this->error(new \App\Exceptions\TikTokActionException(TikTokCatalog::ERROR_INVALID_STATE, 'This clip can no longer be made again.'));
+        }
+        if (! in_array($render['status'] ?? '', [TikTokCatalog::RENDER_FAILED, TikTokCatalog::RENDER_READY], true)) {
+            return $this->error(new \App\Exceptions\TikTokActionException(TikTokCatalog::ERROR_INVALID_STATE, 'This clip can no longer be made again.'));
+        }
+        if ((int) ($render['regenerations'] ?? 0) >= TikTokVideoCatalog::MAX_REGENERATIONS) {
+            return response()->json([
+                'error' => [
+                    'code' => TikTokVideoCatalog::ERROR_REGENERATE_LIMIT,
+                    'message' => 'This clip has already been made again twice.',
+                ],
+            ], 429);
+        }
+        $video = $found->video;
+        if ($video && $video->source === 'generated') {
+            $video->delete();
+        }
+        $this->renders->dispatch($found->fresh() ?? $found, true);
+
+        return response()->json(['data' => $this->renderPayload($found->fresh() ?? $found, ($found->fresh() ?? $found)->package['render'] ?? [])]);
+    }
+
+    public function preview(Request $request, int $clip): JsonResponse
+    {
+        $found = $this->clip($request, $clip)->load('video');
+        $video = $found->video;
+        if (! $video || ! $video->ready || ! is_string($video->preview_path) || $video->preview_path === '') {
+            abort(404);
+        }
+        $expires = now()->addMinutes(TikTokVideoCatalog::SIGNED_URL_MINUTES);
+        if ($this->media->supportsTemporaryUrls()) {
+            $preview = $this->media->temporaryUrl($video->preview_path, $expires);
+            $poster = is_string($video->poster_path) && $video->poster_path !== ''
+                ? $this->media->temporaryUrl($video->poster_path, $expires)
+                : null;
+        } else {
+            $preview = url('/api/tiktok/clips/'.$found->id.'/video/preview/file');
+            $poster = url('/api/tiktok/clips/'.$found->id.'/video/poster');
+        }
+
+        return response()->json(['data' => [
+            'preview_url' => $preview,
+            'poster_url' => $poster,
+            'expires_at' => $expires->utc()->toIso8601String(),
+            'preview_bytes' => $video->preview_bytes,
+            'duration_seconds' => $video->duration_seconds,
+        ]]);
+    }
+
+    public function previewFile(Request $request, int $clip): \Symfony\Component\HttpFoundation\BinaryFileResponse
+    {
+        return $this->streamExtra($request, $clip, 'preview_path', 'video/mp4');
+    }
+
+    public function poster(Request $request, int $clip): \Symfony\Component\HttpFoundation\BinaryFileResponse
+    {
+        return $this->streamExtra($request, $clip, 'poster_path', 'image/jpeg');
+    }
+
+    private function streamExtra(Request $request, int $clip, string $column, string $type): \Symfony\Component\HttpFoundation\BinaryFileResponse
+    {
+        $found = $this->clip($request, $clip)->load('video');
+        $video = $found->video;
+        $key = $video?->{$column} ?? null;
+        if (! $video || ! $video->ready || ! is_string($key) || $key === '') {
+            abort(404);
+        }
+        $local = $this->media->materialize($video->disk ?: \App\Support\TikTokContentPosting::DISK, $key);
+        $response = response()->file($local->path, ['Content-Type' => $type, 'Accept-Ranges' => 'bytes']);
+        if ($local->temporary) {
+            $response->deleteFileAfterSend(true);
+        }
+
+        return $response;
+    }
+
+    /**
+     * @param  array<string, mixed>  $render
+     * @return array<string, mixed>
+     */
+    private function renderPayload(TikTokClip $clip, array $render): array
+    {
+        $status = (string) ($render['status'] ?? TikTokCatalog::RENDER_NONE);
+        $regenerations = (int) ($render['regenerations'] ?? 0);
+
+        return [
+            'status' => $status,
+            'label' => TikTokCatalog::renderLabel($status),
+            'note' => TikTokCatalog::renderNote($render),
+            'ready' => (bool) ($render['ready'] ?? false),
+            'can_regenerate' => in_array($clip->status, [TikTokCatalog::WAITING, TikTokCatalog::QUEUED], true)
+                && in_array($status, [TikTokCatalog::RENDER_FAILED, TikTokCatalog::RENDER_READY], true)
+                && $regenerations < TikTokVideoCatalog::MAX_REGENERATIONS,
+        ];
     }
 
     public function posted(Request $request, int $clip): JsonResponse
