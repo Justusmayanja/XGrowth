@@ -120,7 +120,7 @@ export function ClipCard({ clip, collapsed = false, aside }: { clip: TikTokClip;
         </div>
 
         {(open || aside) && (
-          <div className={aside ? "grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]" : "space-y-5"}>
+          <div className={aside ? "grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(160px,320px)]" : "space-y-5"}>
             {open && <div className="order-2 space-y-5 lg:order-1">
             {clip.hook && (
               <Section label="Hook">
@@ -190,7 +190,7 @@ export function ClipCard({ clip, collapsed = false, aside }: { clip: TikTokClip;
               </Section>
             )}
             </div>}
-            {aside && <div id="video" className="order-1 mx-auto w-full max-w-[320px] scroll-mt-24 lg:order-2 lg:mx-0">{aside}</div>}
+            {aside && <div id="video" className="order-1 mx-auto w-full min-w-0 max-w-[320px] scroll-mt-24 lg:order-2 lg:mx-0">{aside}</div>}
           </div>
         )}
       </CardContent>

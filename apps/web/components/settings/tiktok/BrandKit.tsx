@@ -157,7 +157,16 @@ export function BrandKit({
 
       <div className="space-y-2">
         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Font</p>
-        <div role="radiogroup" aria-label="Font" className="grid gap-2 sm:grid-cols-2">
+        <div
+          role="radiogroup"
+          aria-label="Font"
+          className="grid gap-2 sm:grid-cols-2"
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+            event.preventDefault();
+            setBrand({ font: video.brand.font === "inter" ? "source_sans" : "inter" });
+          }}
+        >
           {[
             { id: "inter", label: "Inter", sample: "Salt the water" },
             { id: "source_sans", label: "Source Sans 3", sample: "Salt the water" },
@@ -200,7 +209,7 @@ export function BrandKit({
         <div className="flex flex-wrap gap-3">
           <div className="relative aspect-[9/16] w-[120px] overflow-hidden rounded-sm border border-border p-2" style={{ background, color: text, fontFamily: font }}>
             {video.brand.use_logo && (localLogo || logoSaved) && <span className="absolute top-2 right-2 size-4 rounded-sm border border-current" aria-hidden />}
-            <p className={`text-xs text-balance ${video.captions.style === "bold" ? "font-semibold" : "font-normal"}`}>{STATEMENT}</p>
+            <p className={`text-xs text-balance ${video.captions?.style === "bold" ? "font-semibold" : "font-normal"}`}>{STATEMENT}</p>
             <p className="absolute inset-x-2 bottom-2 text-center text-[10px]">{CAPTION}</p>
           </div>
           <div className="flex aspect-[9/16] w-[120px] items-end rounded-sm border border-border p-2" style={{ background, color: text, fontFamily: font }}>

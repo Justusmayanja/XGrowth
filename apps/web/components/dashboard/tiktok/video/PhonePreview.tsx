@@ -72,7 +72,7 @@ export function PhonePreview({
   }
 
   return (
-    <figure className="mx-auto w-full max-w-[300px] space-y-3 lg:max-w-[320px]">
+    <figure className="mx-auto w-full min-w-0 max-w-[300px] space-y-3 lg:max-w-[320px]">
       <div className="rounded-[1.25rem] border border-border bg-background p-2 shadow-sm">
         <div className="relative aspect-[9/16] overflow-hidden rounded-[0.9rem] bg-[#101113]">
           {current && !broken ? (
@@ -88,7 +88,7 @@ export function PhonePreview({
               onError={onError}
             />
           ) : (
-            <div className="flex h-full items-end p-4">
+            <div className="flex h-full items-center p-6">
               <p className="text-sm text-balance text-white">{hook || "Clip preview"}</p>
             </div>
           )}
