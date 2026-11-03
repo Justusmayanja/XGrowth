@@ -51,3 +51,16 @@ export const DEFAULT_VIDEO: VideoSettings = {
 export function fieldMessage(fields: Record<string, string>, key: string): string | null {
   return fields[key] ?? null;
 }
+
+export function completeVideo(value: Partial<VideoSettings> | null | undefined): VideoSettings {
+  const video = value ?? {};
+  return {
+    ...DEFAULT_VIDEO,
+    ...video,
+    voice: { ...DEFAULT_VIDEO.voice, ...video.voice },
+    captions: { ...DEFAULT_VIDEO.captions, ...video.captions },
+    music: { ...DEFAULT_VIDEO.music, ...video.music },
+    brand: { ...DEFAULT_VIDEO.brand, ...video.brand },
+    context: { ...DEFAULT_VIDEO.context, ...video.context },
+  };
+}

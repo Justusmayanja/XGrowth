@@ -8,7 +8,7 @@ import { ApiError, api, apiForm } from "@/lib/api";
 import { BrandKit } from "./tiktok/BrandKit";
 import { BusinessDetails } from "./tiktok/BusinessDetails";
 import { captionColour, isHex } from "./tiktok/contrast";
-import { DEFAULT_VIDEO, type VideoSettings } from "./tiktok/types";
+import { completeVideo, DEFAULT_VIDEO, type VideoSettings } from "./tiktok/types";
 import { VideoTypePicker } from "./tiktok/VideoTypePicker";
 import { VoiceCaptionControls } from "./tiktok/VoiceCaptionControls";
 
@@ -35,7 +35,7 @@ function snapshot(video: VideoSettings): string {
 }
 
 export function VideoSettingsCard({ review }: { review?: VideoSettingsReview }) {
-  const [video, setVideo] = useState<VideoSettings | null>(review?.video ?? null);
+  const [video, setVideo] = useState<VideoSettings | null>(review ? completeVideo(review.video) : null);
   const [saved, setSaved] = useState(review ? snapshot(review.video) : "");
   const [musicAvailable, setMusicAvailable] = useState(review?.musicAvailable ?? false);
   const [logo, setLogo] = useState(review?.logo ?? false);
@@ -49,8 +49,9 @@ export function VideoSettingsCard({ review }: { review?: VideoSettingsReview }) 
     if (review) return;
     api<{ data: { video: VideoSettings; music_available: boolean; logo: boolean } }>("/tiktok/video-settings")
       .then((body) => {
-        setVideo(body.data.video);
-        setSaved(snapshot(body.data.video));
+        const next = completeVideo(body.data.video);
+        setVideo(next);
+        setSaved(snapshot(next));
         setMusicAvailable(body.data.music_available);
         setLogo(body.data.logo);
       })
@@ -117,8 +118,9 @@ export function VideoSettingsCard({ review }: { review?: VideoSettingsReview }) 
         method: "PUT",
         body: JSON.stringify(video),
       });
-      setVideo(body.data.video);
-      setSaved(snapshot(body.data.video));
+      const next = completeVideo(body.data.video);
+      setVideo(next);
+      setSaved(snapshot(next));
       setStatus(SAVED);
     } catch (err) {
       if (err instanceof ApiError && Object.keys(err.fields).length > 0) setFields(err.fields);
