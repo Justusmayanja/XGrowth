@@ -73,6 +73,16 @@ return [
             'after_commit' => false,
         ],
 
+        // Render jobs run for minutes. retry_after must stay above the job timeout.
+        'renders' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => 'renders',
+            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 900),
+            'block_for' => null,
+            'after_commit' => true,
+        ],
+
         'deferred' => [
             'driver' => 'deferred',
         ],

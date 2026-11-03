@@ -34,6 +34,7 @@ import { ReschedulePopover } from "./ReschedulePopover";
 import { ResultsForm } from "./ResultsForm";
 import { TimezoneNotice } from "./TimezoneNotice";
 import { VideoDropzone, VideoPending, VideoPreview, VideoSummary } from "./VideoDropzone";
+import { VideoPanel } from "./VideoPanel";
 
 export type TikTokReview = {
   writing?: boolean;
@@ -396,17 +397,20 @@ export function TikTokBody({
           {clip && showFile ? (
             <div className="space-y-4">
               {clip.topic && <p className="text-sm">For this clip: {clip.topic}</p>}
+              <VideoPanel clip={clip} onChanged={() => void reload()} onUseOwn={() => setReplacing(true)} />
+              {clip.render && (clip.render.status === "queued" || clip.render.status === "rendering") && clip.render.provider !== "user" ? null : (
+                <>
               {clip.video && (
                 <div className="space-y-3">
                   <VideoSummary video={clip.video} />
                   <VideoPreview clipId={clip.id} />
                 </div>
               )}
-              {clip.video && !replacing ? (
+              {clip.video && !replacing && clip.render?.provider !== "ffmpeg" ? (
                 <Button type="button" variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => setReplacing(true)}>
                   Replace video
                 </Button>
-              ) : (
+              ) : clip.render?.provider === "ffmpeg" && clip.render.status === "ready" && !replacing ? null : (
                 <VideoDropzone
                   clipId={clip.id}
                   replacing={Boolean(clip.video)}
@@ -415,6 +419,8 @@ export function TikTokBody({
                     void reload();
                   }}
                 />
+              )}
+                </>
               )}
             </div>
           ) : (

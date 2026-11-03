@@ -462,6 +462,9 @@ class AdminController extends Controller
 
         return response()->json([
             'counts' => $byStatus,
+            'renders' => app(\App\Services\TikTok\TikTokRenderService::class)->counts(),
+            'oldest_queued_minutes' => app(\App\Services\TikTok\TikTokRenderService::class)->oldestQueuedAgeMinutes(),
+            'worker_warning' => (app(\App\Services\TikTok\TikTokRenderService::class)->oldestQueuedAgeMinutes() ?? 0) > 10,
             'created_24h' => TikTokClip::query()->where('created_at', '>=', now()->subDay())->count(),
             'created_7d' => TikTokClip::query()->where('created_at', '>=', now()->subDays(7))->count(),
             'attention' => $attention,
@@ -486,10 +489,17 @@ class AdminController extends Controller
             ], 422);
         }
 
+        $open = TikTokClip::query()->forUser($user)->blocking()->latest('id')->first();
+
         return response()->json([
             'user_id' => $user->id,
             'email' => $user->email,
             'diagnose' => $engine->diagnose($user),
+            'render' => $open ? [
+                'status' => $open->package['render']['status'] ?? TikTokCatalog::RENDER_NONE,
+                'note' => $open->package['render']['note'] ?? null,
+                'why' => app(\App\Services\TikTok\TikTokRenderService::class)->explain($open),
+            ] : null,
         ]);
     }
 

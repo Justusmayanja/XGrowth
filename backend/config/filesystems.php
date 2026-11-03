@@ -1,5 +1,30 @@
 <?php
 
+$mediaDriver = env('MEDIA_DRIVER', env('TIKTOK_VIDEO_DRIVER', 'local'));
+
+$mediaDisk = $mediaDriver === 's3' ? [
+    'driver' => 's3',
+    'key' => env('WASABI_KEY'),
+    'secret' => env('WASABI_SECRET'),
+    'region' => env('WASABI_REGION', 'eu-central-1'),
+    'bucket' => env('WASABI_BUCKET'),
+    'endpoint' => env('WASABI_ENDPOINT', 'https://s3.eu-central-1.wasabisys.com'),
+    'use_path_style_endpoint' => true,
+    'visibility' => 'private',
+    'throw' => true,
+    'report' => false,
+    'http' => [
+        'connect_timeout' => 10,
+        'timeout' => 120,
+    ],
+] : [
+    'driver' => 'local',
+    'root' => env('MEDIA_LOCAL_ROOT', storage_path('app/private/media')),
+    'visibility' => 'private',
+    'throw' => true,
+    'report' => false,
+];
+
 return [
 
     /*
@@ -47,7 +72,19 @@ return [
             'report' => false,
         ],
 
+        'media' => $mediaDisk,
+
+        // TikTok objects live under the tiktok/ prefix of the shared media disk.
         'tiktok_videos' => [
+            'driver' => 'strict_scoped',
+            'disk' => 'media',
+            'prefix' => 'tiktok',
+            'visibility' => 'private',
+            'throw' => true,
+        ],
+
+        // Legacy local root, used only by tiktok:migrate-videos.
+        'tiktok_videos_local' => [
             'driver' => 'local',
             'root' => env('TIKTOK_VIDEO_ROOT', storage_path('app/private/tiktok')),
             'visibility' => 'private',

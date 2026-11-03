@@ -111,7 +111,8 @@ class TikTokEngineService
         $learningNote = is_string($learningNote) && $learningNote !== '' ? $learningNote : null;
 
         try {
-            $script = $this->scripts->clip($user, $profile, $idea, $learningNote);
+            $enabled = TikTokVideoPreferences::forUser($user)->enabledContext();
+            $script = $this->scripts->clip($user, $profile, $idea, $learningNote, $enabled);
         } catch (Throwable $e) {
             Log::warning('TikTok script fell back to the local writer', [
                 'user_id' => $user->id,
@@ -169,6 +170,8 @@ class TikTokEngineService
             return $this->skip($user, TikTokCatalog::OPEN_CLIP);
         }
 
+        $this->dispatchRender($clip);
+
         Log::info('TikTok engine created a clip', [
             'user_id' => $user->id,
             'clip_id' => $clip->id,
@@ -176,6 +179,44 @@ class TikTokEngineService
         ]);
 
         return ['outcome' => TikTokCatalog::CREATED, 'clip' => $clip];
+    }
+
+    private function dispatchRender(TikTokClip $clip): void
+    {
+        try {
+            $user = $clip->user ?? User::query()->find($clip->user_id);
+            if (! $user) {
+                return;
+            }
+            if (TikTokVideoPreferences::forUser($user)->generate() === \App\Support\TikTokVideoCatalog::GENERATE_ON_CONFIRM) {
+                return;
+            }
+            app(TikTokRenderService::class)->dispatch($clip);
+        } catch (Throwable $e) {
+            Log::warning('TikTok render was not queued', [
+                'user_id' => $clip->user_id,
+                'error' => $e::class,
+            ]);
+        }
+    }
+
+    private function dispatchRenderOnConfirm(TikTokClip $clip): void
+    {
+        try {
+            $user = $clip->user ?? User::query()->find($clip->user_id);
+            if (! $user) {
+                return;
+            }
+            if (TikTokVideoPreferences::forUser($user)->generate() !== \App\Support\TikTokVideoCatalog::GENERATE_ON_CONFIRM) {
+                return;
+            }
+            app(TikTokRenderService::class)->dispatch($clip);
+        } catch (Throwable $e) {
+            Log::warning('TikTok render was not queued', [
+                'user_id' => $clip->user_id,
+                'error' => $e::class,
+            ]);
+        }
     }
 
     /**
@@ -318,6 +359,7 @@ class TikTokEngineService
         });
 
         app(TikTokDraftService::class)->dispatchIfReady($saved);
+        $this->dispatchRenderOnConfirm($saved);
 
         return $saved->fresh() ?? $saved;
     }

@@ -50,6 +50,7 @@ return [
         'redirect' => env('TIKTOK_REDIRECT_URI'),
         'scopes' => env('TIKTOK_SCOPES', 'user.info.basic'),
         'ffprobe' => env('TIKTOK_FFPROBE', 'ffprobe'),
+        'ffmpeg' => env('TIKTOK_FFMPEG', 'ffmpeg'),
     ],
 
     'slack' => [

@@ -68,6 +68,24 @@ class ApiSpendService
         }
     }
 
+    public function release(int $userId, int $mills): void
+    {
+        if ($mills <= 0) {
+            return;
+        }
+
+        Cache::put(
+            $this->spendKey($userId),
+            max(0, $this->spent($userId) - $mills),
+            now()->endOfMonth()->addDay(),
+        );
+        Cache::put(
+            $this->dailySpendKey($userId),
+            max(0, $this->spentToday($userId) - $mills),
+            now()->endOfDay()->addHour(),
+        );
+    }
+
     public function spend(int $userId, int $mills): void
     {
         if ($mills <= 0) {

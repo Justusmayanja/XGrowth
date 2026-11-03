@@ -32,5 +32,8 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="TIKTOK_TTS_DRIVER" value="fake"/>
+        <env name="TIKTOK_FFMPEG" value="ffmpeg-not-installed"/>
+        <env name="TIKTOK_FFPROBE" value="ffprobe-not-installed"/>
     </php>
 </phpunit>

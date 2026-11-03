@@ -211,10 +211,55 @@ class TikTokCatalog
         ];
     }
 
-    /** @return array{provider: string, ready: bool} */
+    /** @return array{provider: string, ready: bool, status: string, note: null, attempts: int, regenerations: int, queued_at: null, started_at: null, finished_at: null, ai_generated: bool} */
     public static function defaultRender(): array
     {
-        return ['provider' => 'pending', 'ready' => false];
+        return [
+            'provider' => 'pending',
+            'ready' => false,
+            'status' => self::RENDER_NONE,
+            'note' => null,
+            'attempts' => 0,
+            'regenerations' => 0,
+            'queued_at' => null,
+            'started_at' => null,
+            'finished_at' => null,
+            'ai_generated' => false,
+        ];
+    }
+
+    public const RENDER_NONE = 'none';
+
+    public const RENDER_QUEUED = 'queued';
+
+    public const RENDER_RENDERING = 'rendering';
+
+    public const RENDER_READY = 'ready';
+
+    public const RENDER_FAILED = 'failed';
+
+    public const RENDER_SKIPPED = 'skipped';
+
+    public const RENDER_BUSY = 'Our video maker is busy. Try again.';
+
+    public const RENDER_VOICE_UNAVAILABLE = "Voice isn't available right now. Try again later, or add your own video.";
+
+    public static function renderLabel(string $status): string
+    {
+        return match ($status) {
+            self::RENDER_QUEUED, self::RENDER_RENDERING => 'Making your video',
+            self::RENDER_READY => 'Ready to watch',
+            self::RENDER_FAILED => "Couldn't make the video",
+            self::RENDER_SKIPPED => 'Video not made',
+            default => 'No video yet',
+        };
+    }
+
+    public static function renderNote(array $render): ?string
+    {
+        $note = $render['note'] ?? null;
+
+        return is_string($note) && $note !== '' ? $note : null;
     }
 
     /** @return array{mode: string, uploaded: bool, note: null} */

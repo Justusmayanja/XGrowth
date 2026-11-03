@@ -8,11 +8,15 @@ use App\Models\PlatformSetup;
 use App\Models\RateLimitBudget;
 use App\Models\User;
 use App\Services\AICore\AiUsageService;
+use App\Services\ApiSpend\ApiSpendService;
+use App\Services\TikTok\FakeSpeechProvider;
+use App\Services\TikTok\OpenAiSpeechProvider;
 use App\Services\TikTok\TikTokScriptWriter;
 use App\Support\TikTokCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use OpenAI\Laravel\Facades\OpenAI;
@@ -140,10 +144,9 @@ class TikTokScriptWriterTest extends TestCase
         $this->assertLessThanOrEqual(TikTokCatalog::HASHTAGS_MAX, count($topped[0]));
     }
 
-    public function test_over_limit_and_missing_key_use_the_local_writer_without_a_call(): void
+    public function test_a_full_generation_count_still_calls_the_model_and_the_spend_cap_does_not(): void
     {
-        config(['openai.api_key' => 'test-key']);
-        OpenAI::fake();
+        $this->fakeModel($this->payload());
         $user = $this->user();
         RateLimitBudget::query()->create([
             'user_id' => $user->id,
@@ -156,15 +159,54 @@ class TikTokScriptWriterTest extends TestCase
 
         $script = app(TikTokScriptWriter::class)->clip($user, $user->accountProfile, $this->idea(), null);
 
-        $this->assertSame(TikTokCatalog::SOURCE_FALLBACK, $script['source']);
+        $this->assertSame(TikTokCatalog::SOURCE_MODEL, $script['source']);
+        $this->assertSame(1, AiUsageLog::query()->count());
+
+        $spend = app(ApiSpendService::class);
+        Cache::put($spend->dailySpendKey($user->id), $spend->dailyCapMills($user->id), now()->endOfDay());
+        OpenAI::fake();
+        $logs = AiUsageLog::query()->count();
+        $capped = app(TikTokScriptWriter::class)->clip($user, $user->accountProfile, $this->idea(), null);
+
+        $this->assertSame(TikTokCatalog::SOURCE_FALLBACK, $capped['source']);
         OpenAI::assertNothingSent();
-        $this->assertSame(0, AiUsageLog::query()->count());
+        $this->assertSame($logs, AiUsageLog::query()->count());
 
         config(['openai.api_key' => '']);
         OpenAI::fake();
-        $again = app(TikTokScriptWriter::class)->clip($user, $user->accountProfile, $this->idea(), null);
-        $this->assertSame(TikTokCatalog::SOURCE_FALLBACK, $again['source']);
+        $missing = app(TikTokScriptWriter::class)->clip($user, $user->accountProfile, $this->idea(), null);
+        $this->assertSame(TikTokCatalog::SOURCE_FALLBACK, $missing['source']);
         OpenAI::assertNothingSent();
+    }
+
+    public function test_speech_reservation_uses_the_same_spend_cap(): void
+    {
+        config(['openai.api_key' => 'test-key', 'tiktok_video.tts_driver' => 'openai']);
+        OpenAI::fake();
+        $user = $this->user();
+        $spend = app(ApiSpendService::class);
+        Cache::put($spend->dailySpendKey($user->id), $spend->dailyCapMills($user->id), now()->endOfDay());
+        $before = (int) Cache::get($spend->dailySpendKey($user->id));
+
+        try {
+            app(OpenAiSpeechProvider::class)->speak($user, 'Salt the water first.', 'female', sys_get_temp_dir().'/voice.mp3');
+            $this->fail('Speech was reserved after the spend cap was full.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame(TikTokCatalog::RENDER_VOICE_UNAVAILABLE, $e->getMessage());
+        }
+
+        OpenAI::assertNothingSent();
+        $this->assertSame($before, (int) Cache::get($spend->dailySpendKey($user->id)));
+        $this->assertSame(0, AiUsageLog::query()->where('feature', 'tiktok_tts')->count());
+
+        try {
+            app(FakeSpeechProvider::class)->speak($user, 'Salt the water first.', 'female', sys_get_temp_dir().'/voice.m4a');
+            $this->fail('The stand-in voice was reserved after the spend cap was full.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame(TikTokCatalog::RENDER_VOICE_UNAVAILABLE, $e->getMessage());
+        }
+
+        $this->assertSame($before, (int) Cache::get($spend->dailySpendKey($user->id)));
     }
 
     public function test_fallback_passes_the_same_checks_as_model_output(): void

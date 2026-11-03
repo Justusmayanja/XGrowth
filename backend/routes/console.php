@@ -164,6 +164,32 @@ Schedule::call(fn () => app(TikTokVideoService::class)->sweep())
     ->name('tiktok-video-sweep')
     ->withoutOverlapping(30);
 
+Schedule::call(fn () => app(\App\Services\TikTok\TikTokRenderService::class)->sweep())
+    ->everyTenMinutes()
+    ->name('tiktok-render-sweep')
+    ->withoutOverlapping(10);
+
+Artisan::command('tiktok:render {--clip=} {--force}', function () {
+    $id = $this->option('clip');
+    $clip = \App\Models\TikTokClip::query()->find($id);
+    if (! $clip) {
+        $this->error('No clip with that id.');
+
+        return 1;
+    }
+    app(\App\Services\TikTok\TikTokRenderService::class)->dispatch($clip, (bool) $this->option('force'));
+    $this->info('Render queued.');
+
+    return 0;
+})->purpose('Queue a TikTok motion render for one clip');
+
+Artisan::command('tiktok:sweep-renders', function () {
+    $changed = app(\App\Services\TikTok\TikTokRenderService::class)->sweep();
+    $this->info("Marked {$changed} stale render(s) as failed.");
+
+    return 0;
+})->purpose('Fail TikTok renders that have been queued or rendering for too long');
+
 // Run in the scheduler process. A queued job never posts when no queue worker is running.
 Schedule::call(fn () => app(GrowthAgentService::class)->evaluateAllUsers())
     ->cron("*/{$evalInterval} * * * *")
