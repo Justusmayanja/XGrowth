@@ -1,40 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { IBM_Plex_Mono, IBM_Plex_Sans, IBM_Plex_Serif, Instrument_Serif, Inter } from "next/font/google";
+import { display, heading, inter, mono, sans } from "./fonts";
 import { cn } from "@/lib/utils";
 import { AppProviders } from "@/components/AppProviders";
-
-const sans = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-sans",
-});
-
-const heading = IBM_Plex_Serif({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  style: ["normal", "italic"],
-  variable: "--font-heading",
-});
-
-const mono = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-mono",
-});
-
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-inter",
-});
-
-const display = Instrument_Serif({
-  subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
-  variable: "--font-display",
-});
 
 export const viewport: Viewport = {
   width: "device-width",
