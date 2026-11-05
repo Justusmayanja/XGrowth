@@ -51,10 +51,6 @@ class EmailCodeService
             }
         }
 
-        EmailLoginCode::query()
-            ->where('created_at', '<', now()->subDay())
-            ->delete();
-
         $sentRecently = EmailLoginCode::query()
             ->where('email', $email)
             ->where('created_at', '>=', now()->subMinute())
@@ -87,7 +83,7 @@ class EmailCodeService
 
         $record = EmailLoginCode::query()->create([
             'email' => $email,
-            'code_hash' => Hash::make($code),
+            'code_hash' => $this->hashCode($code),
             'purpose' => $purpose,
             'name' => $purpose === 'register' ? $name : null,
             'username' => $purpose === 'register' ? $username : null,
@@ -104,6 +100,10 @@ class EmailCodeService
                 'email' => ['We could not send the email. Try again in a minute.'],
             ]);
         }
+
+        EmailLoginCode::query()
+            ->where('created_at', '<', now()->subDay())
+            ->delete();
 
         return [
             'message' => "We sent a code to {$email}.",
@@ -135,7 +135,7 @@ class EmailCodeService
             ]);
         }
 
-        if (! Hash::check($code, $record->code_hash)) {
+        if (! $this->codeMatches($code, $record->code_hash)) {
             $record->increment('attempts');
 
             throw ValidationException::withMessages([
@@ -196,5 +196,19 @@ class EmailCodeService
             'token' => $user->createToken('api')->plainTextToken,
             'created' => $created,
         ];
+    }
+
+    private function hashCode(string $code): string
+    {
+        return hash_hmac('sha256', $code, (string) config('app.key'));
+    }
+
+    private function codeMatches(string $code, string $stored): bool
+    {
+        if (str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$') || str_starts_with($stored, '$argon')) {
+            return Hash::check($code, $stored);
+        }
+
+        return hash_equals($stored, $this->hashCode($code));
     }
 }

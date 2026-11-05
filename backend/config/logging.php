@@ -127,6 +127,14 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        'abuse' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/abuse.log'),
+            'level' => 'info',
+            'days' => 14,
+            'replace_placeholders' => false,
+        ],
+
     ],
 
 ];

@@ -163,10 +163,22 @@ class AuthAccountTest extends TestCase
         $this->assertInstanceOf(LoginCodeMail::class, $mail);
         $this->assertTrue($mail->hasTo($payload['email']));
         $this->assertSame(10, $mail->minutes);
+        $this->assertSame('Your Mackie17 code', $mail->envelope()->subject);
+
         $html = $mail->render();
-        $this->assertStringContainsString('Do not share this code', $html);
-        $this->assertStringContainsString('Copy this code', $html);
-        $this->assertStringContainsString($mail->code, $html);
+        $text = view('mail.login-code-text', [
+            'code' => $mail->code,
+            'minutes' => $mail->minutes,
+        ])->render();
+
+        foreach ([$html, $text] as $body) {
+            $this->assertStringContainsString($mail->code, $body);
+            $this->assertStringContainsString('Do not share this code', $body);
+            $this->assertStringContainsString('10 minutes', $body);
+            $this->assertLessThan(strpos($body, 'Do not share this code'), strpos($body, $mail->code));
+            $this->assertStringNotContainsString('sign in', strtolower($body));
+            $this->assertStringNotContainsString('/login', $body);
+        }
 
         return $mail->code;
     }

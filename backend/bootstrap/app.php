@@ -1,5 +1,9 @@
 <?php
 
+use App\Http\Middleware\EnsureAdmin;
+use App\Http\Middleware\EnsureCustomer;
+use App\Http\Middleware\EnsureNotBlocked;
+use App\Http\Middleware\LogAccessDenial;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -16,10 +20,14 @@ return Application::configure(basePath: dirname(__DIR__))
         __DIR__.'/../app/Console/Commands',
     ])
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->api(prepend: [
+            LogAccessDenial::class,
+        ]);
+
         $middleware->alias([
-            'admin' => \App\Http\Middleware\EnsureAdmin::class,
-            'customer' => \App\Http\Middleware\EnsureCustomer::class,
-            'not_blocked' => \App\Http\Middleware\EnsureNotBlocked::class,
+            'admin' => EnsureAdmin::class,
+            'customer' => EnsureCustomer::class,
+            'not_blocked' => EnsureNotBlocked::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

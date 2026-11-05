@@ -20,7 +20,7 @@ class LoginCodeMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your Mackie17 sign-in code',
+            subject: 'Your Mackie17 code',
         );
     }
 

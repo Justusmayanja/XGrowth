@@ -232,7 +232,7 @@ export default function RegisterPage() {
             />
           </div>
           <button type="submit" className="th-cta" disabled={loading}>
-            {loading ? "Creating account…" : "Create account"}
+            {loading ? "Sending the code…" : "Create account"}
           </button>
           <p className="text-xs text-[#7f93ab]">
             By creating an account you agree to the{" "}
