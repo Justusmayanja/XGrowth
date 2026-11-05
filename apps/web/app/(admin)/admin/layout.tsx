@@ -1,15 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { api, getToken } from "@/lib/api";
+import { openPage } from "@/lib/nav-recovery";
 import { Button } from "@/components/ui/button";
 
 type GateState = "checking" | "allowed" | "denied" | "error";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const [gate, setGate] = useState<GateState>("checking");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [slow, setSlow] = useState(false);
@@ -27,7 +26,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
     if (!getToken()) {
       window.clearTimeout(slowTimer);
-      router.replace("/login");
+      openPage("/login");
       return;
     }
 
@@ -37,7 +36,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       if (!res.is_admin) {
         setGate("denied");
-        router.replace("/dashboard");
+        openPage("/dashboard");
         return;
       }
 
@@ -49,7 +48,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     } finally {
       window.clearTimeout(slowTimer);
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     runGuard();
@@ -91,7 +90,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <Button variant="secondary" onClick={runGuard}>
             Retry
           </Button>
-          <Button variant="outline" onClick={() => router.replace("/login")}>
+          <Button variant="outline" onClick={() => openPage("/login")}>
             Sign in again
           </Button>
         </div>

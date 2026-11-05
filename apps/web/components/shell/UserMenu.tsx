@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { openPage } from "@/lib/nav-recovery";
 import { Menu } from "@base-ui/react/menu";
 import { useTheme } from "next-themes";
 import { api, clearToken } from "@/lib/api";
@@ -17,7 +17,6 @@ function initialOf(user: Me | null): string {
 }
 
 export function UserMenu() {
-  const router = useRouter();
   const billing = useBillingStatus();
   const { resolvedTheme, setTheme } = useTheme();
   const [user, setUser] = useState<Me | null>(null);
@@ -44,7 +43,7 @@ export function UserMenu() {
       // The session ends locally even when the server is unreachable.
     } finally {
       clearToken();
-      router.push("/");
+      openPage("/");
     }
   }
 

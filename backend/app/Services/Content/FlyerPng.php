@@ -4,10 +4,14 @@ namespace App\Services\Content;
 
 /**
  * A square flyer as a PNG, drawn without GD so it works on this PHP.
- * Color comes from the account. The headline is the post, shortened.
+ * Caption sits on a top bar. The picture fills the space under it.
  */
 class FlyerPng
 {
+    public const SIZE = 720;
+
+    public const CAPTION_BAND = 200;
+
     private int $size;
 
     /** @var string packed RGB */
@@ -21,30 +25,35 @@ class FlyerPng
 
     public static function make(int $hue, string $headline, string $footer): string
     {
-        $size = 720;
-        [$r, $g, $b] = self::hsl($hue, 42, 16);
-        $canvas = new self($size, $r, $g, $b);
+        $size = self::SIZE;
+        $band = self::CAPTION_BAND;
+        [$pr, $pg, $pb] = self::hsl($hue, 38, 22);
+        $canvas = new self($size, $pr, $pg, $pb);
 
         [$ar, $ag, $ab] = self::hsl($hue, 72, 58);
-        $canvas->fillCircle(580, 110, 210, $ar, $ag, $ab);
+        $canvas->fillCircle(580, $band + 90, 210, $ar, $ag, $ab);
         $canvas->fillRect(0, 612, $size, 28, $ar, $ag, $ab);
 
         [$sr, $sg, $sb] = self::hsl(($hue + 40) % 360, 30, 28);
         $canvas->fillCircle(90, 660, 150, $sr, $sg, $sb);
 
-        $lines = self::wrap($headline, 14);
-        $scale = 7;
-        $lineH = 8 * $scale + 18;
-        $block = count($lines) * $lineH;
-        $y = (int) (($size - $block) / 2) + 8;
-        foreach ($lines as $line) {
-            $canvas->drawText($line, $y, 7, 255, 255, 255);
-            $y += $lineH;
-        }
+        $canvas->captionBar($hue, $headline);
 
         if ($footer !== '') {
-            $canvas->drawText(mb_substr($footer, 0, 28), 560, 3, 230, 226, 216);
+            $canvas->drawText(mb_substr($footer, 0, 28), $size - 48, 3, 230, 226, 216, 'left');
         }
+
+        return $canvas->png();
+    }
+
+    public static function withPhoto(int $hue, string $headline, string $rgb, int $width, int $height): string
+    {
+        $size = self::SIZE;
+        $band = self::CAPTION_BAND;
+        [$br, $bg, $bb] = self::hsl($hue, 35, 10);
+        $canvas = new self($size, $br, $bg, $bb);
+        $canvas->cover($rgb, $width, $height, 0, $band, $size, $size - $band);
+        $canvas->captionBar($hue, $headline);
 
         return $canvas->png();
     }
@@ -95,7 +104,48 @@ class FlyerPng
         }
     }
 
-    public function drawText(string $text, int $top, int $scale, int $r, int $g, int $b): void
+    public function captionBar(int $hue, string $headline): void
+    {
+        [$br, $bg, $bb] = self::hsl($hue, 35, 10);
+        $this->fillRect(0, 0, $this->size, self::CAPTION_BAND, $br, $bg, $bb);
+
+        $lines = array_slice(self::wrap($headline, 18), 0, 3);
+        $scale = 5;
+        $lineH = 8 * $scale + 12;
+        $y = 32;
+        foreach ($lines as $line) {
+            $this->drawText($line, $y, $scale, 255, 255, 255, 'left');
+            $y += $lineH;
+        }
+    }
+
+    public function cover(string $src, int $srcW, int $srcH, int $dx, int $dy, int $dw, int $dh): void
+    {
+        if ($srcW < 1 || $srcH < 1 || strlen($src) < $srcW * $srcH * 3) {
+            return;
+        }
+
+        $scale = max($dw / $srcW, $dh / $srcH);
+        $ox = (int) (($srcW * $scale - $dw) / 2);
+        $oy = (int) (($srcH * $scale - $dh) / 2);
+        $pixels = $this->pixels;
+
+        for ($y = 0; $y < $dh; $y++) {
+            $sy = min($srcH - 1, max(0, (int) floor(($y + $oy) / $scale)));
+            for ($x = 0; $x < $dw; $x++) {
+                $sx = min($srcW - 1, max(0, (int) floor(($x + $ox) / $scale)));
+                $si = ($sy * $srcW + $sx) * 3;
+                $di = (($dy + $y) * $this->size + ($dx + $x)) * 3;
+                $pixels[$di] = $src[$si];
+                $pixels[$di + 1] = $src[$si + 1];
+                $pixels[$di + 2] = $src[$si + 2];
+            }
+        }
+
+        $this->pixels = $pixels;
+    }
+
+    public function drawText(string $text, int $top, int $scale, int $r, int $g, int $b, string $align = 'center'): void
     {
         $glyphs = [];
         $width = 0;
@@ -104,7 +154,9 @@ class FlyerPng
             $glyphs[] = $glyph;
             $width += (count($glyph[0]) + 1) * $scale;
         }
-        $left = max(24, (int) (($this->size - $width) / 2));
+        $left = $align === 'left'
+            ? 28
+            : max(24, (int) (($this->size - $width) / 2));
         $x = $left;
         foreach ($glyphs as $glyph) {
             $this->stamp($glyph, $x, $top, $scale, $r, $g, $b);

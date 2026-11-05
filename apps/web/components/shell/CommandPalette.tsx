@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { NAV, navHrefActive } from "@/lib/nav";
+import { openPage } from "@/lib/nav-recovery";
 import { usePlatform, withPlatform } from "@/lib/platform";
 import { PLATFORM_ORDER, platformName, type Platform } from "@/lib/profile";
 
@@ -44,7 +45,6 @@ export function useCommandShortcut(onOpen: () => void) {
 }
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const router = useRouter();
   const pathname = usePathname();
   const platform = usePlatform();
   const { resolvedTheme, setTheme } = useTheme();
@@ -66,7 +66,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const entries = useMemo<Entry[]>(() => {
     const go = (href: string) => () => {
       onClose();
-      router.push(href);
+      openPage(href);
     };
     const pages: Entry[] = NAV[platform].flatMap((group) =>
       group.links.map((link) => {
@@ -101,7 +101,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         },
       },
     ];
-  }, [hash, onClose, pathname, platform, resolvedTheme, router, setTheme]);
+  }, [hash, onClose, pathname, platform, resolvedTheme, setTheme]);
 
   const shown = entries.filter((entry) => matches(query, entry.label));
   const current = shown[Math.min(active, Math.max(shown.length - 1, 0))];

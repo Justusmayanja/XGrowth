@@ -67,11 +67,19 @@ class ComposeSuggestTest extends TestCase
         $user = $this->userWithProfile();
         Post::create(['user_id' => $user->id, 'content' => 'Pasta for one, under a pound.', 'content_type' => 'tweet', 'status' => 'draft']);
 
-        $this->actingAs($user, 'sanctum')
+        $response = $this->actingAs($user, 'sanctum')
             ->postJson('/api/content/generate', ['mode' => 'suggest', 'content_type' => 'tweet'])
             ->assertOk()
-            ->assertJsonCount(3, 'variants')
-            ->assertJsonPath('variants.0.angle', 'Cheapest meal of the week');
+            ->assertJsonCount(3, 'variants');
+
+        $variants = $response->json('variants');
+        $scores = array_column($variants, 'virality_score');
+        $picks = array_column($variants, 'pick');
+        $this->assertCount(3, array_unique($scores));
+        $this->assertContains($picks[0], ['post', 'hold']);
+        $this->assertSame(['leave', 'leave'], array_slice($picks, 1));
+        $this->assertLessThanOrEqual(1, count(array_filter($variants, fn (array $variant) => $variant['worth_posting'])));
+        $this->assertContains('Cheapest meal of the week', array_column($variants, 'angle'));
 
         OpenAI::assertSent(Chat::class, function (string $method, array $parameters): bool {
             $prompt = $parameters['messages'][1]['content'];

@@ -13,8 +13,7 @@ use Throwable;
 
 /**
  * A picture for an X post, once the last few posts were only words.
- * Illustrations come from the image model and carry no lettering.
- * A flyer is the backup: color, shape, and one short line.
+ * Caption sits on a top bar. The flyer, photo, or illustration fills the space under it.
  */
 class PostVisualService
 {
@@ -47,21 +46,26 @@ class PostVisualService
     }
 
     /**
+     * @param  'flyer'|'photo'|'illustration'|null  $kind
      * @return array{path: string, kind: string}|null
      */
-    public function make(User $user, ?AccountProfile $profile, string $caption): ?array
+    public function make(User $user, ?AccountProfile $profile, string $caption, ?string $kind = null): ?array
     {
         $about = $profile ?? new AccountProfile;
-        $kind = $this->nextKind($user);
+        $requested = $this->normalizeKind($kind) ?? $this->nextKind($user);
         $bytes = null;
+        $used = $requested;
 
-        if ($kind === 'image') {
-            $bytes = $this->illustration($user, $about, $caption);
-        }
-
-        if ($bytes === null) {
+        if ($requested === 'flyer') {
             $bytes = $this->flyerPng($about, $caption);
-            $kind = 'flyer';
+        } else {
+            $bytes = $this->illustration($user, $about, $caption, $requested);
+            if ($bytes === null && $kind === null) {
+                $bytes = $this->flyerPng($about, $caption);
+                $used = 'flyer';
+            } elseif (is_string($bytes)) {
+                $bytes = $this->captionOnTop($bytes, $caption, $about);
+            }
         }
 
         if ($bytes === null) {
@@ -72,17 +76,27 @@ class PostVisualService
         $path = 'post-visuals/'.$user->id.'/'.str_replace('-', '', (string) Str::uuid()).'.'.$extension;
         Storage::disk('local')->put($path, $bytes);
 
-        return ['path' => $path, 'kind' => $kind];
+        return ['path' => $path, 'kind' => $used];
+    }
+
+    private function normalizeKind(?string $kind): ?string
+    {
+        return match ($kind) {
+            'flyer' => 'flyer',
+            'photo' => 'photo',
+            'illustration', 'image' => 'illustration',
+            default => null,
+        };
     }
 
     private function nextKind(User $user): string
     {
         $count = $user->posts()->whereNotNull('media_path')->count();
 
-        return $count % 2 === 0 ? 'image' : 'flyer';
+        return $count % 2 === 0 ? 'illustration' : 'flyer';
     }
 
-    private function illustration(User $user, AccountProfile $profile, string $caption): ?string
+    private function illustration(User $user, AccountProfile $profile, string $caption, string $kind = 'illustration'): ?string
     {
         if (app()->runningUnitTests()) {
             return null;
@@ -102,7 +116,7 @@ class PostVisualService
                 ->timeout(25)
                 ->post('https://api.openai.com/v1/images/generations', [
                     'model' => 'dall-e-3',
-                    'prompt' => $this->imagePrompt($profile, $caption),
+                    'prompt' => $this->imagePrompt($profile, $caption, $kind),
                     'size' => '1024x1024',
                     'quality' => 'standard',
                     'n' => 1,
@@ -138,7 +152,7 @@ class PostVisualService
         return $bytes;
     }
 
-    private function imagePrompt(AccountProfile $profile, string $caption): string
+    private function imagePrompt(AccountProfile $profile, string $caption, string $kind = 'illustration'): string
     {
         $about = trim((string) $profile->description);
         if ($about === '') {
@@ -148,53 +162,157 @@ class PostVisualService
         $audience = mb_substr(trim((string) $profile->audience), 0, 160);
         $moment = mb_substr((string) preg_replace('/\s+/', ' ', $caption), 0, 180);
 
-        $prompt = 'A single original illustration for a social account. No words, no letters, no numbers, no logos, no watermarks, no crests, and no photograph of a real person. ';
+        $prompt = $kind === 'photo'
+            ? 'A single original photograph for a social account. No words, no letters, no numbers, no logos, no watermarks, and no identifiable real person. Photorealistic, natural light, one clear subject. Not an illustration, not a cartoon, not a screenshot, and not a collage of text. '
+            : 'A single original illustration for a social account. No words, no letters, no numbers, no logos, no watermarks, no crests, and no photograph of a real person. ';
         $prompt .= "Show the world of this account: {$about}. ";
         if ($audience !== '') {
             $prompt .= "The people it is for: {$audience}. ";
         }
         $prompt .= "The moment, shown without writing it: {$moment}. ";
-        $prompt .= 'Bold, simple, high contrast, like a poster illustration. Not a screenshot, not a user interface, and not a collage of text.';
+        if ($kind !== 'photo') {
+            $prompt .= 'Bold, simple, high contrast, like a poster illustration. Not a screenshot, not a user interface, and not a collage of text.';
+        }
 
         return $prompt;
     }
 
-    public function headline(string $caption): string
+    /**
+     * A short line about the picture, not a copy of the post.
+     * The tweet stays the take. This is only a brief label, like on X.
+     */
+    public function overlayLine(string $caption, ?AccountProfile $profile): string
     {
-        $clean = trim((string) preg_replace('/https?:\/\/\S+|[#@]\S+/', '', $caption));
-        $clean = trim((string) preg_replace('/\s+/', ' ', $clean));
-        $first = preg_split('/[.!?]/u', $clean) ?: [];
-        $clause = trim((string) ($first[0] ?? $clean));
-        $words = preg_split('/\s+/', $clause) ?: [];
-        $line = implode(' ', array_slice($words, 0, 7));
-        if (mb_strlen($line) > 48) {
-            $line = rtrim(mb_substr($line, 0, 48));
+        $tweet = $this->plain($caption);
+        foreach ([$this->fromAccount($profile), $this->fromNiche($profile)] as $line) {
+            if ($line !== '' && ! $this->sameSense($line, $tweet)) {
+                return $line;
+            }
         }
 
-        return $line !== '' ? $line : 'Today';
+        $topic = $this->shortTopic($tweet);
+        if ($topic !== '' && ! $this->sameSense($topic, $tweet)) {
+            return $topic;
+        }
+
+        return $this->fromAccount($profile) ?: $this->fromNiche($profile) ?: 'Today';
     }
 
-    private function footer(AccountProfile $profile): string
+    public function headline(string $caption, ?AccountProfile $profile = null): string
     {
-        $source = trim((string) $profile->description);
-        if ($source === '') {
-            $source = trim((string) $profile->resolvedNiche());
-        }
-        $source = trim((string) preg_replace('/\s+/', ' ', $source));
-        if ($source === '') {
-            return '';
-        }
-
-        $words = preg_split('/\s+/', $source) ?: [];
-
-        return mb_substr(implode(' ', array_slice($words, 0, 6)), 0, 36);
+        return $this->overlayLine($caption, $profile);
     }
 
     private function flyerPng(AccountProfile $profile, string $caption): string
     {
-        $seed = (string) ($profile->description ?: $profile->resolvedNiche() ?: $caption);
-        $hue = abs(crc32($seed)) % 360;
+        return FlyerPng::make($this->hue($profile, $caption), $this->overlayLine($caption, $profile), '');
+    }
 
-        return FlyerPng::make($hue, $this->headline($caption), $this->footer($profile));
+    private function captionOnTop(string $bytes, string $caption, AccountProfile $profile): string
+    {
+        $decoded = PngRgb::decode($bytes);
+        if ($decoded === null) {
+            return $bytes;
+        }
+
+        return FlyerPng::withPhoto(
+            $this->hue($profile, $caption),
+            $this->overlayLine($caption, $profile),
+            $decoded['rgb'],
+            $decoded['width'],
+            $decoded['height'],
+        );
+    }
+
+    private function fromAccount(?AccountProfile $profile): string
+    {
+        $source = $this->plain((string) ($profile?->description ?? ''));
+        if ($source === '') {
+            return '';
+        }
+
+        $clause = trim((string) (preg_split('/[,.]/u', $source)[0] ?? ''));
+
+        return $this->fewWords($clause, 4);
+    }
+
+    private function fromNiche(?AccountProfile $profile): string
+    {
+        $niche = $this->plain((string) ($profile?->resolvedNiche() ?? ''));
+        if ($niche === '' || $niche === 'general') {
+            return '';
+        }
+
+        return $this->fewWords($niche, 4);
+    }
+
+    private function shortTopic(string $tweet): string
+    {
+        $stop = ['the', 'and', 'for', 'that', 'this', 'with', 'from', 'have', 'just', 'about', 'your', 'you', 'are', 'was', 'not', 'but', 'they', 'their', 'is', 'it'];
+        $words = [];
+        foreach (preg_split('/\s+/', $this->plain($tweet)) ?: [] as $word) {
+            if (mb_strlen($word) < 3 || in_array(mb_strtolower($word), $stop, true)) {
+                continue;
+            }
+            $words[] = $word;
+            if (count($words) === 2) {
+                break;
+            }
+        }
+
+        $line = implode(' ', $words);
+
+        return mb_strlen($line) >= 6 ? $line : '';
+    }
+
+    private function fewWords(string $text, int $max): string
+    {
+        $words = array_values(array_filter(preg_split('/\s+/', $this->plain($text)) ?: [], fn (string $word) => $word !== ''));
+        $stop = ['for', 'with', 'and', 'the', 'a', 'an', 'from', 'that', 'this', 'into', 'on', 'is', 'are'];
+        $keep = [];
+        foreach ($words as $word) {
+            if (count($keep) >= $max) {
+                break;
+            }
+            $lower = mb_strtolower($word);
+            if ($keep !== [] && in_array($lower, $stop, true)) {
+                break;
+            }
+            if ($keep === [] && in_array($lower, $stop, true)) {
+                continue;
+            }
+            $keep[] = $word;
+        }
+
+        return implode(' ', $keep);
+    }
+
+    private function sameSense(string $line, string $tweet): bool
+    {
+        $a = mb_strtolower($this->plain($line));
+        $b = mb_strtolower($this->plain($tweet));
+        if ($a === '' || $b === '') {
+            return false;
+        }
+        if ($a === $b || str_contains($b, $a)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function plain(string $text): string
+    {
+        $text = trim((string) preg_replace('/https?:\/\/\S+|[#@]\S+/', '', $text));
+        $text = trim((string) preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $text));
+
+        return trim((string) preg_replace('/\s+/', ' ', $text));
+    }
+
+    private function hue(AccountProfile $profile, string $caption): int
+    {
+        $seed = (string) ($profile->description ?: $profile->resolvedNiche() ?: $caption);
+
+        return abs(crc32($seed)) % 360;
     }
 }

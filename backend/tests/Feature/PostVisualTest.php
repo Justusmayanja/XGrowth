@@ -42,6 +42,33 @@ class PostVisualTest extends TestCase
         $this->assertFalse($visuals->due($user, null));
     }
 
+    public function test_the_picture_line_is_a_brief_about_the_image_not_the_post(): void
+    {
+        $user = User::factory()->create();
+        $profile = AccountProfile::create([
+            'user_id' => $user->id,
+            'description' => 'Cheap weeknight meals for one, with honest shortcuts.',
+            'custom_niche' => 'Budget home cooking',
+        ]);
+
+        $tweet = 'The meal deal is the expensive option.';
+        $line = app(PostVisualService::class)->overlayLine($tweet, $profile);
+
+        $this->assertSame('Cheap weeknight meals', $line);
+        $this->assertNotSame($tweet, $line);
+        $this->assertLessThanOrEqual(4, count(preg_split('/\s+/', $line) ?: []));
+
+        $nicheOnly = AccountProfile::create([
+            'user_id' => User::factory()->create()->id,
+            'description' => $tweet,
+            'custom_niche' => 'Budget home cooking',
+        ]);
+        $this->assertSame(
+            'Budget home cooking',
+            app(PostVisualService::class)->overlayLine($tweet, $nicheOnly),
+        );
+    }
+
     public function test_a_flyer_is_a_png_drawn_from_the_account(): void
     {
         $user = User::factory()->create();
@@ -87,6 +114,72 @@ class PostVisualTest extends TestCase
             ->assertForbidden();
 
         Storage::disk('local')->deleteDirectory('post-visuals/'.$user->id);
+    }
+
+    public function test_text_only_does_not_attach_a_picture(): void
+    {
+        $user = User::factory()->create();
+        AccountProfile::create([
+            'user_id' => $user->id,
+            'description' => 'Cheap weeknight meals for one',
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/content/drafts', [
+                'content' => 'Rice, an egg, and soy sauce.',
+                'content_type' => 'tweet',
+                'with_visual' => true,
+                'visual_kind' => 'text',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('media_attached', false);
+
+        $this->assertNull($user->posts()->first()?->media_path);
+    }
+
+    public function test_a_chosen_flyer_is_not_swapped_for_an_illustration(): void
+    {
+        $user = User::factory()->create();
+        $profile = AccountProfile::create([
+            'user_id' => $user->id,
+            'description' => 'Cheap weeknight meals for one',
+        ]);
+
+        $made = app(PostVisualService::class)->make($user, $profile, 'Dinner for 40p.', 'flyer');
+
+        $this->assertNotNull($made);
+        $this->assertSame('flyer', $made['kind']);
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/content/drafts', [
+                'content' => 'Dinner for 40p.',
+                'content_type' => 'tweet',
+                'visual_kind' => 'flyer',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('media_attached', true);
+
+        Storage::disk('local')->deleteDirectory('post-visuals/'.$user->id);
+    }
+
+    public function test_an_illustration_is_not_replaced_with_a_flyer_when_none_is_made(): void
+    {
+        $user = User::factory()->create();
+        $profile = AccountProfile::create([
+            'user_id' => $user->id,
+            'description' => 'Cheap weeknight meals for one',
+        ]);
+
+        $this->assertNull(app(PostVisualService::class)->make($user, $profile, 'Dinner for 40p.', 'illustration'));
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/content/drafts', [
+                'content' => 'Dinner for 40p.',
+                'content_type' => 'tweet',
+                'visual_kind' => 'illustration',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('media_attached', false);
     }
 
     public function test_a_picture_is_attached_when_x_accepts_it_and_the_words_still_post_when_it_does_not(): void

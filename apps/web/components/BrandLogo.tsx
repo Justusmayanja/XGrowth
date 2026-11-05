@@ -1,5 +1,5 @@
 import Image from "next/image";
-import Link from "next/link";
+import { PageLink as Link } from "@/components/PageLink";
 
 export function BrandLogo({ className = "" }: { className?: string }) {
   return (

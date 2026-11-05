@@ -15,6 +15,11 @@ export const X_COPY = {
   draftsDeskLede: "Waiting for a strong moment or your yes. A tweet for a live conversation is cleared after two days.",
   draftsDeskEmpty: "Nothing waiting. Write from a conversation on the left.",
   composeLede: "Write a post, thread, poll, or quote in this account's voice.",
+  composeDraftsTitle: "Drafts",
+  composeDraftsHelp: "Highest score first. Look at the numbers, then post the one you want.",
+  composeScoreHighest: "Highest",
+  composeVisualLabel: "Visual",
+  composeVisualHelp: "Text only is the default. A flyer, photo, or illustration gets a short line about the picture. The post keeps the take.",
   composeBrief: "Joins a conversation already in this feed, from this account's point of view.",
   composeSuggestHelp:
     "Suggest starts from conversations in this feed. Posts already on the account shape the voice, not the topic.",

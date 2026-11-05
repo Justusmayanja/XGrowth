@@ -18,6 +18,7 @@ use App\Services\XApi\XApiService;
 use App\Support\SetupCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
@@ -148,28 +149,47 @@ class ContentController extends Controller
             'content_type' => ['nullable', 'in:'.self::CONTENT_TYPES],
             'virality_predicted' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'with_visual' => ['nullable', 'boolean'],
+            'visual_kind' => ['nullable', 'in:none,text,flyer,photo,illustration'],
         ]);
 
         $contentType = $validated['content_type'] ?? 'tweet';
         $mediaPath = null;
-        if (! empty($validated['with_visual']) && in_array($contentType, ['tweet', 'quote'], true)) {
-            $made = $this->visuals->make($request->user(), $request->user()->accountProfile, $validated['content']);
-            $mediaPath = $made['path'] ?? null;
+        $visualKind = $this->requestedVisualKind($validated);
+        if ($visualKind !== null && in_array($contentType, ['tweet', 'quote'], true)) {
+            try {
+                $made = $this->visuals->make(
+                    $request->user(),
+                    $request->user()->accountProfile,
+                    $validated['content'],
+                    $visualKind === 'auto' ? null : $visualKind,
+                );
+                $mediaPath = $made['path'] ?? null;
+            } catch (Throwable $e) {
+                report($e);
+            }
         }
 
         $predicted = $validated['virality_predicted'] ?? null;
         if (SetupCatalog::platformForContentType($contentType) === 'x') {
-            $predicted = $this->scoreDraft($request->user(), $validated['content'])['score'];
+            try {
+                $predicted = $this->scoreDraft($request->user(), $validated['content'])['score'];
+            } catch (Throwable $e) {
+                report($e);
+            }
         }
 
-        $post = Post::create([
+        $attributes = [
             'user_id' => $request->user()->id,
             'content' => $validated['content'],
             'content_type' => $contentType,
-            'media_path' => $mediaPath,
             'status' => 'draft',
             'virality_predicted' => $predicted,
-        ]);
+        ];
+        if (Schema::hasColumn('posts', 'media_path')) {
+            $attributes['media_path'] = $mediaPath;
+        }
+
+        $post = Post::create($attributes);
 
         return response()->json([
             'post' => $post,
@@ -250,7 +270,11 @@ class ContentController extends Controller
         $contentType = $validated['content_type'] ?? $post->content_type;
         $predicted = $validated['virality_predicted'] ?? $post->virality_predicted;
         if (SetupCatalog::platformForContentType($contentType) === 'x') {
-            $predicted = $this->scoreDraft($request->user(), $validated['content'])['score'];
+            try {
+                $predicted = $this->scoreDraft($request->user(), $validated['content'])['score'];
+            } catch (Throwable $e) {
+                report($e);
+            }
         }
 
         $post->update([
@@ -342,7 +366,8 @@ class ContentController extends Controller
         $floor = (int) ($profile->automation_level ?? 1) >= 3 ? 60 : 75;
         $accountId = $user->connectedAccounts()->where('platform', 'x')->where('is_active', true)->orderBy('id')->value('id');
 
-        foreach ($variants as $index => $variant) {
+        $items = [];
+        foreach ($variants as $variant) {
             $prediction = $this->virality->predict(
                 $user,
                 (string) ($variant['content'] ?? ''),
@@ -352,13 +377,21 @@ class ContentController extends Controller
                 $floor,
                 $moment['score'],
             );
-            $variants[$index]['virality_score'] = (int) round($prediction['score']);
-            $variants[$index]['estimated_reach'] = $prediction['estimated_reach'];
-            $variants[$index]['worth_posting'] = $prediction['worth_posting'];
-            $variants[$index]['virality_reason'] = $prediction['reason'];
+            $items[] = array_merge($variant, $prediction);
         }
 
-        return $variants;
+        $ranked = $this->virality->pickOne($items, $floor);
+
+        foreach ($ranked as $index => $item) {
+            $ranked[$index]['virality_score'] = (int) round((float) $item['score']);
+            $ranked[$index]['estimated_reach'] = $item['estimated_reach'];
+            $ranked[$index]['worth_posting'] = $item['worth_posting'];
+            $ranked[$index]['virality_reason'] = $item['reason'];
+            $ranked[$index]['pick'] = $item['pick'];
+            unset($ranked[$index]['score'], $ranked[$index]['parts'], $ranked[$index]['boost']);
+        }
+
+        return $ranked;
     }
 
     /**
@@ -407,5 +440,22 @@ class ContentController extends Controller
         }
 
         return ['trend' => null, 'score' => $topic ? 48.0 : 35.0];
+    }
+
+    /**
+     * @param  array{visual_kind?: string|null, with_visual?: mixed}  $validated
+     * @return 'flyer'|'photo'|'illustration'|'auto'|null
+     */
+    private function requestedVisualKind(array $validated): ?string
+    {
+        $kind = $validated['visual_kind'] ?? null;
+        if (in_array($kind, ['flyer', 'photo', 'illustration'], true)) {
+            return $kind;
+        }
+        if (in_array($kind, ['none', 'text'], true)) {
+            return null;
+        }
+
+        return ! empty($validated['with_visual']) ? 'auto' : null;
     }
 }

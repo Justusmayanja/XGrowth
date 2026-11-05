@@ -17,6 +17,26 @@ const nextConfig: NextConfig = {
     maxInactiveAge: 15 * 60 * 1000,
     pagesBufferLength: 12,
   },
+  webpack: (config, { dev }) => {
+    if (dev) {
+      config.watchOptions = {
+        ...(config.watchOptions ?? {}),
+        poll: 1000,
+        aggregateTimeout: 500,
+      };
+    }
+    return config;
+  },
+  async headers() {
+    return [
+      {
+        source: "/((?!_next/static|_next/image).*)",
+        headers: [
+          { key: "Cache-Control", value: "private, no-cache, no-store, must-revalidate" },
+        ],
+      },
+    ];
+  },
   async redirects() {
     return [
       {

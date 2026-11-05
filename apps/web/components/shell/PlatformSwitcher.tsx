@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { PageLink as Link } from "@/components/PageLink";
 import { api } from "@/lib/api";
 import { PLATFORM_ORDER, platformName, type Platform } from "@/lib/profile";
 

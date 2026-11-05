@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { PageLink } from "@/components/PageLink";
 import { Activity, LayoutDashboard, Menu, ScrollText, Settings, Settings2, Users, X } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { clearToken } from "@/lib/api";
+import { openPage } from "@/lib/nav-recovery";
 import { cn } from "@/lib/utils";
 
 const links = [
@@ -28,7 +29,6 @@ type AdminShellProps = {
 
 export function AdminShell({ children }: AdminShellProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
@@ -40,7 +40,7 @@ export function AdminShell({ children }: AdminShellProps) {
 
   async function logout() {
     clearToken();
-    router.push("/");
+    openPage("/");
   }
 
   return (
@@ -93,7 +93,7 @@ export function AdminShell({ children }: AdminShellProps) {
           {links.map((link) => {
             const Icon = link.icon;
             return (
-              <Link
+              <PageLink
                 key={link.href}
                 href={link.href}
                 onClick={() => setMobileOpen(false)}
@@ -106,7 +106,7 @@ export function AdminShell({ children }: AdminShellProps) {
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 {link.label}
-              </Link>
+              </PageLink>
             );
           })}
         </nav>

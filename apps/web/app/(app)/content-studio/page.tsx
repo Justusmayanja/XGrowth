@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api";
+import { api, DRAFT_TIMEOUT_MS } from "@/lib/api";
 import { CONTENT_FORMATS, contentFormatLabel } from "@/lib/content-formats";
 import { formatsFor, platformOfFormat, usePlatform } from "@/lib/platform";
 import { type AccountProfile, parseMultiValue } from "@/lib/profile";
@@ -43,7 +43,23 @@ type Variant = {
   estimated_reach: string;
   worth_posting?: boolean;
   virality_reason?: string;
+  pick?: "post" | "leave" | "hold";
 };
+
+type VisualKind = "text" | "flyer" | "photo" | "illustration";
+
+const VISUAL_LABELS: Record<VisualKind, string> = {
+  text: "Text only",
+  flyer: "Flyer",
+  photo: "Photo",
+  illustration: "Illustration",
+};
+
+function visualSavedLabel(kind: VisualKind): string {
+  if (kind === "illustration") return "an illustration";
+  if (kind === "photo") return "a photo";
+  return "a flyer";
+}
 
 type ComposeMode = "suggest" | "describe";
 
@@ -67,7 +83,7 @@ export default function ContentStudioPage() {
   const [tone, setTone] = useState("professional");
   const [contentType, setContentType] = useState("tweet");
   const [useWebSearch, setUseWebSearch] = useState(false);
-  const [withPicture, setWithPicture] = useState(false);
+  const [visualKind, setVisualKind] = useState<VisualKind>("text");
   const [usage, setUsage] = useState<AiUsageStatus | null>(null);
 
   const [topic, setTopic] = useState("");
@@ -165,7 +181,8 @@ export default function ContentStudioPage() {
     );
   }
 
-  const pictureOn = withPicture && platform === "x" && (contentType === "tweet" || contentType === "quote");
+  const pictureOn =
+    visualKind !== "text" && platform === "x" && (contentType === "tweet" || contentType === "quote");
 
   async function saveDraft(variant: Variant, index: number) {
     setSavingId(index);
@@ -179,14 +196,15 @@ export default function ContentStudioPage() {
             content_type: contentType,
             virality_predicted: variant.virality_score,
             with_visual: pictureOn,
+            visual_kind: pictureOn ? visualKind : "text",
           }),
         },
-        pictureOn ? 45000 : 8000,
+        DRAFT_TIMEOUT_MS,
       );
       if (pictureOn && saved.media_attached === false) {
         toast.error("Saved the words. A picture could not be made.");
       } else {
-        toast.success(pictureOn ? "Draft saved with a picture" : "Draft saved");
+        toast.success(pictureOn ? `Draft saved with ${visualSavedLabel(visualKind)}` : "Draft saved");
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save draft");
@@ -207,15 +225,16 @@ export default function ContentStudioPage() {
             content_type: contentType,
             virality_predicted: variant.virality_score,
             with_visual: pictureOn,
+            visual_kind: pictureOn ? visualKind : "text",
           }),
         },
-        pictureOn ? 45000 : 8000,
+        DRAFT_TIMEOUT_MS,
       );
       try {
         const posted = await api<{ media_warning?: string }>(
           `/content/drafts/${saved.post.id}/publish`,
           { method: "POST" },
-          pictureOn ? 20000 : 8000,
+          DRAFT_TIMEOUT_MS,
         );
         if (posted.media_warning) {
           toast.success(posted.media_warning);
@@ -352,20 +371,24 @@ export default function ContentStudioPage() {
                 </Select>
               </div>
               {platform === "x" && (contentType === "tweet" || contentType === "quote") && (
-                <label className="flex items-start gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={withPicture}
-                    onChange={(e) => setWithPicture(e.target.checked)}
-                  />
-                  <span>
-                    Add a picture
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      A flyer or an illustration from this account&apos;s description. Autopilot also adds one after a run of text posts. Reconnect X once so pictures can be posted.
-                    </span>
-                  </span>
-                </label>
+                <div className="space-y-2">
+                  <Label>{X_COPY.composeVisualLabel}</Label>
+                  <Select
+                    value={visualKind}
+                    onValueChange={(value) => setVisualKind((value as VisualKind) ?? "text")}
+                  >
+                    <SelectTrigger>
+                      <SelectValue>{(value: string) => VISUAL_LABELS[value as VisualKind] ?? VISUAL_LABELS.text}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="text">Text only</SelectItem>
+                      <SelectItem value="flyer">Flyer</SelectItem>
+                      <SelectItem value="photo">Photo</SelectItem>
+                      <SelectItem value="illustration">Illustration</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{X_COPY.composeVisualHelp}</p>
+                </div>
               )}
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -402,7 +425,14 @@ export default function ContentStudioPage() {
         <Card>
           <CardHeader>
             <CardTitle>Drafts</CardTitle>
-            {note && <CardDescription>{note}</CardDescription>}
+            {platform === "x" && variants.length > 1 ? (
+              <CardDescription>{X_COPY.composeDraftsHelp}</CardDescription>
+            ) : note ? (
+              <CardDescription>{note}</CardDescription>
+            ) : null}
+            {platform === "x" && variants.length > 1 && note ? (
+              <CardDescription>{note}</CardDescription>
+            ) : null}
           </CardHeader>
           <CardContent>
             {variants.length === 0 ? (
@@ -414,7 +444,23 @@ export default function ContentStudioPage() {
             ) : (
               variants.map((v, i) => (
                 <div key={i} className="mb-4 rounded-lg border border-border p-4 last:mb-0">
-                  {v.angle && <p className="mb-2 text-xs font-medium text-muted-foreground">{v.angle}</p>}
+                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                    {v.angle ? (
+                      <p className="text-xs font-medium text-muted-foreground">{v.angle}</p>
+                    ) : (
+                      <span />
+                    )}
+                    {typeof v.virality_score === "number" && (
+                      <p className="text-sm font-medium tabular-nums" title={v.virality_reason ?? ""}>
+                        {v.virality_score}/100
+                        {i === 0 && variants.length > 1 ? (
+                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                            {X_COPY.composeScoreHighest}
+                          </span>
+                        ) : null}
+                      </p>
+                    )}
+                  </div>
                   <Textarea
                     value={v.content}
                     onChange={(e) => updateVariant(i, e.target.value)}
@@ -422,9 +468,6 @@ export default function ContentStudioPage() {
                     className="mb-3"
                   />
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-muted-foreground" title={v.virality_reason ?? ""}>
-                      {v.worth_posting ? "Worth posting" : "Hold"} · {v.virality_score}/100 · {v.estimated_reach}
-                    </span>
                     <Button
                       type="button"
                       variant="secondary"

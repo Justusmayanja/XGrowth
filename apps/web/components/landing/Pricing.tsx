@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { openPage } from "@/lib/nav-recovery";
 import { useEffect, useRef, useState } from "react";
 import { type SocialBrand, SocialName } from "@/components/SocialLogo";
 import { useReveal } from "@/hooks/useReveal";
@@ -71,7 +71,6 @@ function planFromStatus(status: BillingStatus): { lines: CartLine[]; interval: B
 
 export function Pricing({ showIntro = true }: { showIntro?: boolean }) {
   const { ref, visible } = useReveal();
-  const router = useRouter();
   const alertRef = useRef<HTMLDivElement>(null);
   const receiptRef = useRef<HTMLDivElement>(null);
   const requestId = useRef(0);
@@ -251,7 +250,7 @@ export function Pricing({ showIntro = true }: { showIntro?: boolean }) {
 
   function startTrial() {
     writeCart(lines, interval);
-    router.push(signedIn ? "/onboarding" : "/register");
+    openPage(signedIn ? "/onboarding" : "/register");
   }
 
   async function checkout() {
@@ -261,7 +260,7 @@ export function Pricing({ showIntro = true }: { showIntro?: boolean }) {
 
     if (!getToken()) {
       writeCart(lines, interval);
-      router.push("/login?next=/pricing");
+      openPage("/login?next=/pricing");
       return;
     }
 

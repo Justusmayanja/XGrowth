@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { PageLink } from "@/components/PageLink";
 import { Menu, X } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { TrialBanner } from "@/components/TrialBanner";
 import { BillingProvider } from "@/components/shell/BillingState";
 import { api, clearToken } from "@/lib/api";
 import { NAV, navHrefActive } from "@/lib/nav";
+import { openPage } from "@/lib/nav-recovery";
 import { usePlatform, withPlatform } from "@/lib/platform";
 import { PLATFORM_ORDER, platformName, type Platform } from "@/lib/profile";
 
@@ -34,7 +35,7 @@ function PlatformSwitch({ current, onNavigate }: { current: Platform; onNavigate
   return (
     <div className="mb-4 flex rounded-lg border border-border p-0.5" role="tablist" aria-label="Platform">
       {PLATFORM_ORDER.filter((platform) => shown.includes(platform)).map((platform) => (
-        <Link
+        <PageLink
           key={platform}
           href={`/dashboard/${platform}`}
           role="tab"
@@ -45,7 +46,7 @@ function PlatformSwitch({ current, onNavigate }: { current: Platform; onNavigate
           }`}
         >
           {platformName(platform)}
-        </Link>
+        </PageLink>
       ))}
     </div>
   );
@@ -53,7 +54,6 @@ function PlatformSwitch({ current, onNavigate }: { current: Platform; onNavigate
 
 export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const platform = usePlatform();
   const [hash, setHash] = useState("");
 
@@ -67,7 +67,7 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
   async function logout() {
     clearToken();
     onNavigate?.();
-    router.push("/");
+    openPage("/");
   }
 
   return (
@@ -98,7 +98,7 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
                 const Icon = link.icon;
                 const href = link.href.startsWith("/dashboard/") ? link.href : withPlatform(link.href, platform);
                 return (
-                  <Link
+                  <PageLink
                     key={link.href}
                     href={href}
                     onClick={() => onNavigate?.()}
@@ -109,7 +109,7 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
                   >
                     <Icon strokeWidth={1.7} />
                     {link.label}
-                  </Link>
+                  </PageLink>
                 );
               })}
             </div>

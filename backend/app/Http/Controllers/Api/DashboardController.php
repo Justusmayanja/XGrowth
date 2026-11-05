@@ -15,6 +15,7 @@ use App\Services\YouTube\YouTubeEngineService;
 use App\Services\YouTube\YouTubeOAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class DashboardController extends Controller
@@ -135,8 +136,12 @@ class DashboardController extends Controller
                 }
             });
         }
+        $draftColumns = ['id', 'content', 'content_type', 'created_at'];
+        if (Schema::hasColumn('posts', 'media_path')) {
+            $draftColumns[] = 'media_path';
+        }
         $drafts = (clone $postQuery)->where('status', 'draft')->latest()->limit(12)
-            ->get(['id', 'content', 'content_type', 'media_path', 'created_at']);
+            ->get($draftColumns);
         if ($platform === 'x') {
             $drafts = $drafts
                 ->reject(fn ($draft) => $this->x->isOutsideTheAccount((string) $draft->content, $purpose))

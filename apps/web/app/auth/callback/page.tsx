@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { openPage } from "@/lib/nav-recovery";
 import { AuthError, AuthLink, AuthScreen } from "@/components/auth/AuthScreen";
 import { setToken } from "@/lib/api";
 import { getPostAuthPath } from "@/lib/auth";
 
 export default function AuthCallbackPage() {
-  const router = useRouter();
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -28,9 +27,9 @@ export default function AuthCallbackPage() {
     setToken(token);
     window.history.replaceState(null, "", "/auth/callback");
     getPostAuthPath()
-      .then((path) => router.replace(path))
+      .then((path) => openPage(path))
       .catch(() => setError("The account was confirmed, but the next page did not open. Sign in with email."));
-  }, [router]);
+  }, []);
 
   return (
     <AuthScreen

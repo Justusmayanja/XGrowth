@@ -1,4 +1,17 @@
 const REQUEST_TIMEOUT_MS = 8000;
+export const DRAFT_TIMEOUT_MS = 45000;
+
+function unreachableMessage() {
+  return process.env.NODE_ENV === "production"
+    ? "Mackie17 could not reach the desk. Try again in a moment."
+    : "Could not reach the API. Start the backend with: cd backend && php artisan serve";
+}
+
+function timedOutMessage() {
+  return process.env.NODE_ENV === "production"
+    ? "That took too long. Try again."
+    : "Request timed out. Make sure the backend is running: cd backend && php artisan serve";
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -72,7 +85,7 @@ export async function api<T = unknown>(
   path: string,
   options: RequestInit = {},
   timeoutMs = REQUEST_TIMEOUT_MS,
-  timeoutMessage = "Request timed out. Make sure the backend is running: cd backend && php artisan serve",
+  timeoutMessage = timedOutMessage(),
 ): Promise<T> {
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -100,9 +113,7 @@ export async function api<T = unknown>(
       throw new Error(timeoutMessage);
     }
 
-    throw new Error(
-      "Could not reach the API. Start the backend with: cd backend && php artisan serve"
-    );
+    throw new Error(unreachableMessage());
   } finally {
     clearTimeout(timeout);
   }
@@ -116,7 +127,7 @@ export async function api<T = unknown>(
 
     if (response.status === 403 && path.startsWith("/admin")) {
       throw new ApiError(
-        "Admin access required. Run: php artisan mackie17:make-admin your@email.com",
+        "This page is for the platform console.",
         403,
       );
     }
@@ -143,7 +154,7 @@ export async function apiForm<T = unknown>(path: string, body: FormData, timeout
     if (err instanceof DOMException && err.name === "AbortError") {
       throw new Error("The upload timed out. Try a shorter video.");
     }
-    throw new Error("Could not reach the API. Start the backend with: cd backend && php artisan serve");
+    throw new Error(unreachableMessage());
   } finally {
     clearTimeout(timeout);
   }

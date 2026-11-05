@@ -95,6 +95,92 @@ class ViralityPredictorTest extends TestCase
         $this->assertSame(28.0, $history);
     }
 
+    public function test_a_batch_posts_the_strongest_take_and_leaves_the_rest(): void
+    {
+        $user = $this->user();
+        $trend = new Trend([
+            'name' => 'United have scored',
+            'score' => 88,
+            'metadata' => [
+                'text' => 'United have scored and the ground has gone',
+                'author' => 'FabrizioRomano',
+                'author_followers' => 2_000_000,
+                'minutes_ago' => 8,
+            ],
+        ]);
+
+        $takes = [
+            'That finish was filthy. Keep the ball.',
+            'Thoughts on the game today?',
+            'As a United fan I think we need to be better.',
+        ];
+
+        $items = [];
+        foreach ($takes as $content) {
+            $items[] = array_merge(
+                app(ViralityPredictorService::class)->predict(
+                    $user,
+                    $content,
+                    $trend,
+                    $user->accountProfile,
+                    null,
+                    60,
+                ),
+                ['content' => $content],
+            );
+        }
+
+        $ranked = app(ViralityPredictorService::class)->pickOne($items, 60);
+
+        $this->assertCount(3, $ranked);
+        $this->assertSame('post', $ranked[0]['pick']);
+        $this->assertTrue($ranked[0]['worth_posting']);
+        $this->assertStringContainsString('filthy', $ranked[0]['content']);
+        $this->assertSame('leave', $ranked[1]['pick']);
+        $this->assertSame('leave', $ranked[2]['pick']);
+        $this->assertFalse($ranked[1]['worth_posting']);
+        $this->assertFalse($ranked[2]['worth_posting']);
+
+        $scores = array_map(fn (array $item) => (int) $item['score'], $ranked);
+        $this->assertCount(3, array_unique($scores));
+        $this->assertGreaterThan($scores[1], $scores[0]);
+        $this->assertGreaterThan($scores[2], $scores[0]);
+    }
+
+    public function test_a_quiet_batch_considers_one_take_and_still_holds(): void
+    {
+        $user = $this->user();
+        $takes = [
+            'Rice, eggs, and soy sauce. Dinner for 40p.',
+            'Ready meals cost 3x more. Here is the maths.',
+            'What is the one ingredient you always run out of?',
+        ];
+
+        $items = [];
+        foreach ($takes as $content) {
+            $items[] = array_merge(
+                app(ViralityPredictorService::class)->predict(
+                    $user,
+                    $content,
+                    null,
+                    $user->accountProfile,
+                    null,
+                    75,
+                    35,
+                ),
+                ['content' => $content],
+            );
+        }
+
+        $ranked = app(ViralityPredictorService::class)->pickOne($items, 75);
+
+        $this->assertSame('hold', $ranked[0]['pick']);
+        $this->assertFalse($ranked[0]['worth_posting']);
+        $this->assertSame('leave', $ranked[1]['pick']);
+        $this->assertSame('leave', $ranked[2]['pick']);
+        $this->assertCount(3, array_unique(array_map(fn (array $item) => (int) $item['score'], $ranked)));
+    }
+
     private function user(): User
     {
         $user = User::factory()->create();

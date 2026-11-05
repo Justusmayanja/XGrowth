@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState, type ChangeEvent } from "react";
-import { useRouter } from "next/navigation";
+import { openPage } from "@/lib/nav-recovery";
 import { AuthError, AuthLink } from "@/components/auth/AuthScreen";
 import { CodeDigits } from "@/components/auth/CodeDigits";
 import { SetupFrame } from "@/components/setup/SetupFrame";
@@ -12,7 +12,6 @@ const EMAIL_TIMEOUT = "The email is taking too long. Try again in a minute.";
 const accountLink = "text-[#9ec0ea] underline underline-offset-4";
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [nextPath, setNextPath] = useState<string | null>(null);
@@ -32,14 +31,14 @@ export default function RegisterPage() {
 
     if (getToken()) {
       if (next) {
-        router.replace(next);
+        openPage(next);
         return;
       }
       getPostAuthPath()
-        .then((path) => router.replace(path))
+        .then((path) => openPage(path))
         .catch(() => {});
     }
-  }, [router]);
+  }, []);
 
   async function sendCode() {
     setLoading(true);
@@ -98,7 +97,7 @@ export default function RegisterPage() {
         EMAIL_TIMEOUT,
       );
       setToken(data.token);
-      router.push(nextPath ?? "/onboarding");
+      openPage(nextPath ?? "/onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the account");
       codeRef.current = "";

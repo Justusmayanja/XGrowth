@@ -7,7 +7,7 @@ import { DeskHeading } from "@/components/DeskHeading";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingMark } from "@/components/LoadingMark";
-import { api } from "@/lib/api";
+import { api, DRAFT_TIMEOUT_MS } from "@/lib/api";
 import { TikTokIdeas } from "@/components/dashboard/tiktok/TikTokIdeas";
 import { YouTubeIdeas } from "@/components/dashboard/youtube/YouTubeIdeas";
 import { usePlatform } from "@/lib/platform";
@@ -95,8 +95,8 @@ function TopicTrends({ platform }: { platform: ReturnType<typeof usePlatform> })
       const saved = await api<{ post: { id: number } }>("/content/drafts", {
         method: "POST",
         body: JSON.stringify({ content: active.post, content_type: "tweet" }),
-      });
-      await api(`/content/drafts/${saved.post.id}/publish`, { method: "POST" }, 20000, "Posting to X took too long.");
+      }, DRAFT_TIMEOUT_MS);
+      await api(`/content/drafts/${saved.post.id}/publish`, { method: "POST" }, DRAFT_TIMEOUT_MS, "Posting to X took too long.");
       toast.success("Posted to X");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not post to X");

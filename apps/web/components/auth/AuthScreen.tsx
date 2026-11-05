@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { PageLink as Link } from "@/components/PageLink";
 import { ReactNode } from "react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";

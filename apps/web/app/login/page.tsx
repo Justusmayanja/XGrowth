@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AuthError } from "@/components/auth/AuthScreen";
 import { CodeDigits } from "@/components/auth/CodeDigits";
@@ -10,13 +9,13 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { SocialName } from "@/components/SocialLogo";
 import { api, getToken, setToken } from "@/lib/api";
 import { getPostAuthPath, safeNext } from "@/lib/auth";
+import { openPage } from "@/lib/nav-recovery";
 
 const EMAIL_TIMEOUT = "The email is taking too long. Try again in a minute.";
 const textAction =
   "bg-transparent p-0 text-left text-sm font-medium text-[#6ea8fe] no-underline hover:text-[#b7d4ff] disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -33,16 +32,16 @@ export default function LoginPage() {
 
     if (getToken()) {
       if (next) {
-        router.replace(next);
+        openPage(next);
         return;
       }
       getPostAuthPath()
-        .then((path) => router.replace(path))
+        .then((path) => openPage(path))
         .catch(() => {
           // Stale token cleared in api.ts — stay on login
         });
     }
-  }, [router]);
+  }, []);
 
   async function sendCode() {
     setSending(true);
@@ -96,7 +95,7 @@ export default function LoginPage() {
         EMAIL_TIMEOUT,
       );
       setToken(data.token);
-      router.push(nextPath ?? (await getPostAuthPath()));
+      openPage(nextPath ?? (await getPostAuthPath()));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed");
       codeRef.current = "";

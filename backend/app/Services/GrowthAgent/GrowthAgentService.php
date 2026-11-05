@@ -49,6 +49,9 @@ class GrowthAgentService
 
     private int $xAccountCount = 1;
 
+    /** @var array<string, mixed>|null */
+    private ?array $lastDraftPrediction = null;
+
     private bool $sawHeat = false;
 
     public function evaluateAllUsers(): int
@@ -484,6 +487,8 @@ class GrowthAgentService
         }
 
         $draft = $this->maybeGenerateDraft($user, $profile, $trend, $contentAngle, $contentSource);
+        $picked = $this->lastDraftPrediction;
+        $this->lastDraftPrediction = null;
 
         if (! $this->canUnattendedPost($profile)) {
             if ($draft) {
@@ -503,11 +508,12 @@ class GrowthAgentService
             );
         }
 
-        return $this->publishOrHold($user, $profile, $draft, $trend, $score, $reason, $context);
+        return $this->publishOrHold($user, $profile, $draft, $trend, $score, $reason, $context, $picked);
     }
 
     /**
      * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>|null  $picked
      */
     private function publishOrHold(
         User $user,
@@ -517,6 +523,7 @@ class GrowthAgentService
         float $score,
         string $reason,
         array $context,
+        ?array $picked = null,
     ): string {
         if (! $draft) {
             return $this->logDecision(
@@ -533,15 +540,17 @@ class GrowthAgentService
         $context['draft_preview'] = mb_substr($draft->content, 0, 160);
 
         $floor = $this->viralityFloor($profile);
-        $prediction = $this->virality->predict(
-            $user,
-            $draft->content,
-            $trend,
-            $profile,
-            $this->xAccount($user)?->id,
-            $floor,
-            $score,
-        );
+        $prediction = is_array($picked) && ($picked['content'] ?? null) === $draft->content
+            ? $picked
+            : $this->virality->predict(
+                $user,
+                $draft->content,
+                $trend,
+                $profile,
+                $this->xAccount($user)?->id,
+                $floor,
+                $score,
+            );
         $draft->update(['virality_predicted' => $prediction['score']]);
         $context['virality_predicted'] = $prediction['score'];
         $context['virality'] = $prediction;
@@ -1249,6 +1258,7 @@ class GrowthAgentService
         }
 
         $this->draftedThisRun = true;
+        $this->lastDraftPrediction = null;
 
         $isOriginal = $contentSource === 'original' || $trend === null;
 
@@ -1274,7 +1284,7 @@ class GrowthAgentService
                 'stay_in_niche' => true,
                 'loyalty' => is_string($metadata['loyalty'] ?? null) ? $metadata['loyalty'] : null,
                 'planner_hint' => $this->safeHint($contentAngle, $profile),
-                'variant_count' => 1,
+                'variant_count' => 3,
                 'recent_posts' => $this->voiceExamples($user),
                 'use_web_search' => false,
                 'score_virality' => true,
@@ -1304,15 +1314,31 @@ class GrowthAgentService
                 $result = $this->aiCore->generateContentVariants($params);
             }
 
-            $variant = $result['variants'][0] ?? null;
-            if (! $variant) {
+            $floor = $this->viralityFloor($profile);
+            $items = [];
+            foreach ($result['variants'] ?? [] as $variant) {
+                $content = $this->goals->finishText($profile, (string) ($variant['content'] ?? ''));
+                if ($content === '') {
+                    continue;
+                }
+                $prediction = $this->virality->predict(
+                    $user,
+                    $content,
+                    $isOriginal ? null : $trend,
+                    $profile,
+                    $accountId,
+                    $floor,
+                );
+                $items[] = array_merge($prediction, ['content' => $content]);
+            }
+
+            if ($items === []) {
                 return null;
             }
 
-            $content = $this->goals->finishText($profile, (string) $variant['content']);
-            if ($content === '') {
-                return null;
-            }
+            $winner = $this->virality->pickOne($items, $floor)[0];
+            $content = (string) $winner['content'];
+            $this->lastDraftPrediction = $winner;
 
             $mediaPath = null;
             if ($this->visuals->due($user, $accountId)) {
@@ -1324,14 +1350,7 @@ class GrowthAgentService
                 }
             }
 
-            $prediction = $this->virality->predict(
-                $user,
-                $content,
-                $isOriginal ? null : $trend,
-                $profile,
-                $accountId,
-                $this->viralityFloor($profile),
-            );
+            $prediction = $winner;
 
             $draft = Post::create([
                 'user_id' => $user->id,
@@ -1347,6 +1366,7 @@ class GrowthAgentService
 
             return $draft;
         } catch (RuntimeException $e) {
+            $this->lastDraftPrediction = null;
             Log::warning('Autopilot draft generation skipped', [
                 'user_id' => $user->id,
                 'trend_id' => $trend?->id,

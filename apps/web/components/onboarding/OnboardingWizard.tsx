@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Check } from "lucide-react";
 import { MultiSelectCards, SelectionHint } from "@/components/onboarding/MultiSelectCards";
 import { LoadingMark } from "@/components/LoadingMark";
 import { SetupFrame } from "@/components/setup/SetupFrame";
 import { SocialLogo } from "@/components/SocialLogo";
 import { api, getToken } from "@/lib/api";
+import { openPage } from "@/lib/nav-recovery";
 import { readCart } from "@/lib/billing";
 import {
   ABOUT_COPY,
@@ -205,7 +206,6 @@ function ChoiceList<T extends string | number>({
 }
 
 export function OnboardingWizard() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const focusParam = searchParams.get("platform");
   const focus = PLATFORM_ORDER.includes(focusParam as Platform) ? (focusParam as Platform) : null;
@@ -242,7 +242,7 @@ export function OnboardingWizard() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace("/login");
+      openPage("/login");
       return;
     }
 
@@ -250,7 +250,7 @@ export function OnboardingWizard() {
       try {
         const me = await api<{ user: { is_admin?: boolean } }>("/auth/me");
         if (me.user.is_admin) {
-          router.replace("/admin");
+          openPage("/admin");
           return;
         }
 
@@ -259,7 +259,7 @@ export function OnboardingWizard() {
         const pending = loaded.platforms.filter((platform) => !loaded.setups[platform].completed);
 
         if (!focus && state.about_complete && loaded.platforms.length > 0 && pending.length === 0) {
-          router.replace("/dashboard");
+          openPage("/dashboard");
           return;
         }
 
@@ -286,14 +286,14 @@ export function OnboardingWizard() {
         }
         enterStep(Math.max(0, start), built, loaded);
       } catch {
-        router.replace("/login");
+        openPage("/login");
       } finally {
         setLoading(false);
       }
     }
 
     load();
-  }, [router, focus]);
+  }, [focus]);
 
   useEffect(() => {
     if (step?.kind === "chapter" && step.stage === "connect" && !xStatus) {
@@ -935,7 +935,7 @@ export function OnboardingWizard() {
                 className="th-cta"
                 onClick={() => {
                   if (focus) {
-                    router.push(`/onboarding?platform=${nextPending}`);
+                    openPage(`/onboarding?platform=${nextPending}`);
                     return;
                   }
                   enterStep(steps.findIndex((s) => s.kind === "chapter" && s.platform === nextPending));
@@ -946,7 +946,7 @@ export function OnboardingWizard() {
               <button
                 type="button"
                 className="setup-secondary"
-                onClick={() => router.push(`/dashboard/${step.platform}`)}
+                onClick={() => openPage(`/dashboard/${step.platform}`)}
               >
                 Open the {platformName(step.platform)} desk
               </button>
@@ -958,7 +958,7 @@ export function OnboardingWizard() {
             <button
               type="button"
               className="th-cta"
-              onClick={() => router.push(`/dashboard/${step.platform}`)}
+              onClick={() => openPage(`/dashboard/${step.platform}`)}
             >
               Open the {platformName(step.platform)} desk
             </button>

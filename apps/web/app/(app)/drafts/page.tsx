@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api";
+import { api, DRAFT_TIMEOUT_MS } from "@/lib/api";
 import { PostMedia } from "@/components/PostMedia";
 import { contentFormatLabel } from "@/lib/content-formats";
 import { platformOfFormat, usePlatform } from "@/lib/platform";
@@ -104,7 +104,7 @@ export default function DraftsPage() {
       await api(`/content/drafts/${id}`, {
         method: "PUT",
         body: JSON.stringify({ content: editContent }),
-      });
+      }, DRAFT_TIMEOUT_MS);
       setDrafts((current) =>
         current.map((d) => (d.id === id ? { ...d, content: editContent } : d))
       );
@@ -124,7 +124,7 @@ export default function DraftsPage() {
       const posted = await api<{ media_warning?: string }>(
         `/content/drafts/${id}/publish`,
         { method: "POST" },
-        draft?.media_path ? 20000 : 8000,
+        DRAFT_TIMEOUT_MS,
       );
       setDrafts((current) => current.filter((item) => item.id !== id));
       if (posted.media_warning) {

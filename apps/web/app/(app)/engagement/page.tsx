@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingMark } from "@/components/LoadingMark";
-import { api } from "@/lib/api";
+import { api, DRAFT_TIMEOUT_MS } from "@/lib/api";
 import { X_COPY } from "@/lib/x-copy";
 
 type ViralPost = {
@@ -103,7 +103,7 @@ export default function EngagementPage() {
     await api("/content/drafts", {
       method: "POST",
       body: JSON.stringify({ content, content_type: "tweet" }),
-    });
+    }, DRAFT_TIMEOUT_MS);
     toast.success("Saved to drafts");
   }
 

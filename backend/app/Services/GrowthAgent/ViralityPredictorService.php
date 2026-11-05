@@ -20,6 +20,7 @@ class ViralityPredictorService
      *     worth_posting: bool,
      *     estimated_reach: string,
      *     reason: string,
+     *     pick: string,
      *     parts: array{moment: float, draft: float, history: float}
      * }
      */
@@ -42,14 +43,98 @@ class ViralityPredictorService
         return [
             'score' => $score,
             'worth_posting' => $worth,
-            'estimated_reach' => $score >= 80 ? 'high' : ($score >= 60 ? 'medium' : 'low'),
+            'estimated_reach' => $this->reach($score),
             'reason' => $this->reason($score, $moment, $draft, $history, $worth, $spike, $floor),
+            'pick' => $worth ? 'post' : 'hold',
             'parts' => [
                 'moment' => $moment,
                 'draft' => $draft,
                 'history' => $history,
             ],
         ];
+    }
+
+    /**
+     * Three drafts share the same room and the same account. Rank the takes
+     * against each other so one is posted and the others are left.
+     *
+     * @param  list<array{content: string, score: float, worth_posting: bool, estimated_reach: string, reason: string, parts: array{moment: float, draft: float, history: float}}>  $items
+     * @return list<array{content: string, score: float, worth_posting: bool, estimated_reach: string, reason: string, pick: string, parts: array{moment: float, draft: float, history: float}}>
+     */
+    public function pickOne(array $items, int $floor = 75): array
+    {
+        if ($items === []) {
+            return [];
+        }
+
+        if (count($items) === 1) {
+            $items[0]['pick'] = ! empty($items[0]['worth_posting']) ? 'post' : 'hold';
+            $items[0]['estimated_reach'] = $this->reach((float) $items[0]['score']);
+
+            return $items;
+        }
+
+        $contents = array_map(fn (array $item) => (string) ($item['content'] ?? ''), $items);
+
+        foreach ($items as $index => $item) {
+            $draft = (float) ($item['parts']['draft'] ?? 50);
+            $moment = (float) ($item['parts']['moment'] ?? 50);
+            $history = (float) ($item['parts']['history'] ?? 55);
+            $boost = $this->batchBoost((string) ($item['content'] ?? ''), $contents);
+            $draft = min(100, max(0, $draft + $boost));
+            $score = round(min(100, max(0, ($moment * 0.40) + ($draft * 0.45) + ($history * 0.15))), 1);
+            $items[$index]['parts']['draft'] = $draft;
+            $items[$index]['score'] = $score;
+            $items[$index]['boost'] = $boost;
+        }
+
+        usort($items, function (array $left, array $right) {
+            $byScore = $right['score'] <=> $left['score'];
+            if ($byScore !== 0) {
+                return $byScore;
+            }
+
+            return ((float) ($right['boost'] ?? 0)) <=> ((float) ($left['boost'] ?? 0));
+        });
+
+        $best = (float) $items[0]['score'];
+        $seen = [];
+        foreach ($items as $rank => $item) {
+            $score = $rank === 0
+                ? $best
+                : min((float) $item['score'], $best - (5 * $rank));
+            $int = (int) round(max(0, $score));
+            while (in_array($int, $seen, true)) {
+                $int = $int > 0 ? $int - 1 : max($seen) + 1;
+            }
+            $seen[] = $int;
+            $items[$rank]['score'] = (float) $int;
+            $items[$rank]['estimated_reach'] = $this->reach((float) $int);
+        }
+
+        $winner = $items[0];
+        $winnerScore = (float) $winner['score'];
+        $spike = $winnerScore >= 90;
+        $winnerGoes = $winnerScore >= $floor || ($spike && $winnerScore >= min($floor, 60));
+
+        foreach ($items as $rank => $item) {
+            $score = (float) $item['score'];
+            if ($rank === 0 && $winnerGoes) {
+                $items[$rank]['worth_posting'] = true;
+                $items[$rank]['pick'] = 'post';
+                $items[$rank]['reason'] = 'Post this one. Strongest take of the set ('.((int) round($score)).'/100).';
+            } elseif ($rank === 0) {
+                $items[$rank]['worth_posting'] = false;
+                $items[$rank]['pick'] = 'hold';
+                $items[$rank]['reason'] = 'Best of these, still hold. '.((int) round($score))."/100, needs {$floor}.";
+            } else {
+                $items[$rank]['worth_posting'] = false;
+                $items[$rank]['pick'] = 'leave';
+                $items[$rank]['reason'] = 'Leave this one. A stronger take scored '.((int) round($winnerScore)).'/100.';
+            }
+        }
+
+        return $items;
     }
 
     public function momentScore(?Trend $trend, ?float $opportunity = null): float
@@ -93,16 +178,21 @@ class ViralityPredictorService
         $words = $this->words($content);
         $count = count($words);
 
-        if ($count >= 6 && $count <= 40) {
-            $score += 10;
+        if ($count >= 8 && $count <= 28) {
+            $score += 12;
+        } elseif ($count >= 6 && $count <= 40) {
+            $score += 6;
         } elseif ($count < 4 || $count > 55) {
             $score -= 12;
         }
 
-        if (preg_match('/\d|@/', $content) === 1) {
+        if (preg_match('/\d/', $content) === 1) {
             $score += 8;
         }
-        if (str_contains($content, '?')) {
+        if (str_contains($content, '@')) {
+            $score += 5;
+        }
+        if (str_contains($content, '?') && ! str_contains(mb_strtolower($content), 'thoughts?')) {
             $score += 6;
         }
 
@@ -253,6 +343,55 @@ class ViralityPredictorService
         }
 
         return false;
+    }
+
+    /**
+     * Extra points for a take that is not a copy of its siblings.
+     *
+     * @param  list<string>  $siblings
+     */
+    private function batchBoost(string $content, array $siblings): float
+    {
+        $mine = $this->words($content);
+        if ($mine === []) {
+            return -20.0;
+        }
+
+        $others = [];
+        $openings = [];
+        foreach ($siblings as $sibling) {
+            if ($sibling === $content) {
+                continue;
+            }
+            $others = array_merge($others, $this->words($sibling));
+            $openings[] = $this->opening($sibling);
+        }
+
+        $unique = array_diff($mine, array_unique($others));
+        $boost = (count($unique) / max(1, count($mine))) * 18;
+
+        $opening = $this->opening($content);
+        if ($opening !== '' && in_array($opening, $openings, true)) {
+            $boost -= 12;
+        } elseif ($opening !== '') {
+            $boost += 5;
+        }
+
+        if ($this->looksGeneric($content)) {
+            $boost -= 10;
+        }
+
+        return round($boost, 1);
+    }
+
+    private function opening(string $content): string
+    {
+        return implode(' ', array_slice($this->words($content), 0, 3));
+    }
+
+    private function reach(float $score): string
+    {
+        return $score >= 80 ? 'high' : ($score >= 60 ? 'medium' : 'low');
     }
 
     private function reason(
