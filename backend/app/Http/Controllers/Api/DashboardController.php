@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\PlatformSetup;
+use App\Models\Post;
 use App\Services\ApiSpend\ApiSpendService;
 use App\Services\GrowthAgent\AccountDeskService;
 use App\Services\GrowthAgent\XGoalPlan;
@@ -37,6 +38,7 @@ class DashboardController extends Controller
             ->where('is_active', true)
             ->first();
         $hasXConnected = $xAccount !== null;
+        Post::expireUnpostedX(userId: $user->id);
 
         $posts = $user->posts();
         $postedCount = (clone $posts)->where('status', 'posted')->count();
@@ -94,6 +96,9 @@ class DashboardController extends Controller
     public function platform(Request $request, string $platform): JsonResponse
     {
         $user = $request->user();
+        if ($platform === 'x') {
+            Post::expireUnpostedX(userId: $user->id);
+        }
         $profile = $user->accountProfile;
         $setup = PlatformSetup::query()
             ->where('user_id', $user->id)

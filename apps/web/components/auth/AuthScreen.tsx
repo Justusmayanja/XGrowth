@@ -111,9 +111,17 @@ export function PenMark() {
   );
 }
 
-export function AuthLink({ href, children }: { href: string; children: ReactNode }) {
+export function AuthLink({
+  href,
+  children,
+  className = "text-accent underline underline-offset-4",
+}: {
+  href: string;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <Link href={href} className="text-accent underline underline-offset-4">
+    <Link href={href} className={className}>
       {children}
     </Link>
   );

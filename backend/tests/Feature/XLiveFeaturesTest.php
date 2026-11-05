@@ -679,7 +679,7 @@ class XLiveFeaturesTest extends TestCase
         Http::assertSentCount(1);
     }
 
-    public function test_topics_fall_back_to_the_accounts_own_posts(): void
+    public function test_topics_come_from_the_home_timeline_without_a_count_from_x(): void
     {
         config(['openai.api_key' => '']);
         $user = User::factory()->create();
@@ -1041,7 +1041,7 @@ class XLiveFeaturesTest extends TestCase
             ->assertJsonCount(1, 'drafts');
     }
 
-    public function test_topics_use_the_accounts_own_posts_when_the_timeline_does_not_fit(): void
+    public function test_topics_stay_empty_when_the_timeline_does_not_fit_instead_of_reusing_own_posts(): void
     {
         $user = User::factory()->create();
         $user->accountProfile()->create([
@@ -1090,11 +1090,161 @@ class XLiveFeaturesTest extends TestCase
         $this->actingAs($user, 'sanctum')
             ->getJson('/api/trends')
             ->assertOk()
-            ->assertJsonPath('source', 'posts')
-            ->assertJsonPath('trends.0.name', 'United lost and the next manager is the argument')
-            ->assertJsonCount(1, 'trends');
+            ->assertJsonPath('source', 'home')
+            ->assertJsonCount(0, 'trends')
+            ->assertJsonMissing(['name' => 'United lost and the next manager is the argument']);
 
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/users/42/tweets'));
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/trends/by/woeid/'));
+    }
+
+    public function test_topics_skip_this_accounts_own_posts_on_the_home_timeline(): void
+    {
+        $user = User::factory()->create();
+        $user->accountProfile()->create([
+            'custom_niche' => 'United',
+            'description' => 'A Manchester United supporter.',
+            'audience' => 'United fans',
+            'onboarding_completed' => true,
+        ]);
+        ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'mackie',
+            'access_token' => 'user-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
+                'data' => [
+                    [
+                        'id' => '3',
+                        'text' => 'United lost and the next manager is the argument',
+                        'author_id' => '42',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(8)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 80, 'reply_count' => 12],
+                    ],
+                    [
+                        'id' => '10',
+                        'text' => 'United have scored and the ground has gone',
+                        'author_id' => '8',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(6)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 20, 'reply_count' => 3],
+                    ],
+                ],
+                'includes' => [
+                    'users' => [
+                        ['id' => '42', 'username' => 'mackie', 'public_metrics' => ['followers_count' => 18]],
+                        ['id' => '8', 'username' => 'utdnews', 'public_metrics' => ['followers_count' => 120000]],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/trends')
+            ->assertOk()
+            ->assertJsonPath('source', 'home')
+            ->assertJsonCount(1, 'trends')
+            ->assertJsonPath('trends.0.name', 'United have scored and the ground has gone')
+            ->assertJsonMissing(['name' => 'United lost and the next manager is the argument']);
+    }
+
+    public function test_topics_rank_the_loudest_timeline_posts_first(): void
+    {
+        $user = User::factory()->create();
+        $user->accountProfile()->create([
+            'custom_niche' => 'United',
+            'onboarding_completed' => true,
+        ]);
+        ConnectedAccount::create([
+            'user_id' => $user->id,
+            'platform' => 'x',
+            'platform_account_id' => '42',
+            'username' => 'mackie',
+            'access_token' => 'user-token',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api.twitter.com/2/users/42/timelines/reverse_chronological*' => Http::response([
+                'data' => [
+                    [
+                        'id' => '1',
+                        'text' => 'United just kicked off',
+                        'author_id' => '8',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(4)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 2, 'reply_count' => 0],
+                    ],
+                    [
+                        'id' => '2',
+                        'text' => 'United have scored and the ground has gone',
+                        'author_id' => '9',
+                        'lang' => 'en',
+                        'created_at' => now()->subMinutes(18)->toIso8601String(),
+                        'public_metrics' => ['like_count' => 240, 'reply_count' => 40],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/trends')
+            ->assertOk()
+            ->assertJsonPath('trends.0.name', 'United have scored and the ground has gone')
+            ->assertJsonPath('trends.1.name', 'United just kicked off');
+    }
+
+    public function test_generated_x_drafts_are_dropped_after_two_days(): void
+    {
+        $user = User::factory()->create();
+        $stale = Post::create([
+            'user_id' => $user->id,
+            'content' => 'United lost and the next manager is the argument',
+            'content_type' => 'tweet',
+            'status' => 'draft',
+        ]);
+        $stale->forceFill([
+            'created_at' => now()->subDays(2)->subHour(),
+            'updated_at' => now()->subDays(2)->subHour(),
+        ])->save();
+        $fresh = Post::create([
+            'user_id' => $user->id,
+            'content' => 'United have scored and the ground has gone',
+            'content_type' => 'tweet',
+            'status' => 'draft',
+        ]);
+        $tiktok = Post::create([
+            'user_id' => $user->id,
+            'content' => 'A clip from last week',
+            'content_type' => 'tiktok_caption',
+            'status' => 'draft',
+        ]);
+        $tiktok->forceFill([
+            'created_at' => now()->subDays(5),
+            'updated_at' => now()->subDays(5),
+        ])->save();
+
+        Http::fake([
+            'https://api.twitter.com/*' => Http::response(['data' => []], 404),
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/dashboard/platform/x')
+            ->assertOk()
+            ->assertJsonPath('counts.drafts', 1)
+            ->assertJsonPath('drafts.0.content', 'United have scored and the ground has gone');
+
+        $this->assertDatabaseMissing('posts', ['id' => $stale->id]);
+        $this->assertDatabaseHas('posts', ['id' => $fresh->id, 'status' => 'draft']);
+        $this->assertDatabaseHas('posts', ['id' => $tiktok->id, 'status' => 'draft']);
     }
 
     public function test_a_zero_view_pull_keeps_yesterdays_impressions(): void

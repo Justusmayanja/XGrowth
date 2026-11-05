@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, Info, Link2 } from "lucide-react";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { DeskHeading } from "@/components/DeskHeading";
 import { LoadingMark } from "@/components/LoadingMark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -191,7 +191,7 @@ function IdeaList({ desk, verb, loose = false }: { desk: Desk; verb: string; loo
       <p className="text-sm text-muted-foreground">
         {desk.platform === "x"
           ? desk.connected
-            ? "No English topics from X yet."
+            ? "Nothing on the home timeline is moving in this niche right now."
             : "Connect X and topics from the account show here."
           : "Topics for this account show here."}
       </p>
@@ -258,8 +258,8 @@ function XBody({ desk }: { desk: Desk }) {
           title="Topics"
           description={
             moments
-              ? `${moments} from this account's home timeline, read a few times a day when they fit the description.`
-              : "From this account's home timeline, read a few times a day when they fit the description."
+              ? `${moments} gaining traction on this account's home timeline, read a few times a day when they fit the description.`
+              : "From this account's home timeline, not from posts this account already wrote."
           }
           action={
             <Link href="/trends" className="text-sm text-muted-foreground hover:text-foreground">
@@ -420,7 +420,9 @@ function XDeskView({
   const selected = voices.find((voice) => voice.selected);
   return (
     <div className="space-y-6">
-      <PageHeader title="X" description={postingLine(desk)} actions={<AddPlatforms chosen={chosen} />} />
+      <DeskHeading title="X" actions={<AddPlatforms chosen={chosen} />}>
+        {postingLine(desk)}
+      </DeskHeading>
 
       {voices.length > 1 && (
         <div className="flex flex-wrap gap-2">
@@ -609,11 +611,9 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
   const name = platformName(platform);
 
   const header = (
-    <PageHeader
-      title={name}
-      description={platform === "x" && desk ? postingLine(desk) : LEDE[platform]}
-      actions={chosen.length > 0 ? <AddPlatforms chosen={chosen} /> : undefined}
-    />
+    <DeskHeading title={name} actions={chosen.length > 0 ? <AddPlatforms chosen={chosen} /> : undefined}>
+      {platform === "x" && desk ? postingLine(desk) : LEDE[platform]}
+    </DeskHeading>
   );
 
   if (error) {

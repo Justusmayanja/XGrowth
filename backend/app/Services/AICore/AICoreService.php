@@ -115,7 +115,7 @@ class AICoreService
         }
 
         if (! empty($params['recent_posts']) && is_array($params['recent_posts'])) {
-            $userPrompt .= "\nPosts this person already wrote, including ones they typed on X themselves. Match the length, the rhythm, and the kind of thing they talk about. Do not copy a sentence or an opening:\n";
+            $userPrompt .= "\nPosts this person already wrote, including ones they typed on X themselves. Use them only for voice: length, rhythm, and the kind of thing they talk about. Do not write about those posts or turn them into the topic. Do not copy a sentence or an opening:\n";
             foreach ($params['recent_posts'] as $recent) {
                 $line = trim(str_replace("\n", ' ', (string) $recent));
                 if ($line !== '') {

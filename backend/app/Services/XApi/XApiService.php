@@ -961,47 +961,6 @@ class XApiService
     }
 
     /**
-     * Topics taken from posts this account wrote, when the home timeline has nothing that fits.
-     *
-     * @return list<array{name: string, posts: int|null, impressions: int|null, likes: int|null, replies: int|null, figures: string}>
-     */
-    public function ownPostTopics(ConnectedAccount $account): array
-    {
-        try {
-            $activity = $this->accountActivity($account);
-        } catch (\Throwable) {
-            return [];
-        }
-
-        $topics = [];
-        $seen = [];
-        foreach ($activity['tweets'] as $tweet) {
-            if (($tweet['kind'] ?? '') === 'comment') {
-                continue;
-            }
-            $text = trim((string) preg_replace('/https?:\/\/\S+|#\S+|@\S+/', '', (string) ($tweet['content'] ?? '')));
-            $text = trim((string) preg_replace('/\s+/', ' ', $text));
-            $key = mb_strtolower($text);
-            if ($key === '' || isset($seen[$key]) || ! $this->isEnglishPhrase($text) || $this->mentionsBlockedNews($text)) {
-                continue;
-            }
-            $seen[$key] = true;
-            $topics[] = $this->topicRow(
-                mb_substr($text, 0, 80),
-                1,
-                ($tweet['views_known'] ?? false) ? (int) $tweet['impressions'] : null,
-                (int) ($tweet['likes'] ?? 0),
-                (int) ($tweet['replies'] ?? 0),
-            );
-            if (count($topics) === 5) {
-                break;
-            }
-        }
-
-        return $topics;
-    }
-
-    /**
      * @param  array{followers: int, impressions: int, engagements: int, likes: int, replies: int, reposts: int, engagement_rate: float, profile_clicks: int, views_known: bool, ranked_for_niche: bool, tweets: list<array<string, mixed>>}  $payload
      * @return array<string, mixed>
      */
@@ -1098,6 +1057,8 @@ class XApiService
         $this->chargeReads($account, 5, 5);
 
         $users = collect($response->json('includes.users') ?? [])->keyBy('id');
+        $ownName = mb_strtolower(ltrim((string) ($account->username ?? ''), '@'));
+        $ownTexts = $this->cachedOwnPostKeys($account);
         $candidates = [];
         $seen = [];
         foreach ($response->json('data') ?? [] as $row) {
@@ -1128,6 +1089,12 @@ class XApiService
             $metrics = is_array($row['public_metrics'] ?? null) ? $row['public_metrics'] : [];
             $author = $users->get($authorId);
             $username = is_array($author) ? (string) ($author['username'] ?? '') : '';
+            if ($ownName !== '' && mb_strtolower(ltrim($username, '@')) === $ownName) {
+                continue;
+            }
+            if (isset($ownTexts[$key])) {
+                continue;
+            }
             $candidates[] = [
                 'text' => $text,
                 'tweet_id' => (string) ($row['id'] ?? ''),
@@ -1177,10 +1144,17 @@ class XApiService
                 $topic['loyalty'] = $loyalty;
             }
             $topics[] = $topic;
-            if (count($topics) === 5) {
-                break;
-            }
         }
+
+        usort($topics, function (array $a, array $b) {
+            $heat = $this->topicHeat($b) <=> $this->topicHeat($a);
+            if ($heat !== 0) {
+                return $heat;
+            }
+
+            return ((int) ($a['minutes_ago'] ?? 9999)) <=> ((int) ($b['minutes_ago'] ?? 9999));
+        });
+        $topics = array_slice($topics, 0, 5);
 
         Cache::put($cacheKey, [
             'fetched_at' => now()->toIso8601String(),
@@ -1206,7 +1180,43 @@ class XApiService
 
     private function timelineCacheKey(ConnectedAccount $account, string $niche, string $purpose): string
     {
-        return 'x-home-timeline:v7:'.$account->id.':'.md5(mb_strtolower(trim($niche).'|'.$purpose));
+        return 'x-home-timeline:v8:'.$account->id.':'.md5(mb_strtolower(trim($niche).'|'.$purpose));
+    }
+
+    /**
+     * Own posts already sitting in the activity cache. Used to keep this account's
+     * tweets off Topics without spending another X read.
+     *
+     * @return array<string, true>
+     */
+    private function cachedOwnPostKeys(ConnectedAccount $account): array
+    {
+        $cached = Cache::get('x-activity:v8:'.$account->id);
+        if (! is_array($cached) || ! is_array($cached['tweets'] ?? null)) {
+            return [];
+        }
+
+        $keys = [];
+        foreach ($cached['tweets'] as $tweet) {
+            $text = trim((string) preg_replace('/https?:\/\/\S+|#\S+|@\S+/', '', (string) ($tweet['content'] ?? '')));
+            $text = trim((string) preg_replace('/\s+/', ' ', $text));
+            $key = mb_strtolower($text);
+            if ($key !== '') {
+                $keys[$key] = true;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
+     * @param  array{likes?: int|null, replies?: int|null, impressions?: int|null}  $topic
+     */
+    private function topicHeat(array $topic): float
+    {
+        return ((int) ($topic['likes'] ?? 0) * 2)
+            + ((int) ($topic['replies'] ?? 0) * 4)
+            + ((int) ($topic['impressions'] ?? 0) / 50);
     }
 
     /**

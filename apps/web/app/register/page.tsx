@@ -9,6 +9,7 @@ import { api, getToken, setToken } from "@/lib/api";
 import { getPostAuthPath, safeNext } from "@/lib/auth";
 
 const EMAIL_TIMEOUT = "The email is taking too long. Try again in a minute.";
+const accountLink = "text-[#9ec0ea] underline underline-offset-4";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -150,7 +151,7 @@ export default function RegisterPage() {
       aside={nextSteps}
       footer={
         <>
-          Already have an account? <AuthLink href={loginHref}>Sign in</AuthLink>
+          Already have an account? <AuthLink href={loginHref} className={accountLink}>Sign in</AuthLink>
         </>
       }
     >
@@ -236,8 +237,8 @@ export default function RegisterPage() {
           </button>
           <p className="text-xs text-[#7f93ab]">
             By creating an account you agree to the{" "}
-            <AuthLink href="/terms">Terms of Service</AuthLink> and{" "}
-            <AuthLink href="/privacy">Privacy Policy</AuthLink>.
+            <AuthLink href="/terms" className={accountLink}>Terms of Service</AuthLink> and{" "}
+            <AuthLink href="/privacy" className={accountLink}>Privacy Policy</AuthLink>.
           </p>
         </form>
       )}

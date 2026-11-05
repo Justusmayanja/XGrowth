@@ -15,7 +15,7 @@ import { contentFormatLabel } from "@/lib/content-formats";
 import { platformOfFormat, usePlatform } from "@/lib/platform";
 
 const DRAFTS_COPY = {
-  x: { title: "Drafts", lede: "Posts waiting for a strong moment or your yes.", empty: "No X drafts yet.", cta: "Compose" },
+  x: { title: "Drafts", lede: "Posts waiting for a strong moment or your yes. A generated tweet that sits two days is removed.", empty: "No X drafts yet.", cta: "Compose" },
   tiktok: { title: "Waiting for you", lede: "Clips stay here until you confirm them.", empty: "No clips waiting.", cta: "New clip" },
   youtube: {
     title: "YouTube text drafts",

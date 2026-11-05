@@ -53,6 +53,7 @@ class GrowthAgentService
 
     public function evaluateAllUsers(): int
     {
+        Post::expireUnpostedX();
         $count = 0;
 
         User::query()

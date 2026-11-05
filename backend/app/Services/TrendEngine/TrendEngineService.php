@@ -224,8 +224,8 @@ class TrendEngineService
     }
 
     /**
-     * Three to five current topics for the Topics page, each with a post from this account.
-     * Live names come from X. The writing model runs once, then the result is cached.
+     * Three to five current topics for the Topics page, from the home timeline.
+     * Own posts are never used as a fallback. Live names come from X.
      *
      * @return array{trends: list<array{name: string, angle: string, draft: string}>, source: string|null, note: string}
      */
@@ -266,28 +266,12 @@ class TrendEngineService
             }
         }
 
-        if ($trends !== []) {
-            return [
-                'trends' => $trends,
-                'source' => 'home',
-                'note' => 'From this account\'s home timeline. It is read a few times a day, then reused.',
-            ];
-        }
-
-        $own = [];
-        foreach (array_slice($this->x->ownPostTopics($account), 0, 5) as $topic) {
-            $name = trim((string) ($topic['name'] ?? ''));
-            if ($name !== '') {
-                $own[] = ['name' => $name, 'angle' => '', 'draft' => ''];
-            }
-        }
-
         return [
-            'trends' => $own,
-            'source' => $own === [] ? 'home' : 'posts',
-            'note' => $own === []
-                ? 'Nothing on the home timeline fits this account. That check is reused for eight hours.'
-                : 'From posts this account wrote itself. Nothing on the home timeline fit, and that check is reused for eight hours.',
+            'trends' => $trends,
+            'source' => 'home',
+            'note' => $trends === []
+                ? 'Nothing on the home timeline is moving in this niche right now. Mackie17 does not reuse this account\'s own posts as topics. That check is reused so it stays inside the X read cap.'
+                : 'From this account\'s home timeline, ranked by what is gaining traction there. It is read a few times a day, then reused.',
         ];
     }
 

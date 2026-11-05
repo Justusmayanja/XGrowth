@@ -61,6 +61,11 @@ Artisan::command('mackie17:expire-trials', function () {
     $this->info("Ended {$count} free trial(s).");
 })->purpose('End free trials whose trial period is over');
 
+Artisan::command('mackie17:expire-drafts', function () {
+    $count = \App\Models\Post::expireUnpostedX();
+    $this->info("Removed {$count} unposted X draft(s) older than two days.");
+})->purpose('Delete generated X drafts that sat unposted for two days');
+
 Artisan::command('mackie17:billing-sweep', function () {
     $result = app(BillingLifecycle::class)->sweep();
     $this->info("Ended {$result['ended']} plan(s), marked {$result['past_due']} past due.");
@@ -84,6 +89,9 @@ Artisan::command('xpulse:make-admin {email : User email address}', function (str
 Artisan::command('xpulse:expire-trials', function () {
     return $this->call('mackie17:expire-trials');
 })->purpose('Alias for mackie17:expire-trials');
+Artisan::command('xpulse:expire-drafts', function () {
+    return $this->call('mackie17:expire-drafts');
+})->purpose('Alias for mackie17:expire-drafts');
 Artisan::command('xpulse:billing-sweep', function () {
     return $this->call('mackie17:billing-sweep');
 })->purpose('Alias for mackie17:billing-sweep');
@@ -91,6 +99,10 @@ Artisan::command('xpulse:billing-sweep', function () {
 Schedule::call(fn () => app(TrialService::class)->expireDue())
     ->hourly()
     ->name('expire-trials');
+
+Schedule::call(fn () => \App\Models\Post::expireUnpostedX())
+    ->hourly()
+    ->name('expire-x-drafts');
 
 Schedule::call(fn () => app(BillingLifecycle::class)->sweep())
     ->hourly()

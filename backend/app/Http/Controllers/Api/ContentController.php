@@ -39,6 +39,8 @@ class ContentController extends Controller
 
     public function generate(Request $request): JsonResponse
     {
+        Post::expireUnpostedX(userId: $request->user()->id);
+
         $validated = $request->validate([
             'mode' => ['nullable', 'in:suggest,describe'],
             'topic' => ['required_unless:mode,suggest', 'nullable', 'string', 'max:1000'],
@@ -265,6 +267,8 @@ class ContentController extends Controller
         $validated = $request->validate([
             'status' => ['nullable', 'in:draft,scheduled,posted,failed'],
         ]);
+
+        Post::expireUnpostedX(userId: $request->user()->id);
 
         $posts = $request->user()
             ->posts()

@@ -2,7 +2,8 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AuthError, AuthLink } from "@/components/auth/AuthScreen";
+import Link from "next/link";
+import { AuthError } from "@/components/auth/AuthScreen";
 import { CodeDigits } from "@/components/auth/CodeDigits";
 import { BrandLogo } from "@/components/BrandLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -11,11 +12,14 @@ import { api, getToken, setToken } from "@/lib/api";
 import { getPostAuthPath, safeNext } from "@/lib/auth";
 
 const EMAIL_TIMEOUT = "The email is taking too long. Try again in a minute.";
+const textAction =
+  "bg-transparent p-0 text-left text-sm font-medium text-[#6ea8fe] no-underline hover:text-[#b7d4ff] disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
   const [nextPath, setNextPath] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
@@ -41,7 +45,7 @@ export default function LoginPage() {
   }, [router]);
 
   async function sendCode() {
-    setLoading(true);
+    setSending(true);
     setError("");
     try {
       await api(
@@ -59,7 +63,7 @@ export default function LoginPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send the code");
     } finally {
-      setLoading(false);
+      setSending(false);
     }
   }
 
@@ -152,34 +156,30 @@ export default function LoginPage() {
                   </p>
                   <CodeDigits
                     key={boxes}
-                    disabled={loading}
+                    disabled={loading || sending}
                     onChange={(code) => {
                       codeRef.current = code;
                     }}
                     onComplete={(code) => void verify(code)}
                   />
                 </div>
-                <button type="submit" className="th-cta w-full" disabled={loading}>
+                <button type="submit" className="th-cta w-full" disabled={loading || sending}>
                   {loading ? "Signing in…" : "Sign in"}
                 </button>
-                <div className="flex items-center justify-between text-sm">
+                <div className="flex flex-col items-start gap-2">
+                  <button type="button" className={textAction} disabled={loading || sending} onClick={() => void sendCode()}>
+                    {sending ? "Sending…" : "Resend code"}
+                  </button>
                   <button
                     type="button"
-                    className="text-accent underline underline-offset-4"
+                    className={textAction}
+                    disabled={loading || sending}
                     onClick={() => {
                       setSent(false);
                       setError("");
                     }}
                   >
                     Use a different email
-                  </button>
-                  <button
-                    type="button"
-                    className="text-accent underline underline-offset-4"
-                    disabled={loading}
-                    onClick={() => void sendCode()}
-                  >
-                    Send a new code
                   </button>
                 </div>
               </form>
@@ -198,18 +198,16 @@ export default function LoginPage() {
                   />
                   <p className="mt-1.5 text-xs text-muted-foreground">We email a code. It expires in 10 minutes.</p>
                 </div>
-                <button type="submit" className="th-cta" disabled={loading}>
-                  {loading ? "Sending the code…" : "Login"}
+                <button type="submit" className="th-cta" disabled={sending}>
+                  {sending ? "Sending the code…" : "Login"}
                 </button>
               </form>
             )}
             <p className="mt-6 text-sm text-muted-foreground">
-              New here? <AuthLink href={registerHref}>Create an account</AuthLink>
-            </p>
-            <p className="mt-3 text-xs text-[#7f93ab]">
-              <AuthLink href="/privacy">Privacy</AuthLink>
-              {" · "}
-              <AuthLink href="/terms">Terms</AuthLink>
+              New here?{" "}
+              <Link href={registerHref} className={textAction}>
+                Create an account
+              </Link>
             </p>
           </div>
         </div>
