@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { TikTokIdeas } from "@/components/dashboard/tiktok/TikTokIdeas";
 import { YouTubeIdeas } from "@/components/dashboard/youtube/YouTubeIdeas";
 import { usePlatform } from "@/lib/platform";
+import { X_COPY } from "@/lib/x-copy";
 
 type Post = {
   name: string;
@@ -109,7 +110,7 @@ function TopicTrends({ platform }: { platform: ReturnType<typeof usePlatform> })
       <DeskHeading icon={Hash} title="Topics">
         <p className="text-muted-foreground">
           {platform === "x"
-            ? "What is gaining traction on this account's home timeline, read a few times a day. Not posts this account already wrote."
+            ? X_COPY.topicsLede
             : "Topics for this account."}
         </p>
       </DeskHeading>
@@ -117,7 +118,7 @@ function TopicTrends({ platform }: { platform: ReturnType<typeof usePlatform> })
       {loading ? (
         <LoadingMark />
       ) : posts.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{note || "Nothing here yet. Open Today after X is connected."}</p>
+        <p className="text-sm text-muted-foreground">{note || X_COPY.topicsEmptyDisconnected}</p>
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="space-y-4">

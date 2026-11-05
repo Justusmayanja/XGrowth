@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { X_COPY } from "@/lib/x-copy";
 
 type Decision = {
   id?: number;
@@ -110,7 +111,7 @@ export default function GrowthAgentPage() {
           </p>
         </DeskHeading>
         <Button onClick={runEvaluation} disabled={evaluating}>
-          {evaluating ? "Scoring…" : "Score the niche now"}
+          {evaluating ? "Scoring…" : "Score the feed now"}
         </Button>
       </div>
 
@@ -157,15 +158,15 @@ export default function GrowthAgentPage() {
         <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle>Top opportunities</CardTitle>
-            <CardDescription>From your X account</CardDescription>
+            <CardDescription>{X_COPY.queueOpportunities}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {opportunities.length === 0 ? (
               <div className="space-y-3 text-sm text-muted-foreground">
-                <p>Nothing from X yet. Connect the account, or open Topics.</p>
+                <p>{X_COPY.queueEmpty}</p>
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="secondary" onClick={runEvaluation} disabled={evaluating}>
-                    Score the niche
+                    Score the feed
                   </Button>
                   <Link href="/trends">
                     <Button size="sm" variant="outline">
@@ -192,7 +193,7 @@ export default function GrowthAgentPage() {
               ))
             )}
             <Link href="/trends" className="text-sm text-primary hover:underline">
-              View all trends →
+              All topics
             </Link>
           </CardContent>
         </Card>

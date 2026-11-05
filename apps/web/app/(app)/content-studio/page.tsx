@@ -20,6 +20,7 @@ import { api } from "@/lib/api";
 import { CONTENT_FORMATS, contentFormatLabel } from "@/lib/content-formats";
 import { formatsFor, platformOfFormat, usePlatform } from "@/lib/platform";
 import { type AccountProfile, parseMultiValue } from "@/lib/profile";
+import { X_COPY } from "@/lib/x-copy";
 
 const TONE_LABELS: Record<string, string> = {
   professional: "Professional",
@@ -30,7 +31,7 @@ const TONE_LABELS: Record<string, string> = {
 };
 
 const COMPOSE_COPY = {
-  x: { title: "Compose", lede: "Write a post, thread, poll, or quote for X." },
+  x: { title: "Compose", lede: X_COPY.composeLede },
   tiktok: { title: "New clip", lede: "Start from an idea. Mackie17 writes the hook and caption for the clip." },
   youtube: { title: "YouTube text", lede: "Write a title, description, or community post. These save as text drafts; they do not create a video package." },
 } as const;
@@ -256,7 +257,9 @@ export default function ContentStudioPage() {
             <CardDescription>
               {platform === "youtube"
                 ? "Writes a separate text draft from your brief and account description"
-                : "Joins what people are talking about, from this account's point of view"}
+                : platform === "x"
+                  ? X_COPY.composeBrief
+                  : "Joins what people are talking about, from this account's point of view"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -302,7 +305,9 @@ export default function ContentStudioPage() {
                   onChange={(e) => setTopic(e.target.value)}
                   placeholder={
                     mode === "suggest"
-                      ? "Leave this blank and Suggest posts writes from this account. Or add a point it must include."
+                      ? platform === "x"
+                        ? X_COPY.composeSuggestPlaceholder
+                        : "Leave this blank and Suggest posts writes from this account. Or add a point it must include."
                       : "e.g. Why I stopped buying ready meals. Mention the price difference and end with a question."
                   }
                 />
@@ -310,7 +315,9 @@ export default function ContentStudioPage() {
                   {mode === "suggest"
                     ? platform === "youtube"
                       ? "Suggestions follow the account description and audience. They do not read or update the YouTube video engine."
-                      : "Suggest posts follows the account's description, the people it is for, and posts already written on X."
+                      : platform === "x"
+                        ? X_COPY.composeSuggestHelp
+                        : "Suggest posts follows the account's description and the people it is for."
                     : "A topic, an opinion, or a rough idea. Add anything it must include."}
                 </p>
               </div>

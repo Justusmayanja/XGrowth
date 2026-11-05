@@ -61,7 +61,7 @@ export default function PrivacyPage() {
       <p>From X we also read, when the feature needs it:</p>
       <ul className="list-disc space-y-2 pl-6">
         <li>Your recent posts and public metrics (impressions, likes, replies, reposts, profile visits)</li>
-        <li>Your home timeline, so we can score whether a moment is worth a post</li>
+        <li>Your home timeline, so Mackie17 can see which conversations are worth joining</li>
         <li>Follower count and other profile figures shown on your desk</li>
         <li>Mentions and posts in your niche that we might draft a reply under, if you turn replies on</li>
       </ul>

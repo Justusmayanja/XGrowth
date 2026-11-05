@@ -109,6 +109,7 @@ export type BillingStatus = {
   subscription: BillingSubscriptionView | null;
   trial_available: boolean;
   trial_days: number;
+  trial_paused?: boolean;
   next_plan: NextPlan | null;
 };
 

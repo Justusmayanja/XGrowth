@@ -13,9 +13,10 @@ import { api } from "@/lib/api";
 import { PostMedia } from "@/components/PostMedia";
 import { contentFormatLabel } from "@/lib/content-formats";
 import { platformOfFormat, usePlatform } from "@/lib/platform";
+import { X_COPY } from "@/lib/x-copy";
 
 const DRAFTS_COPY = {
-  x: { title: "Drafts", lede: "Posts waiting for a strong moment or your yes. A generated tweet that sits two days is removed.", empty: "No X drafts yet.", cta: "Compose" },
+  x: { title: "Drafts", lede: X_COPY.draftsLede, empty: X_COPY.draftsEmpty, cta: "Compose" },
   tiktok: { title: "Waiting for you", lede: "Clips stay here until you confirm them.", empty: "No clips waiting.", cta: "New clip" },
   youtube: {
     title: "YouTube text drafts",

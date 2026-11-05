@@ -8,7 +8,7 @@ const features: { title: string; description: string; icon: LucideIcon }[] = [
     title: "Niche radar",
     icon: Radar,
     description:
-      "Mackie17 tracks what is rising in your market — stories, debates, and moments before they peak.",
+      "Mackie17 tracks conversations in this account's feed — stories, debates, and moments before they peak.",
   },
   {
     title: "Timing",

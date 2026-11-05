@@ -75,7 +75,8 @@ export function TrialBanner() {
   }
 
   if (subscription?.status === "trialing") {
-    const days = subscription.trial_days_left ?? 0;
+    if (status.trial_paused || subscription.trial_days_left == null) return null;
+    const days = subscription.trial_days_left;
     if (days >= 4) return null;
     return (
       <Row
@@ -95,6 +96,7 @@ export function TrialBanner() {
   }
 
   if (subscription?.status === "trial_ended") {
+    if (status.trial_paused) return null;
     return (
       <Row
         action={

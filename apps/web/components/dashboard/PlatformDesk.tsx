@@ -32,6 +32,7 @@ import {
   YOUTUBE_FORMATS,
   YOUTUBE_MODES,
 } from "@/lib/profile";
+import { X_COPY } from "@/lib/x-copy";
 
 type Metric = { label: string; value: number | null; sub: string; suffix?: string };
 
@@ -191,8 +192,8 @@ function IdeaList({ desk, verb, loose = false }: { desk: Desk; verb: string; loo
       <p className="text-sm text-muted-foreground">
         {desk.platform === "x"
           ? desk.connected
-            ? "Nothing on the home timeline is moving in this niche right now."
-            : "Connect X and topics from the account show here."
+            ? X_COPY.topicsEmptyQuiet
+            : X_COPY.topicsEmptyDisconnected
           : "Topics for this account show here."}
       </p>
     );
@@ -257,9 +258,7 @@ function XBody({ desk }: { desk: Desk }) {
         <Section
           title="Topics"
           description={
-            moments
-              ? `${moments} gaining traction on this account's home timeline, read a few times a day when they fit the description.`
-              : "From this account's home timeline, not from posts this account already wrote."
+            moments ? X_COPY.topicsCount(moments) : X_COPY.topicsLede
           }
           action={
             <Link href="/trends" className="text-sm text-muted-foreground hover:text-foreground">
@@ -276,8 +275,8 @@ function XBody({ desk }: { desk: Desk }) {
             title="Ready to go out"
             description={
               waiting
-                ? `${waiting} waiting for a strong moment or your yes.`
-                : "Drafts waiting for a strong moment or your yes."
+                ? `${waiting} waiting for a strong moment or your yes. Cleared after two days if the conversation has moved on.`
+                : X_COPY.draftsDeskLede
             }
             action={
               <Link href="/growth-agent" className="text-sm text-muted-foreground hover:text-foreground">
@@ -285,7 +284,7 @@ function XBody({ desk }: { desk: Desk }) {
               </Link>
             }
           >
-            <DraftList desk={desk} empty="Nothing waiting. Write a post from a moment on the left." loose />
+            <DraftList desk={desk} empty={X_COPY.draftsDeskEmpty} loose />
           </Section>
         </div>
         <div className="desk-arrive" style={{ animationDelay: "200ms" }}>

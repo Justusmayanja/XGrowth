@@ -304,7 +304,7 @@ class DashboardController extends Controller
         if (! $account) {
             return response()->json([
                 'opportunities' => [],
-                'note' => 'Connect X to load topics from the account.',
+                'note' => 'Connect X to see what\'s moving in this account\'s feed.',
             ]);
         }
 
@@ -315,7 +315,7 @@ class DashboardController extends Controller
 
             return response()->json([
                 'opportunities' => [],
-                'note' => 'X did not return the home timeline. '.$e->getMessage(),
+                'note' => 'Mackie17 could not read this account\'s feed right now.',
             ]);
         }
 

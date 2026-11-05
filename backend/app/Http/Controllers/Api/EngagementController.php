@@ -46,7 +46,7 @@ class EngagementController extends Controller
                 'circle' => [],
                 'record' => ['answered' => [], 'skipped' => []],
                 'stats' => $stats,
-                'note' => 'Connect X to load mentions and replies from the account.',
+                'note' => 'Connect X to load mentions and replies.',
             ]);
         }
 
@@ -135,10 +135,10 @@ class EngagementController extends Controller
 
         $matched = count(array_filter($unique, fn (array $post) => (bool) ($post['fits'] ?? false)));
         $note = $unique === []
-            ? 'No mentions or replies came back. This check is kept for seven days.'
+            ? 'No mentions or replies came back. Mackie17 will look again in a few days.'
             : ($matched > 0
                 ? 'People whose posts match what this account is for come first. Replies stay in this voice, with no link.'
-                : 'Mentions are here. Nothing on the home timeline matched this account yet.');
+                : 'Mentions are here. None of them match what this account is for yet.');
 
         return response()->json([
             'posts' => array_slice($unique, 0, 8),

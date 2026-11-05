@@ -6,10 +6,13 @@ use App\Models\BillingSubscription;
 use App\Models\BillingSubscriptionLine;
 use App\Models\User;
 use App\Models\YouTubeVideo;
+use App\Services\Billing\TrialService;
 use Carbon\CarbonImmutable;
 
 class YouTubeAllowanceService
 {
+    public function __construct(private readonly TrialService $trials) {}
+
     /**
      * Monthly video allowance from the YouTube billing line. Posted videos are
      * counted. A queued approval does not spend the month, and a failed insert
@@ -41,9 +44,14 @@ class YouTubeAllowanceService
 
     private function line(User $user): ?BillingSubscriptionLine
     {
+        $statuses = ['trialing', 'active', 'past_due'];
+        if ($this->trials->paused()) {
+            $statuses[] = 'trial_ended';
+        }
+
         $subscription = BillingSubscription::query()
             ->where('user_id', $user->id)
-            ->whereIn('status', ['trialing', 'active', 'past_due'])
+            ->whereIn('status', $statuses)
             ->with('lines')
             ->orderByDesc('id')
             ->get()
@@ -57,8 +65,8 @@ class YouTubeAllowanceService
 
     private function inForce(BillingSubscription $subscription): bool
     {
-        if ($subscription->status === 'trialing') {
-            return $subscription->trial_ends_at === null || $subscription->trial_ends_at->greaterThan(now());
+        if (in_array($subscription->status, ['trialing', 'trial_ended'], true)) {
+            return $this->trials->inForce($subscription);
         }
 
         if (! in_array($subscription->status, ['active', 'past_due'], true)) {
@@ -77,11 +85,8 @@ class YouTubeAllowanceService
      */
     private function period(BillingSubscription $subscription): array
     {
-        if ($subscription->status === 'trialing') {
-            $start = CarbonImmutable::parse($subscription->activated_at ?? $subscription->created_at ?? now())->utc();
-            $end = CarbonImmutable::parse($subscription->trial_ends_at ?? $start->addDays((int) ($subscription->trial_days ?: 7)))->utc();
-
-            return [$start, $end];
+        if (in_array($subscription->status, ['trialing', 'trial_ended'], true)) {
+            return $this->trials->window($subscription);
         }
 
         $end = $subscription->current_period_ends_at

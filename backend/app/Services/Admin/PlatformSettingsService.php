@@ -17,14 +17,14 @@ class PlatformSettingsService
             'group' => 'trends',
             'type' => 'string',
             'label' => 'Trend fetch times',
-            'description' => 'Not used for automatic pulls. Each account\'s home timeline is read a few times a day.',
+            'description' => 'How often Mackie17 looks at each account\'s home feed for conversations worth joining.',
             'default' => '06:00,14:00,22:00',
         ],
         'trend_fetch_cooldown_hours' => [
             'group' => 'trends',
             'type' => 'integer',
             'label' => 'Trend fetch cooldown (hours)',
-            'description' => 'Not used for automatic pulls. A home-timeline list stays in place for 7 days.',
+            'description' => 'How long a look at the home feed is kept before Mackie17 looks again.',
             'default' => '4',
         ],
         'growth_evaluation_interval_minutes' => [
@@ -146,6 +146,13 @@ class PlatformSettingsService
             'description' => 'Length of the free trial that starts when a new customer picks their platforms. Changes apply to new trials only; customers already on a trial keep the length they started with.',
             'default' => '7',
         ],
+        'trial_paused' => [
+            'group' => 'billing',
+            'type' => 'boolean',
+            'label' => 'Pause free trial countdown',
+            'description' => 'When on, trials do not expire and the days-left countdown is hidden. Use this while testing. Turn it off when you are ready for the 7-day trial to count down again.',
+            'default' => '1',
+        ],
         // Edited on the pricing card; the "pricing" group has no label so the generic settings card skips it.
         'billing_bundle_discount_percent' => [
             'group' => 'pricing',
@@ -216,6 +223,11 @@ class PlatformSettingsService
     public function trialDays(): int
     {
         return max(1, min(365, $this->getInt('trial_days', 7)));
+    }
+
+    public function trialPaused(): bool
+    {
+        return $this->getBool('trial_paused', true);
     }
 
     /**

@@ -79,14 +79,14 @@ export function HomeStory() {
           </h2>
           <p className="motion-copy mt-4 text-base leading-relaxed text-muted">
             You still need a point of view. What you do not need is a fresh blank page for every
-            network. Topics follows the niche you named. Compose takes the rough note and returns
-            it in that account&apos;s voice.
+            network. On X, Topics follows conversations already in that account&apos;s feed. Compose
+            takes the rough note and returns it in that account&apos;s voice.
           </p>
           <ul className="mt-8 space-y-5 text-sm leading-relaxed text-muted">
             <li>
               <p className="font-medium text-foreground">Topics</p>
               <p className="motion-copy mt-1">
-                Mackie17 watches what that niche is still paying attention to, and holds the draft if
+                Mackie17 watches conversations in this account&apos;s feed, and holds the draft if
                 the moment has passed.
               </p>
             </li>

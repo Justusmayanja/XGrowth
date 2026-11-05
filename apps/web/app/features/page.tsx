@@ -51,16 +51,18 @@ export default function FeaturesPage() {
             <h2 className="display text-2xl">Topics</h2>
             <p className="mt-3 text-sm leading-relaxed text-muted">
               After you describe the account, Mackie17 watches for ideas that fit. On YouTube, ideas that
-              already feel ready to catch on. On TikTok, ideas that suit the business. On X, a
-              moment strong enough to be worth a post. If that moment has passed, Mackie17 holds.
+              already feel ready to catch on. On TikTok, ideas that suit the business. On X, conversations
+              already happening in this account&apos;s feed — not a recap of posts that already went out.
+              If the room is quiet, Mackie17 holds.
             </p>
         </article>
         <article className="glow-card p-6">
             <h2 className="display text-2xl">Drafts and the queue</h2>
             <p className="mt-3 text-sm leading-relaxed text-muted">
               YouTube can leave on its own when you set that, or sit until you confirm. TikTok
-              suggests a time and does not post until you say yes. X is not queued for a clock
-              time. Mackie17 posts when the moment looks strong enough.
+              suggests a time and does not post until you say yes. On X, a tweet written for a live
+              conversation is cleared after two days, so it does not go out late. Mackie17 posts when
+              the moment looks strong enough.
             </p>
         </article>
         <article className="glow-card p-6">

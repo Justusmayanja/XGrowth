@@ -241,7 +241,7 @@ class TrendEngineService
             return [
                 'trends' => [],
                 'source' => null,
-                'note' => 'Connect X to load topics from the account.',
+                'note' => 'Connect X to see what\'s moving in this account\'s feed.',
             ];
         }
 
@@ -270,8 +270,8 @@ class TrendEngineService
             'trends' => $trends,
             'source' => 'home',
             'note' => $trends === []
-                ? 'Nothing on the home timeline is moving in this niche right now. Mackie17 does not reuse this account\'s own posts as topics. That check is reused so it stays inside the X read cap.'
-                : 'From this account\'s home timeline, ranked by what is gaining traction there. It is read a few times a day, then reused.',
+                ? 'Quiet in this niche right now. Mackie17 holds rather than writing about a post that already went out.'
+                : 'Conversations people in this feed are already in, ranked by how much they are moving.',
         ];
     }
 

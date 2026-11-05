@@ -12,6 +12,15 @@ class FreeTrialTest extends TestCase
 {
     use RefreshDatabase;
 
+    private function setTrialPaused(bool $paused): void
+    {
+        $admin = User::factory()->create(['is_admin' => true]);
+
+        $this->actingAs($admin, 'sanctum')->patchJson('/api/admin/platform-settings', [
+            'settings' => [['key' => 'trial_paused', 'value' => $paused ? '1' : '0']],
+        ])->assertOk();
+    }
+
     private function setTrialDays(int $days): void
     {
         $admin = User::factory()->create(['is_admin' => true]);
@@ -31,6 +40,7 @@ class FreeTrialTest extends TestCase
 
     public function test_picking_platforms_starts_a_seven_day_trial(): void
     {
+        $this->setTrialPaused(false);
         $user = User::factory()->create();
 
         $this->pickPlatforms($user, ['x', 'tiktok'], ['tiktok' => 'pro']);
@@ -70,6 +80,7 @@ class FreeTrialTest extends TestCase
 
     public function test_an_ended_trial_is_not_restarted_and_asks_to_upgrade(): void
     {
+        $this->setTrialPaused(false);
         $user = User::factory()->create();
         $this->pickPlatforms($user, ['x'], ['x' => 'agency']);
 
@@ -85,5 +96,21 @@ class FreeTrialTest extends TestCase
             ->assertOk()
             ->assertJsonPath('subscription.status', 'trial_ended')
             ->assertJsonPath('trial_available', false);
+    }
+
+    public function test_a_paused_trial_does_not_count_down_or_expire(): void
+    {
+        $user = User::factory()->create();
+        $this->pickPlatforms($user, ['x']);
+
+        $this->travel(8)->days();
+        $this->assertSame(0, app(TrialService::class)->expireDue());
+
+        $this->actingAs($user, 'sanctum')->getJson('/api/billing/subscription')
+            ->assertOk()
+            ->assertJsonPath('trial_paused', true)
+            ->assertJsonPath('subscription.status', 'trialing')
+            ->assertJsonPath('subscription.trial_days_left', null)
+            ->assertJsonPath('subscription.trial_ends_at', null);
     }
 }

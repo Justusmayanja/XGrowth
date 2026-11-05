@@ -24,7 +24,8 @@ export function useBillingStatus() {
 export function planSummary(subscription: BillingSubscriptionView | null | undefined): string {
   if (!subscription) return "No plan";
   if (subscription.status === "trialing") {
-    const days = subscription.trial_days_left ?? 0;
+    if (subscription.trial_days_left == null) return "Free trial";
+    const days = subscription.trial_days_left;
     return days <= 1 ? "Free trial · ends today" : `Free trial · ${days} days left`;
   }
   if (subscription.status === "trial_ended") return "Free trial has ended";
@@ -32,7 +33,7 @@ export function planSummary(subscription: BillingSubscriptionView | null | undef
 }
 
 export function trialEndsLine(subscription: BillingSubscriptionView | null | undefined): string | null {
-  if (subscription?.status !== "trialing") return null;
+  if (subscription?.status !== "trialing" || !subscription.trial_ends_at) return null;
   const date = formatDate(subscription.trial_ends_at);
   return date ? `Trial ends ${date}.` : "Trial ends today.";
 }

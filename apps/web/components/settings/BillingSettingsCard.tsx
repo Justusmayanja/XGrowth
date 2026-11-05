@@ -92,6 +92,8 @@ export function BillingSettingsCard() {
                 <p className="mt-1 text-xs text-muted-foreground">
                   {subscription.status === "trialing" && subscription.trial_ends_at
                     ? `${subscription.trial_days}-day free trial, ends ${formatDate(subscription.trial_ends_at)}. Price shown is after the trial.`
+                    : subscription.status === "trialing"
+                      ? "Free trial is open while we test."
                     : subscription.status === "trial_ended"
                       ? "Your free trial has ended."
                       : subscription.status === "past_due"
@@ -121,7 +123,7 @@ export function BillingSettingsCard() {
                     ? "Confirm new plan"
                     : subscription.status === "past_due"
                       ? "Pay now"
-                      : subscription.status === "trialing" || subscription.status === "trial_ended"
+                      : subscription.status === "trial_ended" || (subscription.status === "trialing" && subscription.trial_ends_at)
                         ? "Upgrade"
                         : subscription.status === "ended"
                           ? "Restart"

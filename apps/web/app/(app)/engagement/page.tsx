@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingMark } from "@/components/LoadingMark";
 import { api } from "@/lib/api";
+import { X_COPY } from "@/lib/x-copy";
 
 type ViralPost = {
   id: string;
@@ -162,7 +163,7 @@ export default function EngagementPage() {
           <CardHeader>
             <CardTitle>Larger accounts in this circle</CardTitle>
             <CardDescription>
-              Accounts already on this home timeline with more followers, and how their latest post did.
+              {X_COPY.repliesCircle}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

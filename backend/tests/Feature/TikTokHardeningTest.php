@@ -118,6 +118,11 @@ class TikTokHardeningTest extends TestCase
 
     public function test_an_expired_trial_and_a_canceled_plan_keep_queued_clips_but_stop_new_ones(): void
     {
+        $admin = \App\Models\User::factory()->create(['is_admin' => true]);
+        $this->actingAs($admin, 'sanctum')->patchJson('/api/admin/platform-settings', [
+            'settings' => [['key' => 'trial_paused', 'value' => '0']],
+        ])->assertOk();
+
         $trial = $this->readyUser();
         $queued = TikTokClip::factory()->queued()->create(['user_id' => $trial->id]);
         BillingSubscription::query()->where('user_id', $trial->id)->update([

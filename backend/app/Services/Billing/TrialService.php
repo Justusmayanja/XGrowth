@@ -6,6 +6,7 @@ use App\Models\BillingSubscription;
 use App\Models\BillingSubscriptionLine;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 class TrialService
@@ -17,6 +18,46 @@ class TrialService
         private readonly SubscriptionActivator $activator,
         private readonly PlatformSettingsService $settings,
     ) {}
+
+    public function paused(): bool
+    {
+        return $this->settings->trialPaused();
+    }
+
+    /**
+     * A trial still grants access. When the countdown is paused for testing,
+     * an ended trial is treated as open so testers are not locked out.
+     */
+    public function inForce(BillingSubscription $subscription): bool
+    {
+        if ($this->paused() && in_array($subscription->status, ['trialing', 'trial_ended'], true)) {
+            return true;
+        }
+
+        if ($subscription->status !== 'trialing') {
+            return false;
+        }
+
+        return $subscription->trial_ends_at === null || $subscription->trial_ends_at->greaterThan(now());
+    }
+
+    /**
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    public function window(BillingSubscription $subscription): array
+    {
+        $start = CarbonImmutable::parse($subscription->activated_at ?? $subscription->created_at ?? now())->utc();
+        $end = CarbonImmutable::parse(
+            $subscription->trial_ends_at ?? $start->addDays((int) ($subscription->trial_days ?: 7))
+        )->utc();
+
+        if ($this->paused() && $end->lessThanOrEqualTo(now())) {
+            $end = CarbonImmutable::now('UTC')->addMonth();
+            $start = $end->subMonth();
+        }
+
+        return [$start, $end];
+    }
 
     public function trialAvailable(User $user): bool
     {
@@ -114,11 +155,23 @@ class TrialService
 
     public function expireForUser(User $user): void
     {
+        if ($this->paused()) {
+            $this->reopenEnded(BillingSubscription::query()->where('user_id', $user->id));
+
+            return;
+        }
+
         $this->expire(BillingSubscription::query()->where('user_id', $user->id));
     }
 
     public function expireDue(): int
     {
+        if ($this->paused()) {
+            $this->reopenEnded(BillingSubscription::query());
+
+            return 0;
+        }
+
         return $this->expire(BillingSubscription::query());
     }
 
@@ -149,5 +202,25 @@ class TrialService
         });
 
         return $due->count();
+    }
+
+    private function reopenEnded($query): void
+    {
+        $ended = (clone $query)->where('status', 'trial_ended')->with('lines')->get();
+        if ($ended->isEmpty()) {
+            return;
+        }
+
+        DB::transaction(function () use ($ended) {
+            BillingSubscription::query()
+                ->whereIn('id', $ended->pluck('id'))
+                ->update(['status' => 'trialing']);
+
+            foreach ($ended as $trial) {
+                User::query()->whereKey($trial->user_id)->update([
+                    'subscription_plan' => $this->activator->accessPlanSlug($trial),
+                ]);
+            }
+        });
     }
 }

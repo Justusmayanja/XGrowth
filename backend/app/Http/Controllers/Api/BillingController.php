@@ -192,6 +192,7 @@ class BillingController extends Controller
             'subscription' => $subscription ? $this->present($subscription) : null,
             'trial_available' => $this->trials->trialAvailable($user),
             'trial_days' => $this->settings->trialDays(),
+            'trial_paused' => $this->trials->paused(),
             'next_plan' => $this->nextPlan($user, $subscription),
         ]);
     }
@@ -460,10 +461,10 @@ class BillingController extends Controller
             'renews' => (bool) $subscription->renews,
             'current_period_ends_at' => $subscription->current_period_ends_at?->toIso8601String(),
             'trial_days' => $subscription->trial_days,
-            'trial_ends_at' => $subscription->trial_ends_at?->toIso8601String(),
-            'trial_days_left' => $subscription->status === 'trialing' && $subscription->trial_ends_at
-                ? max(0, (int) ceil(now()->diffInHours($subscription->trial_ends_at, false) / 24))
-                : null,
+            'trial_ends_at' => $this->trials->paused() ? null : $subscription->trial_ends_at?->toIso8601String(),
+            'trial_days_left' => $this->trials->paused() || $subscription->status !== 'trialing' || ! $subscription->trial_ends_at
+                ? null
+                : max(0, (int) ceil(now()->diffInHours($subscription->trial_ends_at, false) / 24)),
             'failure_reason' => $subscription->failure_reason,
             'lines' => $subscription->lines->map(function (BillingSubscriptionLine $line) use ($matrix) {
                 $platform = $matrix[$line->platform] ?? null;
