@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\TikTokController;
 use App\Http\Controllers\Api\TikTokVideoController;
 use App\Http\Controllers\Api\TikTokVideoSettingsController;
 use App\Http\Controllers\Api\YouTubeController;
+use App\Http\Controllers\Api\YouTubeMediaController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -45,6 +46,15 @@ Route::get('/tiktok/clips/{clip}/video/preview/file', [TikTokVideoController::cl
 Route::get('/tiktok/clips/{clip}/video/poster', [TikTokVideoController::class, 'poster'])
     ->middleware('signed')
     ->name('tiktok.video.poster');
+Route::get('/youtube/videos/{video}/media/preview', [YouTubeMediaController::class, 'preview'])
+    ->middleware('signed')
+    ->name('youtube.media.preview');
+Route::get('/youtube/videos/{video}/media/poster', [YouTubeMediaController::class, 'poster'])
+    ->middleware('signed')
+    ->name('youtube.media.poster');
+Route::get('/youtube/videos/{video}/media/download', [YouTubeMediaController::class, 'download'])
+    ->middleware('signed')
+    ->name('youtube.media.download');
 
 Route::prefix('auth')->group(function () {
     Route::post('/email/send', [AuthController::class, 'sendCode'])->middleware('throttle:8,1');
@@ -53,6 +63,7 @@ Route::prefix('auth')->group(function () {
         return app(SocialAuthController::class)->callback($request, 'x');
     });
     Route::get('/tiktok/callback', [ConnectedAccountController::class, 'tiktokCallback']);
+    Route::get('/youtube/callback', [ConnectedAccountController::class, 'youtubeCallback']);
 });
 
 Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
@@ -116,12 +127,20 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
 
         Route::post('/youtube/run', [YouTubeController::class, 'run']);
         Route::post('/youtube/listings', [YouTubeController::class, 'listings']);
+        Route::post('/youtube/research/channel-videos', [YouTubeController::class, 'refreshChannelVideos'])->middleware('throttle:12,1');
+        Route::post('/youtube/research/niche-search', [YouTubeController::class, 'refreshNicheSearch'])->middleware('throttle:12,1');
         Route::post('/youtube/footage', [YouTubeController::class, 'footage']);
         Route::post('/youtube/videos/{video}/confirm', [YouTubeController::class, 'confirm']);
         Route::post('/youtube/videos/{video}/results', [YouTubeController::class, 'results']);
         Route::post('/youtube/videos/{video}/transcript', [YouTubeController::class, 'transcript']);
+        Route::post('/youtube/videos/{video}/render', [YouTubeMediaController::class, 'render'])->middleware('throttle:6,1');
+        Route::post('/youtube/videos/{video}/upload', [YouTubeController::class, 'upload'])->middleware('throttle:6,1');
+        Route::get('/youtube/videos/{video}/media', [YouTubeMediaController::class, 'show']);
         Route::post('/youtube/videos/{video}/retention', [YouTubeController::class, 'retention']);
         Route::post('/youtube/videos/{video}/comments', [YouTubeController::class, 'comments']);
+        Route::post('/youtube/videos/{video}/refresh-comments', [YouTubeController::class, 'refreshComments'])->middleware('throttle:12,1');
+        Route::post('/youtube/videos/{video}/refresh-views', [YouTubeController::class, 'refreshViews'])->middleware('throttle:12,1');
+        Route::post('/youtube/videos/{video}/refresh-retention', [YouTubeController::class, 'refreshRetention'])->middleware('throttle:12,1');
 
         Route::get('/growth-agent/settings', [GrowthAgentController::class, 'settings']);
         Route::put('/growth-agent/settings', [GrowthAgentController::class, 'updateSettings']);
@@ -142,6 +161,10 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::post('/connected-accounts/tiktok/connect', [ConnectedAccountController::class, 'tiktokConnect'])->middleware('throttle:6,1');
         Route::get('/connected-accounts/tiktok/status', [ConnectedAccountController::class, 'tiktokStatus']);
         Route::delete('/connected-accounts/tiktok', [ConnectedAccountController::class, 'tiktokDisconnect']);
+        Route::post('/connected-accounts/youtube/connect', [ConnectedAccountController::class, 'youtubeConnect'])->middleware('throttle:6,1');
+        Route::post('/connected-accounts/youtube/upload-consent', [ConnectedAccountController::class, 'youtubeUploadConsent'])->middleware('throttle:6,1');
+        Route::get('/connected-accounts/youtube/status', [ConnectedAccountController::class, 'youtubeStatus']);
+        Route::delete('/connected-accounts/youtube', [ConnectedAccountController::class, 'youtubeDisconnect']);
     });
 
     Route::post('/billing/preview', [BillingController::class, 'preview']);

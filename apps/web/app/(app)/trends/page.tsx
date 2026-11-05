@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { LoadingMark } from "@/components/LoadingMark";
 import { api } from "@/lib/api";
 import { TikTokIdeas } from "@/components/dashboard/tiktok/TikTokIdeas";
+import { YouTubeIdeas } from "@/components/dashboard/youtube/YouTubeIdeas";
 import { usePlatform } from "@/lib/platform";
 
 type Post = {
@@ -19,6 +20,7 @@ type Post = {
 export default function TrendsPage() {
   const platform = usePlatform();
   if (platform === "tiktok") return <TikTokIdeas />;
+  if (platform === "youtube") return <YouTubeIdeas />;
   return <TopicTrends platform={platform} />;
 }
 
@@ -31,28 +33,16 @@ function TopicTrends({ platform }: { platform: ReturnType<typeof usePlatform> })
   const [posting, setPosting] = useState(false);
 
   useEffect(() => {
-    if (platform === "tiktok") return;
     setLoading(true);
-    const load =
-      platform === "x"
-        ? api<{ ideas: { name: string; suggestion?: string }[]; ideas_note?: string | null }>(`/dashboard/platform/${platform}`).then((desk) => {
-            const next = (desk.ideas ?? []).map((idea) => ({
-              name: idea.name,
-              post: idea.suggestion?.trim() || idea.name,
-            }));
-            setPosts(next);
-            setNote(desk.ideas_note ?? "");
-            setSelected(next[0] ?? null);
-          })
-        : api<{ trends: { name: string; draft?: string }[]; note?: string | null }>("/trends").then((r) => {
-            const next = r.trends.map((topic) => ({
-              name: topic.name,
-              post: topic.draft?.trim() || topic.name,
-            }));
-            setPosts(next);
-            setNote(r.note ?? "");
-            setSelected(next[0] ?? null);
-          });
+    const load = api<{ ideas: { name: string; suggestion?: string }[]; ideas_note?: string | null }>("/dashboard/platform/x").then((desk) => {
+      const next = (desk.ideas ?? []).map((idea) => ({
+        name: idea.name,
+        post: idea.suggestion?.trim() || idea.name,
+      }));
+      setPosts(next);
+      setNote(desk.ideas_note ?? "");
+      setSelected(next[0] ?? null);
+    });
 
     load.finally(() => setLoading(false));
   }, [platform]);

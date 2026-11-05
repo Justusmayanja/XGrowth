@@ -13,6 +13,9 @@ class YouTubeResearch extends Model
         'user_id',
         'listings',
         'topics',
+        'api_cache',
+        'quota_date',
+        'quota_used',
     ];
 
     protected function casts(): array
@@ -20,6 +23,9 @@ class YouTubeResearch extends Model
         return [
             'listings' => 'array',
             'topics' => 'array',
+            'api_cache' => 'array',
+            'quota_date' => 'date',
+            'quota_used' => 'integer',
         ];
     }
 

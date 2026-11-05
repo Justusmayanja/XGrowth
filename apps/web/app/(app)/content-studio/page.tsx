@@ -32,7 +32,7 @@ const TONE_LABELS: Record<string, string> = {
 const COMPOSE_COPY = {
   x: { title: "Compose", lede: "Write a post, thread, poll, or quote for X." },
   tiktok: { title: "New clip", lede: "Start from an idea. It writes the hook and caption for the clip." },
-  youtube: { title: "New video", lede: "Start from an idea. It writes the title, description, and what should be said." },
+  youtube: { title: "YouTube text", lede: "Write a title, description, or community post. These save as text drafts; they do not create a video package." },
 } as const;
 
 type Variant = { content: string; angle?: string | null; virality_score: number; estimated_reach: string };
@@ -136,7 +136,7 @@ export default function ContentStudioPage() {
           }),
         },
         60000,
-        "Writing the tweet took too long. Try again.",
+        "Writing took too long. Try again.",
       );
       setVariants(data.variants);
       setNote(data.note);
@@ -221,7 +221,11 @@ export default function ContentStudioPage() {
         <Card>
           <CardHeader>
             <CardTitle>Brief</CardTitle>
-            <CardDescription>Joins what people are talking about, from this account&apos;s point of view</CardDescription>
+            <CardDescription>
+              {platform === "youtube"
+                ? "Writes a separate text draft from your brief and account description"
+                : "Joins what people are talking about, from this account's point of view"}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form
@@ -272,7 +276,9 @@ export default function ContentStudioPage() {
                 />
                 <p className="text-xs text-muted-foreground">
                   {mode === "suggest"
-                    ? "Suggest posts follows the account's description, the people it is for, and posts already written on X."
+                    ? platform === "youtube"
+                      ? "Suggestions follow the account description and audience. They do not read or update the YouTube video engine."
+                      : "Suggest posts follows the account's description, the people it is for, and posts already written on X."
                     : "A topic, an opinion, or a rough idea. Add anything it must include."}
                 </p>
               </div>
@@ -330,7 +336,9 @@ export default function ContentStudioPage() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Search looks up what is happening in this account, then writes from the description and the people it is for.
+                {platform === "youtube"
+                  ? "Search can help write this text draft. It does not fetch channel videos, analytics, or retention."
+                  : "Search looks up what is happening in this account, then writes from the description and the people it is for."}
               </p>
             </form>
           </CardContent>

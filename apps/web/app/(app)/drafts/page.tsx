@@ -16,7 +16,12 @@ import { platformOfFormat, usePlatform } from "@/lib/platform";
 const DRAFTS_COPY = {
   x: { title: "Drafts", lede: "Posts waiting for a strong moment or your yes.", empty: "No X drafts yet.", cta: "Compose" },
   tiktok: { title: "Waiting for you", lede: "Clips stay here until you confirm them.", empty: "No clips waiting.", cta: "New clip" },
-  youtube: { title: "Titles and scripts", lede: "Written and waiting to become videos.", empty: "Nothing written yet.", cta: "New video" },
+  youtube: {
+    title: "YouTube text drafts",
+    lede: "Titles, descriptions, and community posts saved from Compose. These are separate from video packages on Today and are not uploaded.",
+    empty: "No YouTube text drafts yet. Video packages, if any, are on Today.",
+    cta: "Write YouTube text",
+  },
 } as const;
 
 type Draft = {

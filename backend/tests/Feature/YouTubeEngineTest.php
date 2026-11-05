@@ -7,6 +7,7 @@ use App\Models\YouTubeSeries;
 use App\Models\YouTubeVideo;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -133,6 +134,11 @@ class YouTubeEngineTest extends TestCase
         $this->assertStringNotContainsString('left early', $saved->getContent());
         $this->assertStringNotContainsString('change_opening', $saved->getContent());
         $this->assertStringNotContainsString('model_learning', $saved->getContent());
+        $saved->assertJsonPath('learned.0.id', $first->id);
+        $saved->assertJsonPath('learned.0.views', 1200);
+        $this->assertEquals(22.0, $saved->json('learned.0.average_view_percent'));
+        $saved->assertJsonPath('learned.0.lesson', null);
+        $this->assertArrayNotHasKey('package', $saved->json('learned.0'));
 
         $second = YouTubeVideo::query()->where('user_id', $percentUser->id)->where('id', '!=', $first->id)->first();
         $this->assertNotNull($second);
@@ -174,8 +180,9 @@ class YouTubeEngineTest extends TestCase
         $source->refresh();
         $this->assertSame('hook_leak', $source->package['model_learning']['case']);
         $this->assertTrue($source->package['model_learning']['change_opening']);
-        $this->assertStringNotContainsString('hook_leak', $hidden->getContent());
         $this->assertStringNotContainsString('model_learning', $hidden->getContent());
+        $hidden->assertJsonPath('learned.0.lesson', 'hook_leak');
+        $this->assertArrayNotHasKey('package', $hidden->json('learned.0'));
 
         $next = YouTubeVideo::query()->where('user_id', $leakUser->id)->where('id', '!=', $source->id)->first();
         $this->assertStringContainsString('Start on the result.', (string) $next->script);
@@ -231,9 +238,18 @@ class YouTubeEngineTest extends TestCase
                 'average_view_percent' => 61,
             ])
             ->assertOk()
-            ->assertJsonCount(1, 'pipeline');
+            ->assertJsonCount(1, 'pipeline')
+            ->assertJsonPath('series.has_retention_lesson', false);
 
         $this->assertStringNotContainsString('keeps this shape', $saved->getContent());
+        $this->assertSame(1, YouTubeVideo::query()->where('user_id', $user->id)->count());
+
+        $csv = implode("\n", ['0,100', '5,90', '10,80', '15,75', '20,72', '25,70', '30,60', '45,59', '90,58', '120,57']);
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/youtube/videos/'.$episode->id.'/retention', ['csv' => $csv])
+            ->assertOk()
+            ->assertJsonPath('series.has_retention_lesson', true)
+            ->assertJsonPath('learned.0.lesson', 'hook_leak');
         $this->assertSame(1, YouTubeVideo::query()->where('user_id', $user->id)->count());
 
         try {
@@ -385,5 +401,40 @@ TXT;
             ], ['Accept' => 'application/json'])
             ->assertStatus(422)
             ->assertJsonValidationErrors('footage');
+    }
+
+    public function test_confirm_approves_the_package_and_does_not_post_it(): void
+    {
+        config([
+            'services.youtube.upload_audit_approved' => false,
+            'services.youtube.upload_daily_budget' => 100,
+        ]);
+        Http::preventStrayRequests();
+        $user = $this->start([
+            'goals' => ['subscribers'],
+            'publish' => 'wait',
+            'video_mode' => 'short',
+            'format' => 'text_on_screen',
+        ]);
+        $this->listings($user);
+        $video = YouTubeVideo::query()->where('user_id', $user->id)->firstOrFail();
+        $this->assertSame('waiting', $video->status);
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/youtube/videos/'.$video->id.'/confirm')
+            ->assertOk()
+            ->assertJsonPath('pipeline.0.status', 'queued')
+            ->assertJsonPath('pipeline.0.status_label', 'Approved, not posted')
+            ->assertJsonPath('pipeline.0.posted_video_id', null)
+            ->assertJsonPath('upload.audit_approved', false)
+            ->assertJsonPath('upload.daily_budget.limit', 100)
+            ->assertJsonPath('upload.privacy_policy', 'The upload audit is not approved. A send is private, or the file stays on this server. Public and unlisted are not requested.');
+
+        $video->refresh();
+        $this->assertSame('queued', $video->status);
+        $this->assertNull($video->posted_at);
+        $this->assertNull($video->posted_video_id);
+        $this->assertNull($video->posted_privacy);
+        Http::assertNothingSent();
     }
 }

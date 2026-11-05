@@ -23,8 +23,9 @@ class YouTubeCatalog
 
     public const STATUS_LABELS = [
         'waiting' => 'Waiting for you',
-        'queued' => 'Queued to post',
+        'queued' => 'Approved, not posted',
         'awaiting_edit' => 'Edit plan ready',
+        'posted' => 'Posted',
         'learned' => 'Learned',
     ];
 

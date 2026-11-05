@@ -53,6 +53,24 @@ return [
         'ffmpeg' => env('TIKTOK_FFMPEG', 'ffmpeg'),
     ],
 
+    'youtube' => [
+        'client_id' => env('YOUTUBE_CLIENT_ID'),
+        'client_secret' => env('YOUTUBE_CLIENT_SECRET'),
+        'redirect' => env('YOUTUBE_REDIRECT_URI'),
+        'scopes' => env(
+            'YOUTUBE_SCOPES',
+            'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly'
+        ),
+        'read_quota_daily' => (int) env('YOUTUBE_READ_QUOTA_DAILY', 500),
+        'research_cache_minutes' => (int) env('YOUTUBE_RESEARCH_CACHE_MINUTES', 15),
+        'transcription_driver' => env('YOUTUBE_TRANSCRIPTION_DRIVER', 'none'),
+        'transcription_model' => env('YOUTUBE_TRANSCRIPTION_MODEL', 'whisper-1'),
+        'tts_driver' => env('YOUTUBE_TTS_DRIVER', 'local'),
+        'fake_transcript' => env('YOUTUBE_FAKE_TRANSCRIPT', ''),
+        'upload_audit_approved' => filter_var(env('YOUTUBE_UPLOAD_AUDIT_APPROVED', false), FILTER_VALIDATE_BOOLEAN),
+        'upload_daily_budget' => (int) env('YOUTUBE_UPLOAD_DAILY_BUDGET', 100),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

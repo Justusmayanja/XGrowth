@@ -98,13 +98,13 @@ When YouTube setup is saved, `AccountSetupController` calls `YouTubeEngineServic
 
 Then:
 
-- **Short.** `YouTubeDemandService::ranked()` scores local niche ideas (YouTube search is not connected). `YouTubeScriptWriter::short()` asks the model for JSON: title, hook, spoken lines, description, thumbnail, on-screen text, shots. The last `learning_note` is passed in. `text_on_screen` is marked as a text render. Other formats are marked as clips.
+- **Short mode.** `YouTubeDemandService` ranks public listings pasted by the user, cached explicit YouTube reads, and questions repeated in comments. Despite the setup label, the writer produces a longer source piece. Shorts are cut from a pasted transcript or from local transcription after a file is made. `text_on_screen` is a text render. Series narration and other formats are rendered locally only when someone asks. `youtube:run` does not render and does not call YouTube.
 - **Series.** A `youtube_series` row holds title, premise, characters, and an outline. Each run scripts the next episode and advances `next_episode`.
-- **Footage.** `storeFootage()` saves the upload and `YouTubeEditPlanner` writes an edit plan. Status becomes `awaiting_edit`.
+- **Footage.** `storeFootage()` saves the upload and `YouTubeEditPlanner` writes an edit plan. Status becomes `awaiting_edit` and stays there when the plan is applied with ffmpeg.
 
-`storePackage()` sets status to `queued` when publish is `auto`, otherwise `waiting`. The `package` JSON records hook, thumbnail, on-screen lines, shots, a render block (`provider: pending`, `ready: false`), and a publish block. The render step and the YouTube upload are both still unconnected. Confirming a waiting video moves it to `queued` and sets publish mode to `auto`. The note on that row still says the upload waits for the video file and the YouTube connection.
+`storePackage()` sets status to `queued` when publish is `auto`, otherwise `waiting`. The `package` JSON records hook, thumbnail, on-screen lines, shots, a render block (`provider: pending`, `ready: false` until a checked local file exists), and a publish block. Confirming a waiting video moves it to `queued` and sets publish mode to `auto`. The note on that row still says the upload waits for the YouTube connection. Rendering does not upload.
 
-`recordResults(views, average_view_percent)` is allowed from `waiting` or `queued`. It writes a learning note (stayed if percent ≥ 50, left early if percent < 30, otherwise just recorded), sets status to `learned`, and immediately runs the engine again. Demand scoring boosts idea kinds that previously held viewers and lowers kinds that lost them.
+`recordResults(views, average_view_percent)` is allowed from `waiting`, `queued`, `posted`, or `learned`. It stores the figures, marks the row learned, and immediately runs the engine again. It deliberately records an `unshaped` internal learning case: average view percentage never chooses the next opening. Only a pasted Studio retention export can create a hook, cliff, slide, or packaging lesson for the next script. The desk response strips the internal `model_learning` package and exposes only a learned-video summary plus whether the current series has a retention lesson.
 
 YouTube routes, all behind `auth:sanctum` and `customer`:
 
@@ -112,8 +112,12 @@ YouTube routes, all behind `auth:sanctum` and `customer`:
 |---|---|---|
 | POST | `/api/youtube/run` | Run the engine for the current user |
 | POST | `/api/youtube/footage` | Upload footage plus an optional note |
-| POST | `/api/youtube/videos/{video}/confirm` | Yes, post this |
-| POST | `/api/youtube/videos/{video}/results` | Store views and average view percent |
+| POST | `/api/youtube/videos/{video}/confirm` | Approve the package. This does not post it |
+| POST | `/api/youtube/videos/{video}/upload` | Resumable insert when the file, upload scope, monthly allowance, and shared daily budget allow it |
+| POST | `/api/youtube/videos/{video}/results` | Store views and average view percent without changing the next opening |
+| POST | `/api/youtube/videos/{video}/retention` | Read a pasted Studio retention export and create the next-script lesson |
+| POST | `/api/youtube/videos/{video}/render` | Make a local ffmpeg file without changing status or uploading |
+| GET | `/api/youtube/videos/{video}/media` | Preview and download a ready local file |
 
 ## 3. Stack
 
@@ -332,7 +336,7 @@ Trials are layered on subscriptions (`TrialService`). Picking platforms during s
 
 `PlatformDesk` renders `TikTokBody` when the TikTok payload is present. The current clip is the hero: hook, script, caption, on-screen text, shots, and sound. Confirm is “Yes, go ahead for {time}” (or “Yes, go ahead” when the suggested time has passed). A queued clip is labeled “Confirmed, not posted yet” and lists the missing video file and TikTok connection. Nothing is rendered or uploaded.
 
-On TikTok, `/trends` loads `GET /api/tiktok/ideas` and `/analytics` loads learned clips from `GET /api/tiktok/clips`. X and YouTube keep their existing topic and growth screens. Sidebar labels are unchanged.
+On TikTok, `/trends` loads `GET /api/tiktok/ideas` and `/analytics` loads learned clips from `GET /api/tiktok/clips`. On YouTube, both pages load only `GET /api/dashboard/platform/youtube`: Ideas shows the local ranked week and What landed shows submitted results and retention lessons. They never call X trends or X growth analytics. Compose and Drafts remain ordinary `posts` text rows and are explicitly separate from YouTube video packages.
 
 ## 9. Content generation
 
@@ -601,7 +605,7 @@ Shipped enough to use:
 
 - Email sign-in, Sanctum, onboarding for X, TikTok, and YouTube.
 - X connect, trend refresh, opportunity scoring, growth brain with a rules fallback, draft or publish, safety budgets, decision feed.
-- YouTube setup, hourly engine, scripts, series, footage edit plans, confirm, and a learning handoff. Render and upload are explicitly pending.
+- YouTube setup, hourly engine, scripts, series, footage edit plans, confirm, local ffmpeg render, and audited upload. `queued` is approval, not a post. The detailed contract is `docs/YOUTUBE.md`. The backend suite has been run. ffmpeg is not on this machine, Google calls in the tests are faked, and the X / TikTok / YouTube pages were checked from source, not in a browser. No public video, real upload, or finished encode was produced.
 - Shared Compose for TikTok captions and YouTube text formats.
 - Billing catalog, quotes, trials, Paddle and Flutterwave webhooks, admin price edits.
 - Admin customers, rules, platform settings, operations.

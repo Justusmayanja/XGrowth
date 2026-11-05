@@ -65,6 +65,16 @@ class YouTubeDemandService
     {
         $stored = YouTubeResearch::query()->where('user_id', $user->id)->first();
         $listings = is_array($stored?->listings) ? $stored->listings : [];
+        $apiCache = is_array($stored?->api_cache) ? $stored->api_cache : [];
+        foreach ($apiCache as $key => $cachedListings) {
+            if (str_starts_with((string) $key, 'listings.') && is_array($cachedListings)) {
+                $listings = [...$listings, ...$cachedListings];
+            }
+        }
+        $listings = collect($listings)
+            ->unique(fn ($video) => (string) ($video['youtube_video_id'] ?? $video['url'] ?? '').'|'.strtolower((string) ($video['channel'] ?? '').'|'.(string) ($video['title'] ?? '')))
+            ->values()
+            ->all();
         $ranked = $this->ranker->rank($listings);
         $top = array_slice($ranked['outliers'], 0, 5);
         $makeable = $this->ranker->makeable($top, $profile);
@@ -132,5 +142,36 @@ class YouTubeDemandService
         unset($format);
 
         return array_slice($this->research($profile, $user)['week'], 0, $limit);
+    }
+
+    /** @return array{budget: int, used: int, remaining: int, resets_on: string, cache_minutes: int, pulls: array<string, mixed>} */
+    public function refreshStatus(User $user): array
+    {
+        $research = YouTubeResearch::query()->where('user_id', $user->id)->first();
+        $used = $research?->quota_date?->isToday() ? (int) $research->quota_used : 0;
+        $budget = max(1, (int) config('services.youtube.read_quota_daily', 500));
+        $pulls = [];
+        foreach (is_array($research?->api_cache) ? $research->api_cache : [] as $key => $entry) {
+            if (! is_array($entry) || str_starts_with((string) $key, 'listings.')) {
+                continue;
+            }
+            [$action] = explode('.', (string) $key, 2);
+            $pulls[$action] = [
+                'refreshed_at' => $entry['refreshed_at'] ?? null,
+                'last_attempt_at' => $entry['last_attempt_at'] ?? null,
+                'cached_until' => $entry['cached_until'] ?? null,
+                'error' => $entry['error'] ?? null,
+                'summary' => $entry['summary'] ?? null,
+            ];
+        }
+
+        return [
+            'budget' => $budget,
+            'used' => $used,
+            'remaining' => max(0, $budget - $used),
+            'resets_on' => now()->addDay()->startOfDay()->toDateString(),
+            'cache_minutes' => max(1, (int) config('services.youtube.research_cache_minutes', 15)),
+            'pulls' => $pulls,
+        ];
     }
 }

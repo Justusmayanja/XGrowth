@@ -5,12 +5,18 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\YouTubeVideo;
 use App\Services\YouTube\YouTubeEngineService;
+use App\Services\YouTube\YouTubeResearchRefreshService;
+use App\Services\YouTube\YouTubeUploadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class YouTubeController extends Controller
 {
-    public function __construct(private readonly YouTubeEngineService $engine) {}
+    public function __construct(
+        private readonly YouTubeEngineService $engine,
+        private readonly YouTubeResearchRefreshService $refresh,
+        private readonly YouTubeUploadService $uploads,
+    ) {}
 
     public function run(Request $request): JsonResponse
     {
@@ -61,6 +67,47 @@ class YouTubeController extends Controller
         return response()->json($this->engine->desk($request->user()));
     }
 
+    public function refreshChannelVideos(Request $request): JsonResponse
+    {
+        $this->refresh->channelVideos($request->user());
+
+        return response()->json($this->engine->desk($request->user()));
+    }
+
+    public function refreshNicheSearch(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'query' => ['required', 'string', 'min:2', 'max:100'],
+        ]);
+        $this->refresh->nicheSearch($request->user(), $validated['query']);
+
+        return response()->json($this->engine->desk($request->user()));
+    }
+
+    public function refreshComments(Request $request, YouTubeVideo $video): JsonResponse
+    {
+        $this->owned($request, $video);
+        $this->refresh->comments($request->user(), $video, $this->youtubeVideoId($request));
+
+        return response()->json($this->engine->desk($request->user()));
+    }
+
+    public function refreshViews(Request $request, YouTubeVideo $video): JsonResponse
+    {
+        $this->owned($request, $video);
+        $this->refresh->views($request->user(), $video, $this->youtubeVideoId($request));
+
+        return response()->json($this->engine->desk($request->user()));
+    }
+
+    public function refreshRetention(Request $request, YouTubeVideo $video): JsonResponse
+    {
+        $this->owned($request, $video);
+        $this->refresh->retention($request->user(), $video, $this->youtubeVideoId($request));
+
+        return response()->json($this->engine->desk($request->user()));
+    }
+
     public function transcript(Request $request, YouTubeVideo $video): JsonResponse
     {
         abort_unless($video->user_id === $request->user()->id, 404);
@@ -99,6 +146,17 @@ class YouTubeController extends Controller
         return response()->json($this->engine->desk($request->user()));
     }
 
+    public function upload(Request $request, YouTubeVideo $video): JsonResponse
+    {
+        $this->owned($request, $video);
+        $privacy = $request->validate([
+            'privacy' => ['sometimes', 'nullable', 'in:public,unlisted,private'],
+        ])['privacy'] ?? null;
+        $this->uploads->attempt($request->user(), $video, is_string($privacy) ? $privacy : null);
+
+        return response()->json($this->engine->desk($request->user()));
+    }
+
     public function footage(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -110,5 +168,17 @@ class YouTubeController extends Controller
         $this->engine->storeFootage($request->user(), $validated['footage'], $validated['note'] ?? null);
 
         return response()->json($this->engine->desk($request->user()));
+    }
+
+    private function youtubeVideoId(Request $request): string
+    {
+        return $request->validate([
+            'youtube_video_id' => ['required', 'string', 'regex:/^[A-Za-z0-9_-]{6,20}$/'],
+        ])['youtube_video_id'];
+    }
+
+    private function owned(Request $request, YouTubeVideo $video): void
+    {
+        abort_unless($video->user_id === $request->user()->id, 404);
     }
 }

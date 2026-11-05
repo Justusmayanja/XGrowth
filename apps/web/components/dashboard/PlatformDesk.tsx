@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, Info, Link2 } from "lucide-react";
@@ -8,12 +8,21 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { LoadingMark } from "@/components/LoadingMark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { api, apiForm, getToken } from "@/lib/api";
+import { api, getToken } from "@/lib/api";
 import { TikTokBody } from "@/components/dashboard/tiktok/TikTokBody";
+import { YouTubeBody } from "@/components/dashboard/youtube/YouTubeBody";
 import { contentFormatLabel } from "@/lib/content-formats";
 import type { TikTokDesk } from "@/lib/tiktok";
+import type {
+  ChannelAudit,
+  LearnedVideo,
+  NicheResearch,
+  WeekPiece,
+  YouTubeDesk,
+  YouTubeItem,
+  YouTubeSeriesCard,
+} from "@/lib/youtube";
 import {
   formatMultiLabels,
   PLATFORM_GOALS,
@@ -25,95 +34,6 @@ import {
 } from "@/lib/profile";
 
 type Metric = { label: string; value: number | null; sub: string; suffix?: string };
-
-type ScoredTitle = { title: string; chars: number; score: number; issues: [string, string][] };
-type ScoredHook = { text: string; score: number; band: string; formula: string };
-type YouTubeChapter = { label: string; title: string; seconds: number };
-type YouTubeShort = {
-  start: string;
-  end: string;
-  first_line: string;
-  opening: { text: string; score: number; formula: string };
-  on_screen: string;
-  loop: string;
-  crop: string;
-};
-
-type YouTubePackage = {
-  hook?: string;
-  hooks?: ScoredHook[];
-  winning_formula?: string;
-  formula_why?: string;
-  titles?: ScoredTitle[];
-  thumbnail?: string;
-  thumbnail_brief?: { expression?: string; framing?: string; words?: string; background?: string };
-  payoff?: string;
-  ask?: string;
-  runtime_seconds?: number;
-  queries?: string[];
-  search_facing?: boolean;
-  tags?: string[];
-  chapters?: YouTubeChapter[];
-  chapters_valid?: boolean;
-  gate?: string;
-  has_transcript?: boolean;
-  shorts?: YouTubeShort[];
-  comments?: {
-    counts: { questions: number; corrections: number; praise: number; bait: number };
-    replies: { pile: string; comment: string; reply: string }[];
-    pin: { comment: string; why: string } | null;
-  };
-  on_screen?: { text: string; at: string }[];
-  shots?: { prompt: string; seconds: number; kind: string }[];
-  render?: { ready?: boolean; note?: string; kind?: string };
-  publish?: { note?: string };
-  edit?: {
-    caption_style?: string;
-    caption_note?: string;
-    captions?: { text: string; at: string }[];
-    zooms?: { at_ratio: number; scale: number; reason: string }[];
-    color?: { preset?: string; contrast?: number };
-    audio?: { loudness_lufs?: number };
-    silence?: { trim_over_seconds?: number };
-  };
-};
-
-type YouTubeItem = {
-  id: number;
-  mode: string;
-  format: string | null;
-  format_label: string | null;
-  status: string;
-  status_label: string;
-  topic: string | null;
-  title: string | null;
-  script: string | null;
-  description: string | null;
-  episode_number: number | null;
-  source_name: string | null;
-  views: number;
-  package: YouTubePackage | null;
-};
-
-type NicheResearch = {
-  working: { channel: string; title: string; multiple: number; formula: string; views: number; median: number }[];
-  shared: string;
-  makeable: { title: string; multiple: number; formula: string; idea: string; have: string; voice: string }[];
-  skipped: { channel: string; count: number }[];
-  note: string;
-};
-
-type WeekPiece = { topic: string; reason: string; source?: string };
-type ChannelAudit = { fix: string; working: string[]; not_yet: string };
-
-type YouTubeSeriesCard = {
-  title: string;
-  premise: string;
-  next_episode: number;
-  holds_until: string | null;
-  characters: { name: string; role: string }[];
-  outline: { number: number; title: string; beat: string }[];
-};
 
 type Desk = {
   platform: Platform;
@@ -134,14 +54,18 @@ type Desk = {
   connected: { username?: string | null } | null;
   preview: boolean;
   metrics: Metric[];
+  metrics_error?: string | null;
   counts: { drafts: number; posted: number };
   drafts: { id: number; content: string; content_type: string; created_at: string }[];
   ideas: { name: string; suggestion?: string }[];
   pipeline?: YouTubeItem[];
+  learned?: LearnedVideo[];
   series?: YouTubeSeriesCard | null;
   week?: WeekPiece[];
   niche?: NicheResearch | null;
   audit?: ChannelAudit | null;
+  research: YouTubeDesk["research"];
+  upload: YouTubeDesk["upload"];
   tiktok?: TikTokDesk;
   pace?: { ceiling: number; low: number; high: number } | null;
   accounts?: { connected: number; included: number } | null;
@@ -161,7 +85,7 @@ type Desk = {
 const LEDE: Record<Platform, string> = {
   x: "It watches your niche and posts when a moment is strong. There is no schedule.",
   tiktok: "It finds ideas that suit the brand, writes them, makes the clip, and suggests a time. You say yes.",
-  youtube: "It reads what is working in the niche, writes this week's piece, and waits on you to ship it or change it.",
+  youtube: "It ranks listings and comments you paste, writes this week's package, and keeps it local.",
 };
 
 const FORMAT: Record<Platform, string> = {
@@ -201,7 +125,7 @@ function postingLine(desk: Desk): string {
   if (desk.platform === "youtube") {
     const mode = YOUTUBE_MODES.find((item) => item.value === desk.setup.settings.video_mode)?.label ?? "YouTube";
     const format = YOUTUBE_FORMATS.find((item) => item.value === desk.setup.settings.format)?.label;
-    const publish = desk.setup.settings.publish === "auto" ? "Posts on its own when the file is ready" : "Waits for your yes before posting";
+    const publish = desk.setup.settings.publish === "auto" ? "Approves and queues the package locally" : "Waits for your approval, then queues locally";
     return [mode, format, publish].filter(Boolean).join(" · ");
   }
   if (desk.setup.settings.engine_paused) return "Paused. Nothing is posted until you turn it back on";
@@ -641,347 +565,6 @@ function XDeskView({
   );
 }
 
-function YouTubeBody({ desk, onChange }: { desk: Desk; onChange: () => Promise<void> }) {
-  const [note, setNote] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [transcript, setTranscript] = useState("");
-  const [retention, setRetention] = useState("");
-  const [comments, setComments] = useState("");
-  const [listings, setListings] = useState("");
-  const [busy, setBusy] = useState("");
-  const [message, setMessage] = useState("");
-  const mode = desk.setup.settings.video_mode;
-  const pipeline = desk.pipeline ?? [];
-  const front = pipeline[0];
-
-  async function upload(event: FormEvent) {
-    event.preventDefault();
-    if (!file) {
-      setMessage("Choose a video file first.");
-      return;
-    }
-    setBusy("upload");
-    setMessage("");
-    try {
-      const body = new FormData();
-      body.append("footage", file);
-      if (note.trim()) body.append("note", note.trim());
-      await apiForm("/youtube/footage", body);
-      setFile(null);
-      setNote("");
-      await onChange();
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Could not upload the footage.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function confirm(id: number) {
-    setBusy(`confirm-${id}`);
-    setMessage("");
-    try {
-      await api(`/youtube/videos/${id}/confirm`, { method: "POST" });
-      await onChange();
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Could not queue that video.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function saveListings(event: FormEvent) {
-    event.preventDefault();
-    const videos = listings
-      .split(/\n/)
-      .map((line) => line.split("|").map((part) => part.trim()))
-      .filter((parts) => parts.length >= 3 && parts[0] && parts[1] && parts[2] !== "")
-      .map(([channel, title, views]) => ({ channel, title, views: Number(views) }));
-    if (videos.length === 0 || videos.some((video) => !Number.isFinite(video.views))) {
-      setMessage("Each line needs a channel, a title, and a view count, separated by |.");
-      return;
-    }
-    setBusy("listings");
-    setMessage("");
-    try {
-      await api("/youtube/listings", { method: "POST", body: JSON.stringify({ videos }) });
-      setListings("");
-      await onChange();
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Could not read those listings.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function send(id: number, path: string, body: Record<string, string>, busyKey: string, saved: string) {
-    setBusy(busyKey);
-    setMessage("");
-    try {
-      await api(`/youtube/videos/${id}/${path}`, { method: "POST", body: JSON.stringify(body) });
-      setMessage(saved);
-      if (path === "transcript") setTranscript("");
-      if (path === "retention") setRetention("");
-      if (path === "comments") setComments("");
-      await onChange();
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Could not save that.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  return (
-    <div className="space-y-6">
-      {mode === "footage" && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Bring your own footage</CardTitle>
-            <CardDescription>The edit stays off this page until a transcript of the footage is added.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-3" onSubmit={upload}>
-              <label className="block text-sm">
-                Video file
-                <input
-                  className="mt-1 block w-full text-sm"
-                  type="file"
-                  accept="video/mp4,video/quicktime,video/webm"
-                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-                />
-              </label>
-              <label className="block text-sm">
-                What is said, if you want the captions started from your words
-                <Textarea className="mt-1" rows={3} value={note} onChange={(event) => setNote(event.target.value)} />
-              </label>
-              <Button type="submit" size="sm" disabled={busy === "upload"}>
-                {busy === "upload" ? "Writing the edit…" : "Write the edit plan"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-
-      <Section title="What is working in the niche" description={desk.niche?.note || "Videos that beat their own channel's median."}>
-        {(desk.niche?.working.length ?? 0) === 0 ? (
-          <p className="text-sm text-muted-foreground">Public listings are not in yet. A channel needs four videos before a median means anything.</p>
-        ) : (
-          <ul className="space-y-3">
-            {desk.niche?.working.map((video) => (
-              <li key={`${video.channel}-${video.title}`}>
-                <p className="font-medium">{video.multiple}× · {video.title}</p>
-                <p className="text-sm text-muted-foreground">{video.formula} · {video.channel}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-        {desk.niche?.shared && <p className="mt-3 text-sm">{desk.niche.shared}</p>}
-        {(desk.niche?.makeable.length ?? 0) > 0 && (
-          <ul className="mt-3 space-y-2">
-            {desk.niche?.makeable.map((item) => (
-              <li key={item.title} className="text-sm text-muted-foreground">
-                This channel can make a version this week, in a {item.voice} voice, with {item.have}: {item.idea}
-              </li>
-            ))}
-          </ul>
-        )}
-        {(desk.niche?.skipped.length ?? 0) > 0 && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            Skipped {desk.niche?.skipped.map((channel) => `${channel.channel} (${channel.count})`).join(", ")}. Fewer than four videos is not a median.
-          </p>
-        )}
-        <form className="mt-4 space-y-2" onSubmit={saveListings}>
-          <label className="block text-sm">
-            Public listings, one video per line: channel | title | views
-            <Textarea className="mt-1" rows={3} value={listings} onChange={(event) => setListings(event.target.value)} />
-          </label>
-          <Button type="submit" size="sm" variant="outline" disabled={busy === "listings"}>
-            {busy === "listings" ? "Reading…" : "Rank these listings"}
-          </Button>
-        </form>
-      </Section>
-
-      <Section title="This week" description="Three pieces at most, from the videos this channel can actually make and from questions the comments repeat.">
-        {(desk.week?.length ?? 0) === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing to write yet. The list fills from public listings and from questions asked more than once.</p>
-        ) : (
-          <ol className="space-y-3">
-            {desk.week?.map((piece, index) => (
-              <li key={piece.topic}>
-                <p className="font-medium">{index + 1}. {piece.topic}</p>
-                <p className="text-sm text-muted-foreground">{piece.reason}</p>
-              </li>
-            ))}
-          </ol>
-        )}
-      </Section>
-
-      {desk.audit?.fix && (
-        <Section title="This week's fix" description="One change. The rest can wait.">
-          <p className="text-sm">{desk.audit.fix}</p>
-          <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
-            {(desk.audit.working.length ? desk.audit.working : ["Nothing recorded yet that should be protected."]).map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-          <p className="mt-3 text-sm">{desk.audit.not_yet}</p>
-        </Section>
-      )}
-
-      {desk.series && (
-        <Section title={desk.series.title} description={desk.series.premise}>
-          <p className="text-sm text-muted-foreground">
-            {desk.series.holds_until
-              ? `Next episode after ${desk.series.holds_until}.`
-              : `Episode ${desk.series.next_episode} is next.`}
-          </p>
-          <ol className="mt-3 space-y-2">
-            {desk.series.outline.map((episode) => (
-              <li key={episode.number} className="text-sm">
-                <span className="font-medium">{episode.number}. {episode.title}</span>
-                <span className="mt-0.5 block text-muted-foreground">{episode.beat}</span>
-              </li>
-            ))}
-          </ol>
-        </Section>
-      )}
-
-      {front ? (
-        <Section title="The piece in front" description={front.package?.formula_why || "Scored title, two hooks, the script, and the description."}>
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="font-medium">{front.title}</p>
-              <Badge variant="outline" className="font-normal">{front.status_label}</Badge>
-            </div>
-            {front.package?.titles && front.package.titles.length > 0 && (
-              <div className="space-y-2">
-                {front.package.titles.slice(0, 2).map((title) => (
-                  <div key={title.title}>
-                    <p className="text-sm">{title.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {title.score}/100 · {title.chars} characters
-                      {title.issues[0] ? ` · ${title.issues.map((issue) => issue[1]).join(" ")}` : ""}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-            {front.package?.thumbnail_brief && (
-              <div className="text-sm text-muted-foreground">
-                <p>Thumbnail: {front.package.thumbnail_brief.words}</p>
-                <p>{front.package.thumbnail_brief.expression}</p>
-                <p>{front.package.thumbnail_brief.framing}</p>
-                <p>{front.package.thumbnail_brief.background}</p>
-              </div>
-            )}
-            {front.package?.hooks && front.package.hooks.length > 0 && (
-              <div className="space-y-2">
-                {front.package.hooks.map((hook) => (
-                  <div key={hook.text}>
-                    <p className="text-sm">{hook.text}</p>
-                    <p className="text-xs text-muted-foreground">{hook.score}/100 · {hook.formula} · {hook.band}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-            {front.package?.runtime_seconds != null && (
-              <p className="text-xs text-muted-foreground">
-                {front.package.runtime_seconds >= 90
-                  ? `About ${Math.max(1, Math.round(front.package.runtime_seconds / 60))} minutes at 150 words a minute.`
-                  : `About ${front.package.runtime_seconds} seconds at 150 words a minute.`}
-              </p>
-            )}
-            {front.script && (
-              <p className="max-h-72 overflow-y-auto whitespace-pre-wrap text-sm text-muted-foreground">{front.script}</p>
-            )}
-            {front.description && (
-              <p className="max-h-64 overflow-y-auto whitespace-pre-wrap text-sm text-muted-foreground">{front.description}</p>
-            )}
-            {front.package?.chapters && front.package.chapters.length > 0 && (
-              <ul className="space-y-1 text-sm">
-                {front.package.chapters.map((chapter) => (
-                  <li key={chapter.label}>{chapter.label} {chapter.title}</li>
-                ))}
-              </ul>
-            )}
-            {front.package?.search_facing === false && (
-              <p className="text-sm text-muted-foreground">This one is for the people who already watch. The work is in the title and the thumbnail.</p>
-            )}
-            {front.package?.has_transcript && front.package.shorts && front.package.shorts.length > 0 && (
-              <div className="space-y-3">
-                <p className="text-sm font-medium">Shorts cut from this video</p>
-                {front.package.shorts.map((clip) => (
-                  <div key={`${clip.start}-${clip.first_line}`} className="text-sm text-muted-foreground">
-                    <p>{clip.start}–{clip.end} · {clip.first_line}</p>
-                    <p>New first line ({clip.opening.score}): {clip.opening.text}</p>
-                    <p>On screen: {clip.on_screen}</p>
-                    <p>{clip.loop}</p>
-                    <p>{clip.crop}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-            {front.package?.has_transcript && front.package.edit && (
-              <div className="space-y-1 text-sm text-muted-foreground">
-                <p>{front.package.edit.caption_style}</p>
-                <p>{front.package.edit.caption_note}</p>
-                {front.package.edit.zooms?.map((zoom) => (
-                  <p key={zoom.reason}>Zoom to {zoom.scale}× · {zoom.reason}</p>
-                ))}
-              </div>
-            )}
-            {front.package?.comments && (
-              <div className="space-y-2 text-sm">
-                <p>
-                  {front.package.comments.counts.questions} questions, {front.package.comments.counts.corrections} corrections, {front.package.comments.counts.praise} praise, {front.package.comments.counts.bait} bait.
-                </p>
-                {front.package.comments.pin && <p>Pin: {front.package.comments.pin.comment} {front.package.comments.pin.why}</p>}
-                {front.package.comments.replies.map((reply) => (
-                  <p key={reply.comment} className="text-muted-foreground">{reply.reply}</p>
-                ))}
-              </div>
-            )}
-            {front.package?.gate && <p className="text-sm font-medium">{front.package.gate}</p>}
-            {front.status === "waiting" && (
-              <Button size="sm" variant="secondary" disabled={busy === `confirm-${front.id}`} onClick={() => confirm(front.id)}>
-                {busy === `confirm-${front.id}` ? "Shipping…" : "Ship it"}
-              </Button>
-            )}
-            <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); void send(front.id, "transcript", { transcript }, "transcript", "Shorts are ready."); }}>
-              <label className="block text-sm">
-                Transcript of the finished video
-                <Textarea className="mt-1" rows={3} value={transcript} onChange={(event) => setTranscript(event.target.value)} />
-              </label>
-              <Button type="submit" size="sm" variant="outline" disabled={busy === "transcript" || transcript.trim() === ""}>Add the transcript</Button>
-            </form>
-            <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); void send(front.id, "retention", { csv: retention }, "retention", "Saved for the next video."); }}>
-              <label className="block text-sm">
-                Audience retention export from YouTube Studio
-                <Textarea className="mt-1" rows={3} value={retention} onChange={(event) => setRetention(event.target.value)} />
-              </label>
-              <Button type="submit" size="sm" variant="outline" disabled={busy === "retention" || retention.trim() === ""}>Save the export</Button>
-            </form>
-            <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); void send(front.id, "comments", { comments }, "comments", "Replies are ready."); }}>
-              <label className="block text-sm">
-                Comments, one per line
-                <Textarea className="mt-1" rows={3} value={comments} onChange={(event) => setComments(event.target.value)} />
-              </label>
-              <Button type="submit" size="sm" variant="outline" disabled={busy === "comments" || comments.trim() === ""}>Sort and reply</Button>
-            </form>
-          </div>
-        </Section>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          {mode === "footage"
-            ? "Upload footage, then add its transcript. The edit and any Shorts show after that."
-            : "The piece in front is written when this week's list has something the channel can make."}
-        </p>
-      )}
-      {message && <p className="text-sm text-muted-foreground">{message}</p>}
-    </div>
-  );
-}
-
 export function PlatformDesk({ platform }: { platform: Platform }) {
   const router = useRouter();
   const accountId = useRef<number | null>(null);
@@ -1112,7 +695,13 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
                     : "Connected"
                   : "Not connected"}
             </p>
-            {(!desk.connected || (platform === "tiktok" && desk.tiktok?.connection.needs_reconnect)) && (
+            {platform === "youtube" && !desk.connected ? (
+              <Link href="/settings" className="mt-3 inline-block">
+                <Button variant="outline" size="sm">
+                  Connect YouTube
+                </Button>
+              </Link>
+            ) : (!desk.connected || (platform === "tiktok" && desk.tiktok?.connection.needs_reconnect)) && (
               <Link href="/settings" className="mt-3 inline-block">
                 <Button variant="outline" size="sm">
                   Connect {name}
@@ -1127,6 +716,20 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
         <p className="flex items-start gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
           <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
           These numbers are a preview until your TikTok is connected.
+        </p>
+      )}
+
+      {platform === "youtube" && desk.preview && (
+        <p className="flex items-start gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+          These are deterministic sample numbers, not channel statistics. YouTube is not connected.
+        </p>
+      )}
+
+      {platform === "youtube" && !desk.preview && desk.metrics_error && (
+        <p className="flex items-start gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+          {desk.metrics_error} No sample values are shown while a channel is connected.
         </p>
       )}
 
@@ -1152,7 +755,7 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
       </div>
 
       {platform === "tiktok" && desk.tiktok && <TikTokBody tiktok={desk.tiktok} onReload={load} />}
-      {platform === "youtube" && <YouTubeBody desk={desk} onChange={load} />}
+      {platform === "youtube" && <YouTubeBody desk={desk as YouTubeDesk} onChange={load} />}
     </div>
   );
 }

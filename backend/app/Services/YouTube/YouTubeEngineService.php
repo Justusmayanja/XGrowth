@@ -24,6 +24,7 @@ class YouTubeEngineService
         private readonly YouTubeCommentTriage $comments,
         private readonly YouTubeAudit $audit,
         private readonly YouTubeSeriesPlanner $seriesPlanner,
+        private readonly YouTubeUploadStatus $uploads,
     ) {}
 
     public function runAll(): int
@@ -91,7 +92,7 @@ class YouTubeEngineService
 
     public function recordResults(YouTubeVideo $video, int $views, float $percent): YouTubeVideo
     {
-        if (! in_array($video->status, ['waiting', 'queued', 'learned'], true)) {
+        if (! in_array($video->status, ['waiting', 'queued', 'posted', 'learned'], true)) {
             throw ValidationException::withMessages([
                 'status' => ['Results can be saved once the video is ready to post.'],
             ]);
@@ -230,7 +231,15 @@ class YouTubeEngineService
     }
 
     /**
-     * @return array{ideas: list<array{name: string, suggestion: string}>, week: list<array<string, mixed>>, niche: array<string, mixed>, audit: array<string, mixed>, pipeline: list<array<string, mixed>>, series: array<string, mixed>|null}
+     * @return array<string, mixed>
+     */
+    public function uploadSummary(User $user): array
+    {
+        return $this->uploads->summary($user);
+    }
+
+    /**
+     * @return array{ideas: list<array{name: string, suggestion: string}>, week: list<array<string, mixed>>, niche: array<string, mixed>, audit: array<string, mixed>, pipeline: list<array<string, mixed>>, learned: list<array<string, mixed>>, series: array<string, mixed>|null, upload: array<string, mixed>}
      */
     public function desk(User $user): array
     {
@@ -249,7 +258,10 @@ class YouTubeEngineService
                 ],
                 'audit' => ['fix' => '', 'working' => [], 'not_yet' => ''],
                 'pipeline' => [],
+                'learned' => [],
                 'series' => null,
+                'research' => $this->demand->refreshStatus($user),
+                'upload' => $this->uploads->summary($user),
             ];
         }
 
@@ -269,6 +281,7 @@ class YouTubeEngineService
 
         $series = YouTubeSeries::query()->where('user_id', $user->id)->latest('id')->first();
         $holdsUntil = null;
+        $seriesHasRetentionLesson = false;
         if ($series) {
             $latest = YouTubeVideo::query()
                 ->where('user_id', $user->id)
@@ -278,9 +291,32 @@ class YouTubeEngineService
             if ($latest?->learned_at && $latest->learned_at->gt(now()->subDays(6))) {
                 $holdsUntil = $latest->learned_at->copy()->addDays(6)->toDateString();
             }
+            $seriesHasRetentionLesson = $this->retentionCase($latest) !== null;
         }
 
         $videos = YouTubeVideo::query()->where('user_id', $user->id)->latest('id')->limit(10)->get();
+        $learned = YouTubeVideo::query()
+            ->where('user_id', $user->id)
+            ->whereNotNull('learned_at')
+            ->latest('learned_at')
+            ->limit(20)
+            ->get()
+            ->map(fn (YouTubeVideo $video) => [
+                'id' => $video->id,
+                'mode' => $video->mode,
+                'title' => $video->title,
+                'views' => (int) $video->views,
+                'average_view_percent' => $video->average_view_percent,
+                'youtube_video_id' => is_array($video->package) ? ($video->package['research_source']['youtube_video_id'] ?? null) : null,
+                'learned_at' => $video->learned_at?->toIso8601String(),
+                'lesson' => $this->retentionCase($video),
+            ])
+            ->all();
+
+        $seriesDesk = $series?->toDesk($holdsUntil);
+        if ($seriesDesk !== null) {
+            $seriesDesk['has_retention_lesson'] = $seriesHasRetentionLesson;
+        }
 
         return [
             'ideas' => $ideas,
@@ -294,7 +330,10 @@ class YouTubeEngineService
             ],
             'audit' => $this->audit->audit($videos),
             'pipeline' => $pipeline,
-            'series' => $series?->toDesk($holdsUntil),
+            'learned' => $learned,
+            'series' => $seriesDesk,
+            'research' => $this->demand->refreshStatus($user),
+            'upload' => $this->uploads->summary($user),
         ];
     }
 
@@ -454,9 +493,9 @@ class YouTubeEngineService
     ): YouTubeVideo {
         $status = $publish === 'auto' ? 'queued' : 'waiting';
         $renderNote = match ($renderKind) {
-            'text' => 'The lines and timings are set. The video file is made when the render step is connected.',
-            'narration' => 'The episode is scripted. Voice and stills are made when the render step is connected.',
-            default => 'The shots are written. The video file is made when the video model is connected.',
+            'text' => 'The lines and timings are set. Make the local file when you want a preview. Nothing is uploaded.',
+            'narration' => 'The episode is scripted. Make the local voice and stills when you want a preview. Nothing is uploaded.',
+            default => 'The shots are written. Make the local file when you want a preview. Nothing is uploaded.',
         };
 
         return YouTubeVideo::query()->create([
@@ -545,6 +584,14 @@ class YouTubeEngineService
         };
     }
 
+    private function retentionCase(?YouTubeVideo $video): ?string
+    {
+        $learning = $video?->package['model_learning'] ?? null;
+        $case = is_array($learning) ? ($learning['case'] ?? null) : null;
+
+        return in_array($case, ['hook_leak', 'cliff', 'slide', 'packaging'], true) ? $case : null;
+    }
+
     private function fitTitle(string $title): string
     {
         $title = trim($title);
@@ -554,7 +601,7 @@ class YouTubeEngineService
         $slice = mb_substr($title, 0, 60);
         $space = mb_strrpos($slice, ' ');
 
-        return rtrim($space === false ? $slice : mb_substr($slice, 0, $space), " ,;:-");
+        return rtrim($space === false ? $slice : mb_substr($slice, 0, $space), ' ,;:-');
     }
 
     private function setup(User $user): ?PlatformSetup

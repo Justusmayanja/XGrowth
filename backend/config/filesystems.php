@@ -83,6 +83,14 @@ return [
             'throw' => true,
         ],
 
+        'youtube_media' => [
+            'driver' => 'strict_scoped',
+            'disk' => 'media',
+            'prefix' => 'youtube',
+            'visibility' => 'private',
+            'throw' => true,
+        ],
+
         // Legacy local root, used only by tiktok:migrate-videos.
         'tiktok_videos_local' => [
             'driver' => 'local',

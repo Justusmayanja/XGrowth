@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class YouTubeVideo extends Model
 {
     protected $table = 'youtube_videos';
+
     protected $fillable = [
         'user_id',
         'youtube_series_id',
@@ -30,6 +31,9 @@ class YouTubeVideo extends Model
         'learning_note',
         'learned_at',
         'queued_at',
+        'posted_at',
+        'posted_video_id',
+        'posted_privacy',
     ];
 
     protected function casts(): array
@@ -43,6 +47,7 @@ class YouTubeVideo extends Model
             'average_view_percent' => 'float',
             'learned_at' => 'datetime',
             'queued_at' => 'datetime',
+            'posted_at' => 'datetime',
         ];
     }
 
@@ -74,6 +79,11 @@ class YouTubeVideo extends Model
             'episode_number' => $this->episode_number,
             'source_name' => $this->source_name,
             'views' => $this->views,
+            'average_view_percent' => $this->average_view_percent,
+            'youtube_video_id' => is_array($this->package) ? ($this->package['research_source']['youtube_video_id'] ?? null) : null,
+            'posted_video_id' => $this->posted_video_id,
+            'posted_privacy' => $this->posted_privacy,
+            'posted_at' => $this->posted_at?->toIso8601String(),
             'package' => $this->deskPackage(),
             'created_at' => $this->created_at?->toIso8601String(),
         ];
@@ -88,7 +98,7 @@ class YouTubeVideo extends Model
         }
 
         $transcript = trim((string) ($package['transcript'] ?? ''));
-        unset($package['transcript'], $package['model_learning']);
+        unset($package['transcript'], $package['model_learning'], $package['research_source']);
         $package['has_transcript'] = $transcript !== '';
         if ($transcript === '') {
             unset($package['edit'], $package['shorts']);

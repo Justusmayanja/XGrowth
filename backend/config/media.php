@@ -8,6 +8,7 @@ return [
     */
     'namespaces' => [
         'tiktok' => 'tiktok_videos',
+        'youtube' => 'youtube_media',
     ],
 
 ];

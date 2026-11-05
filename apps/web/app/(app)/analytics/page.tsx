@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingMark } from "@/components/LoadingMark";
 import { TikTokLanded } from "@/components/dashboard/tiktok/TikTokLanded";
+import { YouTubeLanded } from "@/components/dashboard/youtube/YouTubeLanded";
 import { api } from "@/lib/api";
 import { usePlatform } from "@/lib/platform";
 
@@ -81,6 +82,7 @@ function figure(value: number | null, suffix = "") {
 export default function AnalyticsPage() {
   const platform = usePlatform();
   if (platform === "tiktok") return <TikTokLanded />;
+  if (platform === "youtube") return <YouTubeLanded />;
   return <GrowthAnalytics />;
 }
 

@@ -6,6 +6,7 @@ use App\Models\AccountProfile;
 use App\Services\YouTube\YouTubeChapterWriter;
 use App\Services\YouTube\YouTubeHookScorer;
 use App\Services\YouTube\YouTubePackageWriter;
+use App\Services\YouTube\YouTubePrivacy;
 use App\Services\YouTube\YouTubeRetentionReader;
 use App\Services\YouTube\YouTubeSeriesPlanner;
 use App\Services\YouTube\YouTubeTitleLinter;
@@ -187,6 +188,34 @@ class YouTubeCraftTest extends TestCase
 
         $this->assertSame('The Mistake', $scored['formula']);
         $this->assertArrayHasKey('STAKES', $scored['properties']);
+    }
+
+    public function test_upload_audit_defaults_off_and_monthly_allowances_come_from_billing(): void
+    {
+        $this->assertFalse(config('services.youtube.upload_audit_approved'));
+        $this->assertSame(100, (int) config('services.youtube.upload_daily_budget'));
+
+        $tiers = config('billing.platforms.youtube.tiers');
+        $this->assertSame(4, $tiers['starter']['allowance']);
+        $this->assertSame(12, $tiers['pro']['allowance']);
+        $this->assertSame(40, $tiers['agency']['allowance']);
+        $this->assertSame('videos', $tiers['starter']['allowance_unit']);
+
+        $privacy = app(YouTubePrivacy::class);
+        $this->assertSame('hold', $privacy->decide(false, 'public')['action']);
+        $this->assertNull($privacy->decide(false, 'public')['privacy']);
+        $this->assertSame('hold', $privacy->decide(false, 'unlisted')['action']);
+        $this->assertSame('insert', $privacy->decide(false, 'private')['action']);
+        $this->assertSame('private', $privacy->decide(false, null)['privacy']);
+        $this->assertSame('public', $privacy->decide(true, 'public')['privacy']);
+        $this->assertSame('unlisted', $privacy->decide(true, 'unlisted')['privacy']);
+        $this->assertFalse($privacy->acceptable(false, 'public'));
+        $this->assertFalse($privacy->acceptable(false, 'unlisted'));
+        $this->assertTrue($privacy->acceptable(false, 'private'));
+        $this->assertTrue($privacy->acceptable(true, 'unlisted'));
+        $this->assertFalse($privacy->acceptable(true, 'secret'));
+        $this->assertStringContainsString('not requested', $privacy->decide(false, 'public')['note']);
+        $this->assertStringNotContainsString('will be public', strtolower($privacy->decide(false, 'private')['note']));
     }
 
     /** @param  list<string>  $goals */

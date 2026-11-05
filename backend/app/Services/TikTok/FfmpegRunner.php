@@ -78,6 +78,53 @@ class FfmpegRunner
         return false;
     }
 
+    /**
+     * Run ffmpeg and return both streams. Callers parse this locally and do not show it.
+     *
+     * @return array{ok: bool, stdout: string, stderr: string}
+     */
+    public function capture(array $arguments, int $timeout): array
+    {
+        $result = Process::timeout($timeout)->run(array_merge([
+            $this->binary('ffmpeg'),
+            '-y',
+            '-nostdin',
+            '-threads', '2',
+            '-hide_banner',
+        ], $arguments));
+
+        return [
+            'ok' => $result->successful(),
+            'stdout' => $result->output(),
+            'stderr' => $result->errorOutput(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function probe(string $path): array
+    {
+        $result = Process::timeout(20)->run([
+            $this->binary('ffprobe'),
+            '-v', 'error',
+            '-print_format', 'json',
+            '-show_format',
+            '-show_streams',
+            $path,
+        ]);
+        if (! $result->successful()) {
+            throw new RuntimeException('ffprobe failed');
+        }
+
+        $decoded = json_decode($result->output(), true);
+        if (! is_array($decoded)) {
+            throw new RuntimeException('ffprobe failed');
+        }
+
+        return $decoded;
+    }
+
     private function binary(string $name): string
     {
         if ($name === 'ffprobe') {

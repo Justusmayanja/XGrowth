@@ -9,23 +9,15 @@ import { usePlatform } from "@/lib/platform";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { type SocialBrand, SocialName } from "@/components/SocialLogo";
+import { SocialName } from "@/components/SocialLogo";
 import { TikTokConnectionCard } from "@/components/settings/TikTokConnectionCard";
+import { YouTubeConnectionCard } from "@/components/settings/YouTubeConnectionCard";
 import type { XConnectStatus } from "@/lib/settings";
 
 type Props = {
   status: XConnectStatus | null;
   onDisconnected?: (status: XConnectStatus) => void;
 };
-
-const pending: Array<{ name: string; brand: SocialBrand; href: string; note: string }> = [
-  {
-    name: "YouTube",
-    brand: "youtube",
-    href: "/content-studio",
-    note: "The channel connection waits on YouTube. Compose is open, so you can write the video now.",
-  },
-];
 
 export function ConnectedAccountCard({ status, onDisconnected }: Props) {
   const platform = usePlatform();
@@ -56,7 +48,7 @@ export function ConnectedAccountCard({ status, onDisconnected }: Props) {
         <CardDescription>
           {platform === "x"
             ? "Connect X to read replies and mentions, and to publish."
-            : "Connect the accounts this desk can publish to."}
+            : "Connect accounts for the permissions each platform supports."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -118,22 +110,7 @@ export function ConnectedAccountCard({ status, onDisconnected }: Props) {
         )}
 
         <TikTokConnectionCard />
-
-        {platform !== "x" && pending.map((network) => (
-          <Link
-            key={network.name}
-            href={network.href}
-            className="block rounded-[0.75rem] border border-border p-4 transition hover:border-[#3f3f46] hover:bg-[#1c1d21]"
-          >
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-sm font-medium">
-                <SocialName brand={network.brand}>{network.name}</SocialName>
-              </p>
-              <p className="text-xs text-[#9ec0ea]">Open Compose</p>
-            </div>
-            <p className="mt-2 text-sm text-muted-foreground">{network.note}</p>
-          </Link>
-        ))}
+        <YouTubeConnectionCard />
       </CardContent>
     </Card>
   );

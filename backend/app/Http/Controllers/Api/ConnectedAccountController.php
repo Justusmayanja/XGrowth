@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Exceptions\TikTokOAuthException;
+use App\Exceptions\YouTubeOAuthException;
 use App\Http\Controllers\Controller;
 use App\Services\TikTok\TikTokDraftService;
 use App\Services\TikTok\TikTokOAuthService;
 use App\Services\XApi\XApiService;
+use App\Services\YouTube\YouTubeOAuthService;
+use App\Services\YouTube\YouTubeUploadConsentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,6 +19,8 @@ class ConnectedAccountController extends Controller
     public function __construct(
         private readonly XApiService $x,
         private readonly TikTokOAuthService $tiktok,
+        private readonly YouTubeOAuthService $youtube,
+        private readonly YouTubeUploadConsentService $youtubeUpload,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -215,6 +220,147 @@ class ConnectedAccountController extends Controller
                 'connected_at' => null,
                 'needs_reconnect' => false,
                 'needs_upload_permission' => false,
+            ],
+        ]);
+    }
+
+    public function youtubeConnect(Request $request): JsonResponse
+    {
+        try {
+            $url = $this->youtube->authorizationUrl($request->user());
+        } catch (YouTubeOAuthException $e) {
+            if ($e->reason === 'not_configured') {
+                return response()->json([
+                    'error' => [
+                        'code' => 'youtube_not_configured',
+                        'message' => 'YouTube channel linking is not configured for this server.',
+                    ],
+                ], 503);
+            }
+
+            throw $e;
+        }
+
+        return response()->json(['data' => ['authorize_url' => $url]]);
+    }
+
+    public function youtubeUploadConsent(Request $request): JsonResponse
+    {
+        try {
+            $url = $this->youtubeUpload->authorizationUrl($request->user());
+        } catch (YouTubeOAuthException $e) {
+            if ($e->reason === 'not_configured') {
+                return response()->json([
+                    'error' => [
+                        'code' => 'youtube_not_configured',
+                        'message' => 'YouTube channel linking is not configured for this server.',
+                    ],
+                ], 503);
+            }
+            if ($e->reason === 'needs_channel') {
+                return response()->json([
+                    'error' => [
+                        'code' => 'youtube_channel_required',
+                        'message' => 'Connect the YouTube channel before allowing uploads. Reading the channel is a separate step.',
+                    ],
+                ], 422);
+            }
+            if ($e->reason === 'already_granted') {
+                return response()->json([
+                    'error' => [
+                        'code' => 'youtube_upload_granted',
+                        'message' => 'Upload permission is already on. Sending a video is still a separate step.',
+                    ],
+                ], 422);
+            }
+
+            throw $e;
+        }
+
+        return response()->json(['data' => ['authorize_url' => $url]]);
+    }
+
+    public function youtubeCallback(Request $request): RedirectResponse
+    {
+        $state = (string) $request->query('state', '');
+        $code = is_string($request->query('code')) ? $request->query('code') : null;
+        $error = is_string($request->query('error')) ? $request->query('error') : null;
+
+        if ($this->youtubeUpload->recognizes($state)) {
+            try {
+                $this->youtubeUpload->handleCallback($state, $code, $error);
+                $target = '/settings?youtube=upload';
+            } catch (YouTubeOAuthException $e) {
+                $reason = match ($e->reason) {
+                    'denied' => 'upload_denied',
+                    'expired' => 'upload_expired',
+                    default => 'upload_failed',
+                };
+                $target = '/settings?youtube=error&reason='.$reason;
+            }
+
+            return redirect()->away($this->frontend($target));
+        }
+
+        try {
+            $this->youtube->handleCallback($state, $code, $error);
+            $target = '/settings?youtube=connected';
+        } catch (YouTubeOAuthException $e) {
+            $reason = in_array($e->reason, ['denied', 'expired', 'already_linked', 'failed'], true)
+                ? $e->reason
+                : 'failed';
+            $target = '/settings?youtube=error&reason='.$reason;
+        }
+
+        return redirect()->away($this->frontend($target));
+    }
+
+    public function youtubeStatus(Request $request): JsonResponse
+    {
+        $account = $request->user()
+            ->connectedAccounts()
+            ->where('platform', 'youtube')
+            ->first();
+        $metrics = $account?->is_active ? $this->youtube->metrics($account) : [
+            'subscribers' => null,
+            'views' => null,
+            'watch_hours' => null,
+            'error' => null,
+        ];
+
+        return response()->json([
+            'data' => [
+                'configured' => $this->youtube->isConfigured(),
+                'connected' => (bool) $account?->is_active,
+                'display_name' => $account?->username,
+                'connected_at' => $account?->created_at?->utc()->toIso8601String(),
+                'needs_reconnect' => $account !== null && ! $account->is_active,
+                'upload_granted' => $this->youtubeUpload->granted($account),
+                'needs_upload_consent' => (bool) $account?->is_active && ! $this->youtubeUpload->granted($account),
+                'metrics' => $metrics,
+            ],
+        ]);
+    }
+
+    public function youtubeDisconnect(Request $request): JsonResponse
+    {
+        $this->youtube->disconnect($request->user());
+
+        return response()->json([
+            'data' => [
+                'configured' => $this->youtube->isConfigured(),
+                'connected' => false,
+                'display_name' => null,
+                'connected_at' => null,
+                'needs_reconnect' => false,
+                'upload_granted' => false,
+                'needs_upload_consent' => false,
+                'metrics' => [
+                    'subscribers' => null,
+                    'views' => null,
+                    'watch_hours' => null,
+                    'error' => null,
+                ],
             ],
         ]);
     }

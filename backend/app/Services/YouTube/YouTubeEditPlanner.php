@@ -24,8 +24,8 @@ class YouTubeEditPlanner
             'captions' => $captions,
             'caption_style' => 'Two or three words at a time. The word being said is highlighted.',
             'caption_note' => $captions === []
-                ? 'Word timings are filled when the transcript step is connected. The caption style is already set.'
-                : 'These lines come from the note. Exact word timings are filled when the transcript step is connected.',
+                ? 'Word timings are filled from a local transcript when a transcription provider is configured. Pasting a transcript still works.'
+                : 'These lines come from the note. Exact word timings are filled from a local transcript when a transcription provider is configured. Pasting a transcript still works.',
             'zooms' => [
                 ['at_ratio' => 0.08, 'scale' => 1.08, 'hold_seconds' => 1.2, 'reason' => 'Opening line'],
                 ['at_ratio' => 0.42, 'scale' => 1.14, 'hold_seconds' => 1.4, 'reason' => 'The point of the video'],
@@ -44,7 +44,7 @@ class YouTubeEditPlanner
                 'provider' => 'pending',
                 'ready' => false,
                 'kind' => 'edit',
-                'note' => 'The cut is specified. The edited file is made when the editor is connected.',
+                'note' => 'The cut is specified. Make the edited file locally when you want a preview. Nothing is uploaded.',
             ],
         ];
     }

@@ -11,6 +11,7 @@ use App\Services\TikTok\TikTokEngineService;
 use App\Services\TrendEngine\TrendEngineService;
 use App\Services\XApi\XApiService;
 use App\Services\YouTube\YouTubeEngineService;
+use App\Services\YouTube\YouTubeOAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
@@ -25,6 +26,7 @@ class DashboardController extends Controller
         private readonly ApiSpendService $budget,
         private readonly AccountDeskService $desk,
         private readonly XGoalPlan $goals,
+        private readonly YouTubeOAuthService $youtubeOAuth,
     ) {}
 
     public function stats(Request $request): JsonResponse
@@ -140,6 +142,9 @@ class DashboardController extends Controller
         $preview = $platform !== 'x' && $connected === null;
         $live = $platform === 'x' ? $this->liveActivity($user, $selected) : null;
         $seed = crc32($user->id.$platform.($profile?->niche ?? 'general'));
+        $youtubeMetrics = $platform === 'youtube' && $connected
+            ? $this->youtubeOAuth->metrics($connected)
+            : null;
 
         $metrics = match ($platform) {
             'tiktok' => [
@@ -148,9 +153,9 @@ class DashboardController extends Controller
                 ['label' => 'Likes', 'value' => $preview ? 1200 + ($seed % 22000) : 0, 'sub' => 'Last 7 days'],
             ],
             'youtube' => [
-                ['label' => 'Subscribers', 'value' => $preview ? 150 + ($seed % 3800) : 0, 'sub' => '+'.($preview ? ($seed % 25) + 2 : 0).' this week'],
-                ['label' => 'Watch hours', 'value' => $preview ? 40 + ($seed % 900) : 0, 'sub' => 'Last 28 days'],
-                ['label' => 'Views', 'value' => $preview ? 2400 + ($seed % 50000) : 0, 'sub' => 'Last 28 days'],
+                ['label' => 'Subscribers', 'value' => $preview ? 150 + ($seed % 3800) : $youtubeMetrics['subscribers'], 'sub' => $preview ? '+'.(($seed % 25) + 2).' this week' : 'Channel total'],
+                ['label' => 'Watch hours', 'value' => $preview ? 40 + ($seed % 900) : $youtubeMetrics['watch_hours'], 'sub' => 'Last 28 days'],
+                ['label' => 'Views', 'value' => $preview ? 2400 + ($seed % 50000) : $youtubeMetrics['views'], 'sub' => 'Last 28 days'],
             ],
             default => $live && ($live['metrics_loaded'] ?? false) ? $this->xMetrics($live, $this->budget->showsFullDesk($user->id)) : ($live ? [
                 ['label' => 'Followers', 'value' => $live['followers'], 'sub' => 'Results for the last seven days'],
@@ -194,10 +199,20 @@ class DashboardController extends Controller
         $youtubeDesk = [
             'ideas' => [],
             'pipeline' => [],
+            'learned' => [],
             'series' => null,
             'week' => [],
             'niche' => null,
             'audit' => null,
+            'research' => [
+                'budget' => (int) config('services.youtube.read_quota_daily', 500),
+                'used' => 0,
+                'remaining' => (int) config('services.youtube.read_quota_daily', 500),
+                'resets_on' => now()->addDay()->startOfDay()->toDateString(),
+                'cache_minutes' => (int) config('services.youtube.research_cache_minutes', 15),
+                'pulls' => (object) [],
+            ],
+            'upload' => $platform === 'youtube' ? $this->youtube->uploadSummary($user) : null,
         ];
         if ($platform === 'youtube' && $profile && $setup?->completed_at) {
             $youtubeDesk = $this->youtube->desk($user);
@@ -226,6 +241,7 @@ class DashboardController extends Controller
             'connected' => $connected ? ['username' => $connected->username] : null,
             'preview' => $preview,
             'metrics' => $metrics,
+            'metrics_error' => $platform === 'youtube' ? ($youtubeMetrics['error'] ?? null) : null,
             'counts' => [
                 'drafts' => $platform === 'x'
                     ? (clone $postQuery)->where('status', 'draft')->pluck('content')
@@ -252,10 +268,13 @@ class DashboardController extends Controller
             'reply_record' => $platform === 'x' ? $this->desk->replyRecord($user, $selected) : null,
             'voices' => $platform === 'x' ? $this->desk->voices($user, $selected) : null,
             'pipeline' => $youtubeDesk['pipeline'],
+            'learned' => $youtubeDesk['learned'],
             'series' => $youtubeDesk['series'],
             'week' => $youtubeDesk['week'],
             'niche' => $youtubeDesk['niche'],
             'audit' => $youtubeDesk['audit'],
+            'research' => $youtubeDesk['research'],
+            'upload' => $youtubeDesk['upload'] ?? null,
         ];
 
         if ($platform === 'tiktok') {

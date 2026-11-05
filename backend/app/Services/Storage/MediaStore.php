@@ -14,6 +14,8 @@ class MediaStore
 {
     public const TIKTOK = 'tiktok';
 
+    public const YOUTUBE = 'youtube';
+
     public function disk(?string $namespace = self::TIKTOK): Filesystem
     {
         return Storage::disk($this->diskName($namespace));
