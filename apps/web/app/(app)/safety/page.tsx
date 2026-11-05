@@ -8,66 +8,71 @@ import { LoadingMark } from "@/components/LoadingMark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
+import type { SafetyStatus } from "@/lib/settings";
+
+function statusLabel(safety: SafetyStatus): { label: string; detail: string } {
+  if (safety.frozen) {
+    return {
+      label: "Waiting",
+      detail: safety.freeze_reason ?? "X asked this account to wait.",
+    };
+  }
+  if (safety.quiet_room) {
+    return {
+      label: "Holding",
+      detail: safety.quiet_reason ?? "The last posts got no replies. Mackie17 is waiting for a stronger moment.",
+    };
+  }
+  return {
+    label: "Protected",
+    detail: "Mackie17 is pacing this account so posting stays human.",
+  };
+}
 
 export default function SafetyPage() {
-  const [safety, setSafety] = useState<{
-    safety_score: number;
-    actions: Record<string, { count: number; daily_limit: number }>;
-  } | null>(null);
+  const [safety, setSafety] = useState<SafetyStatus | null>(null);
 
   useEffect(() => {
-    api<{ safety_score: number; actions: Record<string, { count: number; daily_limit: number }> }>(
-      "/safety/status"
-    ).then(setSafety);
+    api<SafetyStatus>("/safety/status").then(setSafety);
   }, []);
+
+  const status = safety ? statusLabel(safety) : null;
 
   return (
     <div className="space-y-6">
-      <DeskHeading icon={Shield} title="Limits">
+      <DeskHeading icon={Shield} title="Account safety">
         <p className="text-muted-foreground">
-          Daily caps so posting, replying, and following stay at a human pace
+          Mackie17 paces this account, freezes when X says stop, and waits when the room is quiet
         </p>
       </DeskHeading>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-3">
-            Safety score
-            {safety && <Badge variant="secondary">{safety.safety_score}/100</Badge>}
+            Status
+            {status && <Badge variant="secondary">{status.label}</Badge>}
           </CardTitle>
-          <CardDescription>A higher score means today’s actions are still inside the caps</CardDescription>
+          <CardDescription>
+            Mackie17 keeps posting at a human pace for this plan.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          {safety ? (
+          {safety && status ? (
             <>
-              <Progress value={safety.safety_score} className="mb-6" />
-              <div className="grid gap-3 sm:grid-cols-2">
-                {Object.entries(safety.actions).map(([action, data]) => {
-                  const pct = data.daily_limit > 0 ? (data.count / data.daily_limit) * 100 : 0;
-                  const warn = pct >= 80;
-                  return (
-                    <div
-                      key={action}
-                      className={`rounded-lg border p-4 ${warn ? "border-amber-500/40 bg-amber-500/5" : "border-border"}`}
-                    >
-                      <div className="mb-2 flex items-center justify-between">
-                        <span className="text-sm font-medium capitalize">{action}</span>
-                        <span className="text-sm text-muted-foreground">
-                          {data.count} / {data.daily_limit}
-                        </span>
-                      </div>
-                      <Progress value={pct} className="h-2" />
-                      {warn && (
-                        <p className="mt-2 text-xs text-amber-400">
-                          Approaching daily limit. Mackie17 will slow down {action} activity
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+              {safety.frozen && (
+                <p className="mb-4 rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm text-red-200">
+                  {status.detail}
+                </p>
+              )}
+              {safety.quiet_room && !safety.frozen && (
+                <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm text-amber-200">
+                  {status.detail}
+                </p>
+              )}
+              {!safety.frozen && !safety.quiet_room && (
+                <p className="text-sm text-muted-foreground">{status.detail}</p>
+              )}
             </>
           ) : (
             <LoadingMark />
@@ -77,13 +82,14 @@ export default function SafetyPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>What the caps do</CardTitle>
+          <CardTitle>How Mackie17 protects the account</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>Gaps between posts and replies are uneven, not a fixed minute.</p>
-          <p>A draft that repeats something you already published is held.</p>
-          <p>Posts, replies, follows, and likes each have a daily cap.</p>
-          <p>The queue waits when a cap is reached, even if the score is high.</p>
+          <p>Posting, replies, and likes stay inside a human daily pace for this plan.</p>
+          <p>If X returns a rate limit or a lock, Mackie17 freezes this account for hours instead of retrying.</p>
+          <p>If the last posts got no replies, Mackie17 waits for a louder moment.</p>
+          <p>Writes to X land a few uneven seconds apart, not on a clock.</p>
+          <p>Mackie17 does not follow people.</p>
           <Link href="/growth-agent">
             <Button variant="secondary" className="mt-4">
               Open the queue

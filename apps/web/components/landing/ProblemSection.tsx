@@ -36,7 +36,7 @@ export function ProblemSection() {
               <h3 className="font-medium text-[#f0b2a6]">Mackie17</h3>
               <ul className="mt-3 space-y-2 text-sm text-muted">
                 <li>Drafts when attention and demand line up with your niche</li>
-                <li>Your voice, your caps, your channels</li>
+                <li>Your voice, your pace, your channels</li>
                 <li>Publishes only where you have allowed it</li>
               </ul>
             </div>

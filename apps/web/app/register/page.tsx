@@ -234,6 +234,11 @@ export default function RegisterPage() {
           <button type="submit" className="th-cta" disabled={loading}>
             {loading ? "Creating account…" : "Create account"}
           </button>
+          <p className="text-xs text-[#7f93ab]">
+            By creating an account you agree to the{" "}
+            <AuthLink href="/terms">Terms of Service</AuthLink> and{" "}
+            <AuthLink href="/privacy">Privacy Policy</AuthLink>.
+          </p>
         </form>
       )}
     </SetupFrame>

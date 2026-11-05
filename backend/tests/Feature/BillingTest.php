@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\BillingSubscription;
 use App\Models\User;
+use App\Services\ApiSpend\ApiSpendService;
 use App\Services\Billing\PaddleGateway;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -12,6 +13,39 @@ use Tests\TestCase;
 class BillingTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_x_shelf_prices_and_the_forty_cent_day_match_the_landing_page(): void
+    {
+        $x = collect($this->getJson('/api/billing/catalog')->json('platforms'))
+            ->firstWhere('id', 'x');
+        $tiers = collect($x['tiers'])->keyBy('id');
+
+        $this->assertSame(2700, $tiers['starter']['list_cents']);
+        $this->assertSame(1, $tiers['starter']['accounts']);
+        $this->assertSame(4600, $tiers['pro']['list_cents']);
+        $this->assertSame(1, $tiers['pro']['accounts']);
+        $this->assertSame(10800, $tiers['agency']['list_cents']);
+        $this->assertSame(4, $tiers['agency']['accounts']);
+
+        $this->postJson('/api/billing/quote', [
+            'interval' => 'monthly',
+            'lines' => [['platform' => 'x', 'tier' => 'starter']],
+        ])->assertOk()->assertJsonPath('total_cents', 2700);
+
+        $budget = app(ApiSpendService::class);
+        $starter = User::factory()->create();
+        $pro = User::factory()->create(['subscription_plan' => 'pro']);
+        $agency = User::factory()->create(['subscription_plan' => 'agency']);
+
+        $this->assertSame(400, $budget->dailyCapMills($starter->id));
+        $this->assertSame(400, $budget->dailyCapMills($pro->id));
+        $this->assertSame(1600, $budget->dailyCapMills($agency->id));
+        $this->assertSame(12000, $budget->monthlyCapMills($starter->id));
+        $this->assertSame(12000, $budget->monthlyCapMills($pro->id));
+        $this->assertSame(48000, $budget->monthlyCapMills($agency->id));
+        $this->assertFalse($budget->canSpend($starter->id, 401));
+        $this->assertTrue($budget->canSpend($starter->id, 400));
+    }
 
     public function test_quote_prices_a_mixed_cart_from_the_catalog(): void
     {
@@ -24,9 +58,9 @@ class BillingTest extends TestCase
         ]);
 
         $response->assertOk()
-            ->assertJsonPath('total_cents', 10620)
-            ->assertJsonPath('discount_cents', 480)
-            ->assertJsonPath('lines.0.charged_cents', 2720)
+            ->assertJsonPath('total_cents', 10195)
+            ->assertJsonPath('discount_cents', 405)
+            ->assertJsonPath('lines.0.charged_cents', 2295)
             ->assertJsonPath('lines.1.charged_cents', 7900);
     }
 
@@ -107,7 +141,7 @@ class BillingTest extends TestCase
             );
             sort($amounts);
 
-            return $amounts === [2720, 7900];
+            return $amounts === [2295, 7900];
         });
 
         $subscriptionId = $checkout->json('subscription_id');
@@ -119,7 +153,7 @@ class BillingTest extends TestCase
                 'status' => 'completed',
                 'subscription_id' => 'sub_new',
                 'custom_data' => ['subscription_id' => (string) $subscriptionId],
-                'details' => ['totals' => ['subtotal' => '10620']],
+                'details' => ['totals' => ['subtotal' => '10195']],
             ],
         ], JSON_THROW_ON_ERROR);
 

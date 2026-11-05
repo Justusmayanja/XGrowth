@@ -154,9 +154,9 @@ export const PRESENCE = [
 ];
 
 export const YOUTUBE_MODES = [
-  { value: "short", label: "YouTube Shorts", hint: "A short, often. It searches the niche, writes the script, and lines up the next one after it learns." },
-  { value: "series", label: "Episodes", hint: "A story told in episodes. It scripts the season, then one episode a week." },
-  { value: "footage", label: "Edit my footage", hint: "You upload a video. It plans captions, zooms, color, and sound." },
+  { value: "short", label: "YouTube Shorts", hint: "A short, often. Mackie17 searches the niche, writes the script, and lines up the next one after Mackie17 learns." },
+  { value: "series", label: "Episodes", hint: "A story told in episodes. Mackie17 scripts the season, then one episode a week." },
+  { value: "footage", label: "Edit my footage", hint: "You upload a video. Mackie17 plans captions, zooms, color, and sound." },
 ];
 
 export const YOUTUBE_FORMATS = [

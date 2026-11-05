@@ -17,6 +17,7 @@ class AICoreService
     public function __construct(
         private readonly AiUsageService $usage,
         private readonly PlatformSettingsService $settings,
+        private readonly HumanVoice $voice,
     ) {}
 
     public function isConfigured(): bool
@@ -124,6 +125,9 @@ class AICoreService
         }
 
         $userPrompt .= "\nFormat: ".$this->formatInstructions($contentType)."\n";
+        if ($this->voice->applies($contentType)) {
+            $userPrompt .= $this->voice->instructions();
+        }
 
         if (! empty($params['score_virality'])) {
             $userPrompt .= "\nScore virality for whether people already in this conversation would reply or share. Use 60 or higher only when the post feels like a timely take, not a bio.\n";
@@ -164,6 +168,21 @@ PROMPT;
             if ($rewritten !== []) {
                 $result = $retried;
                 $variants = $rewritten;
+            }
+        }
+
+        if ($this->voice->applies($contentType) && $this->voice->anyRobotic($variants)) {
+            try {
+                $rewrite = $this->chatJson($systemPrompt, $userPrompt."\n\n".$this->voice->rewriteNote());
+                $rewritten = $this->normalizeVariants($rewrite['parsed']['variants'] ?? []);
+                if ($rewritten !== [] && ! $this->voice->anyRobotic($rewritten)) {
+                    $result['input_tokens'] += $rewrite['input_tokens'];
+                    $result['output_tokens'] += $rewrite['output_tokens'];
+                    $result['total_tokens'] += $rewrite['total_tokens'];
+                    $variants = $rewritten;
+                }
+            } catch (RuntimeException) {
+                // The first draft still goes out.
             }
         }
 
@@ -242,7 +261,7 @@ PROMPT;
             $text .= "Another match is allowed only when this conversation is already about that match and it is the same sport. A price or a rule is allowed only when this niche is money and the conversation is already about that price or rule.\n";
         }
         $text .= "Pattern, do not copy these situations: everyone is talking about businesses losing money and costs going up, and the account lends money, so the post is the lender's side of that pain. Everyone is praising two rival teams for being in form, and the account is the third club, so the post answers that praise from the third club's side.\n";
-        $text .= "Write a view, the way a person types after seeing it. Not a bulletin, not a plan, not a list of tips. One opinion. Length should change: sometimes one sentence, sometimes two.\n";
+        $text .= "Write a view, the way a person types after seeing it. Not a bulletin, not a plan, not a list of tips. A fragment, one sentence, or two short lines. Do not make every post the same shape.\n";
         $text .= "Do not explain the link. Do not start with \"as a\". Do not copy another account's sentence.\n";
         $text .= "Do not include a URL, a www address, or any other link.\n";
 
@@ -441,7 +460,7 @@ PROMPT;
         $userPrompt .= "Keep each name exactly as written. Do not invent a different story.\n";
         $userPrompt .= "Write the angle and the post in plain English. No hashtags, and no other language.\n";
         $userPrompt .= "A conversation does not have to be about this account. Write from this account's side anyway: a lender answers a cost crisis, a third club answers praise of two rivals.\n";
-        $userPrompt .= "The post is a view, not a bulletin and not a plan. Do not state a current job, coach, score, or price unless that exact fact is in the conversation line.\n";
+        $userPrompt .= "The post is a view, not a bulletin and not a plan. Write it the way a person types: short, specific, no slogan and no hashtags. Do not state a current job, coach, score, or price unless that exact fact is in the conversation line.\n";
         $userPrompt .= "Never quote them.\n\n";
         $userPrompt .= "Conversations:\n";
         foreach ($allowed as $name) {
@@ -766,7 +785,7 @@ PROMPT;
             'youtube_title' => 'YouTube title under 70 characters. State the subject. Do not stack punctuation or write in all caps.',
             'youtube_description' => 'YouTube description. The first two lines must make sense alone in search results. Then a short outline of the video. No keyword lists.',
             'youtube_community' => 'YouTube community post under 500 characters. One point, written to people who already watch the channel.',
-            default => 'X post under 280 characters. One claim, in the account voice.',
+            default => 'X post under 280 characters. Written the way a person types, in this account\'s voice.',
         };
     }
 

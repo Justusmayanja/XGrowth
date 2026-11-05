@@ -49,14 +49,21 @@ function resolveApiBase(): string {
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("xpulse_token") ?? localStorage.getItem("growthapp_token");
+  return (
+    localStorage.getItem("mackie17_token")
+    ?? localStorage.getItem("xpulse_token")
+    ?? localStorage.getItem("growthapp_token")
+  );
 }
 
 export function setToken(token: string) {
-  localStorage.setItem("xpulse_token", token);
+  localStorage.setItem("mackie17_token", token);
+  localStorage.removeItem("xpulse_token");
+  localStorage.removeItem("growthapp_token");
 }
 
 export function clearToken() {
+  localStorage.removeItem("mackie17_token");
   localStorage.removeItem("xpulse_token");
   localStorage.removeItem("growthapp_token");
 }
@@ -109,7 +116,7 @@ export async function api<T = unknown>(
 
     if (response.status === 403 && path.startsWith("/admin")) {
       throw new ApiError(
-        "Admin access required. Run: php artisan xpulse:make-admin your@email.com",
+        "Admin access required. Run: php artisan mackie17:make-admin your@email.com",
         403,
       );
     }

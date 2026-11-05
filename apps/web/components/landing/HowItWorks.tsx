@@ -8,19 +8,19 @@ const steps = [
     step: "01",
     title: "YouTube",
     description:
-      "Connect the channel and describe it once: who it is for, and how it should sound. It looks for ideas that already feel ready to catch on, writes what should be said, and makes the video. Already filmed something? Hand that over and it edits it into the piece. Set it to post on its own, or leave the last word with you until you confirm.",
+      "Connect the channel and describe who the audience is, and how it should sound. Mackie17 looks for ideas that already feel ready to catch on, writes what should be said, and makes the video. Already filmed something? Hand that over and Mackie17 edits it into the piece. Set posting to run, or keep the last word until you confirm.",
   },
   {
     step: "02",
     title: "TikTok",
     description:
-      "Connect the account and describe the business or the brand. It looks for ideas that suit that world, writes what should be said, and makes the clip. Then it suggests a time and waits. Nothing goes out until you confirm. After it is live, it pays attention to what people stayed for, and the next one gets closer.",
+      "Connect the account and describe the business or the brand. Mackie17 looks for ideas that suit that world, writes what should be said, and makes the clip. Then Mackie17 suggests a time and waits. Nothing goes out until you confirm. After a clip is live, Mackie17 pays attention to what people stayed for, and the next one gets closer.",
   },
   {
     step: "03",
     title: "X",
     description:
-      "Connect the profile, describe the niche, and turn posting on. There is no schedule. It stays in that world and posts when the moment looks strong enough to travel. It notices what landed, then waits for the next moment that feels the same before it posts again.",
+      "Connect the profile, describe the niche, and turn posting on. There is no schedule. Mackie17 stays in that world and posts when the moment looks strong enough to travel, notices what landed, then waits for the next moment that feels the same.",
   },
 ];
 
@@ -37,14 +37,14 @@ export function HowItWorks() {
         <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
           <div>
             <p className="mb-3 text-sm font-medium uppercase tracking-widest text-[#f0b2a6]">
-              How it works
+              How Mackie17 works
             </p>
             <h2 className="landing-section-title motion-copy motion-live">
-              You describe the account. Each network takes it from there.
+              You describe the account. Mackie17 takes it from there.
             </h2>
             <p className="motion-copy mt-4 text-lg text-muted">
-              Connect YouTube, TikTok, or X and say who it is for. What happens next is different
-              on each one, and it gets sharper every time something goes out.
+              Connect YouTube, TikTok, or X and say who the account is for. What happens next is
+              different on each network, and gets sharper every time something goes out.
             </p>
 
             <ol className="mt-10 space-y-6">

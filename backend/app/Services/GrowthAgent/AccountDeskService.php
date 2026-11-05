@@ -77,7 +77,7 @@ class AccountDeskService
         if (! $account) {
             return [
                 'decision' => null,
-                'line' => 'Connect X to see why it posts.',
+                'line' => 'Connect X to see why Mackie17 posts.',
                 'reason' => 'The line appears after the first look.',
             ];
         }
@@ -103,15 +103,15 @@ class AccountDeskService
         if (! $row) {
             return [
                 'decision' => null,
-                'line' => 'It has not looked yet today.',
-                'reason' => 'When it looks, this line says why it posted or why it stayed quiet.',
+                'line' => 'Mackie17 has not looked yet today.',
+                'reason' => 'When Mackie17 looks, this line says why Mackie17 posted or why Mackie17 stayed quiet.',
             ];
         }
 
         $line = match ($row->decision) {
-            'POST' => 'It posted.',
-            'IGNORE' => 'It left that moment.',
-            default => 'It stayed quiet.',
+            'POST' => 'Mackie17 posted.',
+            'IGNORE' => 'Mackie17 left that moment.',
+            default => 'Mackie17 stayed quiet.',
         };
 
         return [
@@ -246,7 +246,7 @@ class AccountDeskService
     {
         $reason = trim($reason);
         if ($reason === '' || str_contains($reason, 'Nothing loud enough')) {
-            return 'Nothing in this niche was loud enough. It did not post to fill the day.';
+            return 'Nothing in this niche was loud enough. Mackie17 did not post to fill the day.';
         }
 
         return $reason;

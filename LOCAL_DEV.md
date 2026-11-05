@@ -1,4 +1,4 @@
-# Run Xpulse locally
+# Run Mackie17 locally
 
 ## Prerequisites
 
@@ -76,9 +76,9 @@ Set `DB_CONNECTION=sqlite` in `backend/.env` and use `QUEUE_CONNECTION=database`
 
 ```powershell
 cd backend
-php artisan xpulse:make-admin your@email.com   # Grant admin access
-php artisan xpulse:seed-trends      # Seed mock trends
-php artisan xpulse:evaluate         # Run growth evaluation for all users
+php artisan mackie17:make-admin your@email.com   # Grant admin access
+php artisan mackie17:seed-trends      # Seed mock trends
+php artisan mackie17:evaluate         # Run growth evaluation for all users
 php artisan schedule:list           # View scheduled tasks
 ```
 
@@ -89,7 +89,7 @@ php artisan schedule:list           # View scheduled tasks
 1. Register at `/register`
 2. Complete 6-step onboarding
 3. Dashboard, Content Studio, Growth Engine, Engagement, Trends, Safety Center
-4. Admin dashboard at `/admin` (requires `php artisan xpulse:make-admin your@email.com`)
+4. Admin dashboard at `/admin` (requires `php artisan mackie17:make-admin your@email.com`)
 
 ---
 

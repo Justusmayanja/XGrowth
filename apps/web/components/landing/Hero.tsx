@@ -15,7 +15,7 @@ export function Hero() {
         <p className="th-hero-sub">
           Connect the account and describe it once.
           <br />
-          YouTube can make the video. TikTok waits for you. X posts when the moment is right.
+          Mackie17 can make the YouTube video. TikTok waits for you. Mackie17 posts on X when the moment is right.
         </p>
         <div className="th-hero-actions">
           <Link href="/register" className="th-cta">

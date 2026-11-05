@@ -17,7 +17,7 @@ const steps = [
     step: "03",
     title: "Review the first piece",
     description:
-      "YouTube can post or wait. TikTok holds for your yes. X sends when the moment looks strong enough.",
+      "Mackie17 posts on YouTube or waits. TikTok holds for your yes. Mackie17 sends on X when the moment looks strong enough.",
   },
 ];
 

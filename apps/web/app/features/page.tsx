@@ -5,7 +5,7 @@ import { SideFrame } from "@/components/landing/SideFrame";
 export const metadata: Metadata = {
   title: "Features | Mackie17",
   description:
-    "Connect YouTube, TikTok, or X and describe the account. YouTube can post or wait. TikTok waits for your yes. X posts when the moment is right.",
+    "Connect YouTube, TikTok, or X and describe the account. Mackie17 can post on YouTube or wait. TikTok waits for your yes. Mackie17 posts on X when the moment is right.",
 };
 
 export default function FeaturesPage() {
@@ -13,7 +13,7 @@ export default function FeaturesPage() {
     <MarketingShell
       kicker="The desk"
       title="Connect the accounts. Then stay with the business."
-      lede="The first job is the connection, and a plain description of who the account is for. After that, YouTube can make the video and post it or wait for you. TikTok makes the clip, suggests a time, and waits. X posts when the moment is right."
+      lede="The first job is the connection, and a plain description of who the account is for. After that, Mackie17 can make the YouTube video and post it or wait for you. Mackie17 makes the TikTok clip, suggests a time, and waits. Mackie17 posts on X when the moment is right."
     >
       <SideFrame
         src="/images/node-network.jpg"
@@ -23,11 +23,11 @@ export default function FeaturesPage() {
         <h2 className="display motion-copy mt-3 text-4xl leading-tight">One sitting to attach the accounts.</h2>
         <p className="motion-copy mt-4 text-base leading-relaxed text-muted">
           Connect the account and describe it: the business, the brand, who it is for, and how it
-          should sound. On YouTube it looks for ideas that already feel ready to catch on, writes
-          what should be said, and makes the video. Bring footage you already filmed and it edits
-          that instead. Then it posts on its own, or waits until you confirm. TikTok does the same
-          kind of work for the brand, then suggests a time and waits for your yes. X stays in the
-          niche and posts when the moment looks strong enough. There is no schedule on X.
+          should sound. On YouTube, Mackie17 looks for ideas that already feel ready to catch on, writes
+          what should be said, and makes the video. Bring footage you already filmed and Mackie17 edits
+          that instead. Then Mackie17 posts on its own, or waits until you confirm. TikTok does the same
+          kind of work for the brand, then Mackie17 suggests a time and waits for your yes. On X, Mackie17
+          stays in the niche and posts when the moment looks strong enough. There is no schedule on X.
         </p>
       </SideFrame>
 
@@ -39,9 +39,9 @@ export default function FeaturesPage() {
         <p className="text-sm text-muted">Compose</p>
         <h2 className="kicker motion-copy mt-3 text-3xl text-foreground">A rough note, three cuts.</h2>
         <p className="motion-copy mt-4 text-base leading-relaxed text-muted">
-          Bring a rough note, or footage you already have. On YouTube it can start from what you
+          Bring a rough note, or footage you already have. On YouTube, Mackie17 can start from what you
           filmed and edit that into the piece, or make the video from an idea that fits the
-          channel. On TikTok it makes the clip for the brand you described. On X it writes the
+          channel. On TikTok, Mackie17 makes the clip for the brand you described. On X, Mackie17 writes the
           post in that account&apos;s voice. The point stays yours.
         </p>
       </SideFrame>
@@ -50,9 +50,9 @@ export default function FeaturesPage() {
         <article className="glow-card lean-left p-6">
             <h2 className="display text-2xl">Topics</h2>
             <p className="mt-3 text-sm leading-relaxed text-muted">
-              After you describe the account, it watches for ideas that fit. On YouTube, ideas that
+              After you describe the account, Mackie17 watches for ideas that fit. On YouTube, ideas that
               already feel ready to catch on. On TikTok, ideas that suit the business. On X, a
-              moment strong enough to be worth a post. If that moment has passed, it holds.
+              moment strong enough to be worth a post. If that moment has passed, Mackie17 holds.
             </p>
         </article>
         <article className="glow-card p-6">
@@ -60,14 +60,14 @@ export default function FeaturesPage() {
             <p className="mt-3 text-sm leading-relaxed text-muted">
               YouTube can leave on its own when you set that, or sit until you confirm. TikTok
               suggests a time and does not post until you say yes. X is not queued for a clock
-              time. It posts when the moment looks strong enough.
+              time. Mackie17 posts when the moment looks strong enough.
             </p>
         </article>
         <article className="glow-card p-6">
             <h2 className="text-sm text-muted">Replies</h2>
             <p className="mt-3 text-sm leading-relaxed text-muted">
-              Replies drafts a response in a conversation that is already happening. Near the daily
-              reply cap, it holds. It does not jump into every thread, and it does not send DMs.
+              Replies drafts a response in a conversation that is already happening. When the pace is
+              full, Mackie17 holds. Mackie17 does not jump into every thread, and does not send DMs.
             </p>
         </article>
         <article className="glow-card p-6">
@@ -83,11 +83,11 @@ export default function FeaturesPage() {
         src="/images/mesh-surface.jpg"
         alt="A rolling neon-blue triangular mesh."
       >
-        <p className="text-sm text-muted">Limits</p>
+        <p className="text-sm text-muted">Pace</p>
         <h2 className="display motion-copy mt-3 text-4xl">A quiet day still stays quiet.</h2>
         <p className="motion-copy mt-4 text-base leading-relaxed text-muted">
-          It will not post just to fill a gap. On X it waits for a moment that looks worth it.
-          On TikTok it still needs your yes. You can pause Mackie17 from Settings without
+          Mackie17 will not post just to fill a gap. On X, Mackie17 waits for a moment that looks worth it.
+          On TikTok, Mackie17 still needs your yes. You can pause Mackie17 from Settings without
           disconnecting, and get back to the shop, the studio, or the film day.
         </p>
       </SideFrame>

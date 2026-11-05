@@ -5,7 +5,7 @@ import { useReveal } from "@/hooks/useReveal";
 const testimonials = [
   {
     quote:
-      "I was spending 2 hours a day on X. Xpulse catches transfer news faster than I ever could manually.",
+      "I was spending 2 hours a day on X. Mackie17 catches transfer news faster than I ever could manually.",
     author: "James K.",
     role: "Football creator · 12K followers",
   },
@@ -17,7 +17,7 @@ const testimonials = [
   },
   {
     quote:
-      "I don't worry about posting too much or at the wrong time anymore. Xpulse handles the pacing.",
+      "I don't worry about posting too much or at the wrong time anymore. Mackie17 handles the pacing.",
     author: "David O.",
     role: "Finance creator · 8K followers",
   },
@@ -34,7 +34,7 @@ export function Testimonials() {
       <div className="mx-auto max-w-6xl px-6">
         <div className="mx-auto max-w-2xl text-center">
           <p className="mb-3 text-sm font-semibold uppercase tracking-widest text-accent-light">
-            Creators on Xpulse
+            Creators on Mackie17
           </p>
           <h2 className="landing-section-title">Built for people who move fast</h2>
         </div>

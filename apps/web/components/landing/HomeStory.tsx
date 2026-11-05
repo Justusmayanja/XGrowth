@@ -10,8 +10,8 @@ const columns = [
     items: [
       "A rough note comes back as three cuts",
       "X post, thread, poll, or quote",
-      "TikTok writes the piece and makes the clip",
-      "YouTube writes the piece and makes the video, or edits what you filmed",
+      "Mackie17 writes the TikTok piece and makes the clip",
+      "Mackie17 writes the YouTube piece and makes the video, or edits what you filmed",
       "The voice is the one you wrote for that account",
     ],
   },
@@ -19,22 +19,22 @@ const columns = [
     title: "The queue",
     items: [
       "Suggest only and semi-auto wait for you",
-      "X posts when the moment is worth it, not on a schedule",
-      "YouTube can post on its own, or wait for your yes",
-      "TikTok offers a time, then waits for you",
-      "Posts, replies, and follows stay inside a daily cap",
+      "Mackie17 posts on X when the moment is worth it, not on a schedule",
+      "Mackie17 can post on YouTube, or wait for your yes",
+      "Mackie17 offers a TikTok time, then waits for you",
+      "Posts and replies stay at a human pace",
       "Pause from Settings without disconnecting",
     ],
   },
   {
     title: "The desk",
     items: [
-      "Topics watches the niche you named",
+      "Mackie17 watches the niche you named",
       "Drafts is what you can still edit",
-      "Replies hold when the day’s cap is close",
+      "Replies hold when the pace is full",
       "Results is the log of what left",
-      "It does not send DMs",
-      "It does not retweet you while you sleep",
+      "Mackie17 does not send DMs",
+      "Mackie17 does not retweet you while you sleep",
     ],
   },
   {
@@ -65,7 +65,7 @@ export function HomeStory() {
         />
         <ScrollLetters
           className="mt-4 text-base leading-relaxed text-[#f7f8f8]"
-          text="YouTube can make the video and post it, or wait for you. TikTok makes the clip, offers a time, and waits. X posts when the moment is strong enough, with no schedule."
+          text="Mackie17 can make the YouTube video and post it, or wait for you. Mackie17 makes the TikTok clip, offers a time, and waits. Mackie17 posts on X when the moment is strong enough, with no schedule."
         />
         <p className="th-serif mt-8 text-3xl text-[#f7f8f8]">Less rewriting. More of the actual work.</p>
       </section>
@@ -86,14 +86,14 @@ export function HomeStory() {
             <li>
               <p className="font-medium text-foreground">Topics</p>
               <p className="motion-copy mt-1">
-                It watches what that niche is still paying attention to, and it holds the draft if
+                Mackie17 watches what that niche is still paying attention to, and holds the draft if
                 the moment has passed.
               </p>
             </li>
             <li>
               <p className="font-medium text-foreground">Your own words</p>
               <p className="motion-copy mt-1">
-                Bring footage you already filmed, or a note you would not post yet. It shapes
+                Bring footage you already filmed, or a note you would not post yet. Mackie17 shapes
                 that. The point stays yours.
               </p>
             </li>
@@ -135,8 +135,8 @@ export function HomeStory() {
               <p className="display text-3xl text-[#9fd0ff]">3</p>
               <h3 className="mt-2 font-medium">Queue what you allowed</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted">
-                YouTube posts on its own when you set that, or waits for your yes. TikTok offers a
-                time and waits for you. X has no calendar. It posts when the moment is worth it.
+                Mackie17 posts on YouTube when you set that, or waits for your yes. Mackie17 offers a
+                TikTok time and waits for you. X has no calendar. Mackie17 posts when the moment is worth it.
               </p>
             </li>
           </ol>
@@ -151,21 +151,21 @@ export function HomeStory() {
             The repeats, without the risky tricks.
           </h2>
           <p className="motion-copy mt-4 text-base leading-relaxed text-muted">
-            You are not logging in at odd hours to press send. YouTube can post the finished video
-            for you, or hold it. TikTok comes back with a time and waits. X does not sit on a
-            schedule. It sends when the moment looks strong, then pays attention to what traveled.
+            You are not logging in at odd hours to press send. Mackie17 can post the finished YouTube
+            video, or hold it. Mackie17 comes back with a TikTok time and waits. X does not sit on a
+            schedule. Mackie17 sends when the moment looks strong, then pays attention to what traveled.
           </p>
           <div className="mt-6 space-y-4">
             <article className="glow-card p-5">
               <h3 className="text-sm font-medium">Suggest only, or semi-auto</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted">
-                It drafts. You decide what goes live. Nothing publishes until you say so.
+                Mackie17 drafts. You decide what goes live. Nothing publishes until you say so.
               </p>
             </article>
             <article className="glow-card p-5">
               <h3 className="text-sm font-medium">X, when the moment is right</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted">
-                Turn posting on. There is no schedule. It stays in your niche and sends when the
+                Turn posting on. There is no schedule. Mackie17 stays in your niche and sends when the
                 moment looks strong enough to travel, then waits for the next one like it.
               </p>
             </article>
@@ -189,9 +189,9 @@ export function HomeStory() {
               </h3>
               <p className="mt-2 text-sm font-medium text-[#9fd0ff]">Posts on its own, or waits</p>
               <p className="mt-3 text-sm leading-relaxed text-muted">
-                Connect the channel and describe who it is for. It looks for ideas that already
+                Connect the channel and describe who the audience is. Mackie17 looks for ideas that already
                 feel ready to catch on, writes what should be said, and makes the video. Bring
-                footage you already filmed and it edits that instead. Set it to post, or keep the
+                footage you already filmed and Mackie17 edits that instead. Set posting to run, or keep the
                 last word until you confirm.
               </p>
           </article>
@@ -202,9 +202,9 @@ export function HomeStory() {
               </h3>
               <p className="mt-2 text-sm font-medium text-[#9fd0ff]">A time, then your yes</p>
               <p className="mt-3 text-sm leading-relaxed text-muted">
-                Connect the account and describe the business or the brand. It looks for ideas
-                that suit that world, writes what should be said, and makes the clip. It suggests
-                a time and waits. You confirm, and only then does it post. What goes out makes
+                Connect the account and describe the business or the brand. Mackie17 looks for ideas
+                that suit that world, writes what should be said, and makes the clip. Mackie17 suggests
+                a time and waits. You confirm, and only then does Mackie17 post. What goes out makes
                 the next one closer.
               </p>
           </article>
@@ -215,8 +215,8 @@ export function HomeStory() {
               </h3>
               <p className="mt-2 text-sm font-medium text-[#9fd0ff]">When the moment is worth it</p>
               <p className="mt-3 text-sm leading-relaxed text-muted">
-                Connect the profile, describe the niche, and turn posting on. It stays in that
-                world and sends when the moment looks strong enough to travel. It notices what
+                Connect the profile, describe the niche, and turn posting on. Mackie17 stays in that
+                world and sends when the moment looks strong enough to travel, notices what
                 landed, then waits for the next moment that feels the same. Nothing on X is put
                 on a calendar.
               </p>

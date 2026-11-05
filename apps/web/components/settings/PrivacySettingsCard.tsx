@@ -10,7 +10,8 @@ export function PrivacySettingsCard() {
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
-          You can disconnect a platform and request account deletion. Export and the audit log are not available yet.
+          Disconnect a platform in Settings, or email privacy@mackie17.com to access or delete your
+          data. Export is not built in the product yet.
         </p>
         <div className="flex flex-wrap gap-3">
           <Link href="/privacy" className="text-primary hover:underline">

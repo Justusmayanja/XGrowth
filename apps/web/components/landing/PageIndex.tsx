@@ -4,22 +4,22 @@ const pages = [
   {
     href: "/features",
     label: "Features",
-    note: "Compose, Topics, Drafts, the queue, Replies, Results, and the daily caps.",
+    note: "Compose, Topics, Drafts, the queue, Replies, Results, and account safety.",
   },
   {
     href: "/how-it-works",
-    label: "How it works",
-    note: "Connect the account and describe it. YouTube posts or waits. TikTok asks you. X sends when it is worth it.",
+    label: "How Mackie17 works",
+    note: "Connect the account and describe it. Mackie17 posts on YouTube or waits. TikTok asks you. Mackie17 sends on X when the moment is worth it.",
   },
   {
     href: "/channels",
     label: "Channels",
-    note: "YouTube can make the video. TikTok waits for your yes. X has no schedule.",
+    note: "Mackie17 can make the YouTube video. TikTok waits for your yes. X has no schedule.",
   },
   {
     href: "/faq",
     label: "FAQ",
-    note: "The four levels, the daily caps, and what to write when you describe an account.",
+    note: "The four levels, account safety, and what to write when you describe an account.",
   },
 ];
 

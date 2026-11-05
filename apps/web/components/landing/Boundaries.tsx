@@ -5,23 +5,23 @@ import { useReveal } from "@/hooks/useReveal";
 const limits = [
   {
     title: "TikTok waits",
-    description: "It makes the clip and suggests a time. Nothing posts until you confirm.",
+    description: "Mackie17 makes the clip and suggests a time. Nothing posts until you confirm.",
   },
   {
-    title: "YouTube posts only if you set that",
+    title: "Mackie17 posts on YouTube only if you set that",
     description: "Leave the last word with you, and the video stays until you confirm.",
   },
   {
     title: "A quiet day stays quiet",
-    description: "If nothing looks worth saying, it holds. A gap in the week does not get a filler post.",
+    description: "If nothing looks worth saying, Mackie17 holds. A gap in the week does not get a filler post.",
   },
   {
     title: "No DMs",
-    description: "It drafts posts and replies inside the daily caps. It does not send direct messages.",
+    description: "Mackie17 drafts posts and replies at a human pace. Mackie17 does not send direct messages.",
   },
   {
     title: "Pause without disconnecting",
-    description: "Turn it off from Settings. The accounts stay connected, and nothing goes out while it is paused.",
+    description: "Pause from Settings. The accounts stay connected, and nothing goes out while Mackie17 is paused.",
   },
   {
     title: "Your password stays with the network",

@@ -8,15 +8,19 @@ use App\Models\Post;
 use App\Models\User;
 use App\Services\AICore\AiContextBuilder;
 use App\Services\AICore\AICoreService;
+use App\Services\Content\PostVisualService;
 use App\Services\TrendEngine\OpportunityScorerService;
 use App\Services\TrendEngine\TrendEngineService;
 use App\Services\GrowthAgent\SafetyEngineService;
+use App\Services\GrowthAgent\ViralityPredictorService;
 use App\Services\GrowthAgent\XGoalPlan;
 use App\Services\XApi\XApiService;
 use App\Support\SetupCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
 class ContentController extends Controller
@@ -29,6 +33,8 @@ class ContentController extends Controller
         private readonly OpportunityScorerService $opportunityScorer,
         private readonly TrendEngineService $trends,
         private readonly XGoalPlan $goals,
+        private readonly PostVisualService $visuals,
+        private readonly ViralityPredictorService $virality,
     ) {}
 
     public function generate(Request $request): JsonResponse
@@ -62,6 +68,8 @@ class ContentController extends Controller
             }
         }
 
+        $context = $this->suggestContext($request->user(), $profile);
+
         try {
             $result = $this->aiCore->generateContentVariants([
                 'user' => $request->user(),
@@ -77,7 +85,8 @@ class ContentController extends Controller
                 'description' => $profile?->description,
                 'use_web_search' => $search,
                 'join_live' => $suggest,
-                'suggest' => $suggest ? $this->suggestContext($request->user(), $profile) : null,
+                'recent_posts' => $context['recent'],
+                'suggest' => $suggest ? $context : null,
             ]);
         } catch (RuntimeException $e) {
             return response()->json(
@@ -90,6 +99,7 @@ class ContentController extends Controller
             foreach ($result['variants'] as $index => $variant) {
                 $result['variants'][$index]['content'] = $this->goals->finishText($profile, (string) ($variant['content'] ?? ''));
             }
+            $result['variants'] = $this->scoreVariants($request->user(), $profile, $result['variants'], $topic);
         }
 
         return response()->json($result);
@@ -135,17 +145,34 @@ class ContentController extends Controller
             'content' => ['required', 'string', 'max:4000'],
             'content_type' => ['nullable', 'in:'.self::CONTENT_TYPES],
             'virality_predicted' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'with_visual' => ['nullable', 'boolean'],
         ]);
+
+        $contentType = $validated['content_type'] ?? 'tweet';
+        $mediaPath = null;
+        if (! empty($validated['with_visual']) && in_array($contentType, ['tweet', 'quote'], true)) {
+            $made = $this->visuals->make($request->user(), $request->user()->accountProfile, $validated['content']);
+            $mediaPath = $made['path'] ?? null;
+        }
+
+        $predicted = $validated['virality_predicted'] ?? null;
+        if (SetupCatalog::platformForContentType($contentType) === 'x') {
+            $predicted = $this->scoreDraft($request->user(), $validated['content'])['score'];
+        }
 
         $post = Post::create([
             'user_id' => $request->user()->id,
             'content' => $validated['content'],
-            'content_type' => $validated['content_type'] ?? 'tweet',
+            'content_type' => $contentType,
+            'media_path' => $mediaPath,
             'status' => 'draft',
-            'virality_predicted' => $validated['virality_predicted'] ?? null,
+            'virality_predicted' => $predicted,
         ]);
 
-        return response()->json(['post' => $post], 201);
+        return response()->json([
+            'post' => $post,
+            'media_attached' => $mediaPath !== null,
+        ], 201);
     }
 
     public function publish(Request $request, Post $post, XApiService $x, SafetyEngineService $safety): JsonResponse
@@ -171,8 +198,9 @@ class ContentController extends Controller
             return response()->json(['message' => 'Connect X before posting.'], 422);
         }
 
-        if (! $safety->canAct($request->user(), 'post')) {
-            return response()->json(['message' => 'The daily post limit is reached.'], 429);
+        $accountId = (int) $account->id;
+        if (! $safety->canAct($request->user(), 'post', $accountId)) {
+            return response()->json(['message' => $safety->postHoldReason($request->user(), $accountId, false) ?: 'The daily post limit is reached.'], 429);
         }
 
         if (app(\App\Services\ApiSpend\ApiSpendService::class)->containsLink($post->content)) {
@@ -180,7 +208,7 @@ class ContentController extends Controller
         }
 
         try {
-            $platformPostId = $x->publishText($account, $post->content, $post->content_type);
+            $platformPostId = $x->publishText($account, $post->content, $post->content_type, $post->media_path);
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 502);
         }
@@ -191,9 +219,14 @@ class ContentController extends Controller
             'connected_account_id' => $account->id,
             'posted_at' => now(),
         ]);
-        $safety->recordAction($request->user(), 'post');
+        $safety->recordAction($request->user(), 'post', $accountId);
 
-        return response()->json(['post' => $post->fresh()]);
+        $payload = ['post' => $post->fresh()];
+        if ($post->media_path && $x->mediaAttached === false) {
+            $payload['media_warning'] = 'Posted the words. Reconnect X so the picture can go with them.';
+        }
+
+        return response()->json($payload);
     }
 
     public function updateDraft(Request $request, Post $post): JsonResponse
@@ -212,10 +245,16 @@ class ContentController extends Controller
             'virality_predicted' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ]);
 
+        $contentType = $validated['content_type'] ?? $post->content_type;
+        $predicted = $validated['virality_predicted'] ?? $post->virality_predicted;
+        if (SetupCatalog::platformForContentType($contentType) === 'x') {
+            $predicted = $this->scoreDraft($request->user(), $validated['content'])['score'];
+        }
+
         $post->update([
             'content' => $validated['content'],
-            'content_type' => $validated['content_type'] ?? $post->content_type,
-            'virality_predicted' => $validated['virality_predicted'] ?? $post->virality_predicted,
+            'content_type' => $contentType,
+            'virality_predicted' => $predicted,
         ]);
 
         return response()->json(['post' => $post->fresh()]);
@@ -267,8 +306,102 @@ class ContentController extends Controller
             return response()->json(['message' => 'Only drafts can be deleted.'], 422);
         }
 
+        if (is_string($post->media_path) && $post->media_path !== '') {
+            Storage::disk('local')->delete($post->media_path);
+        }
+
         $post->delete();
 
         return response()->json(['message' => 'Draft deleted']);
+    }
+
+    public function media(Request $request, Post $post): Response
+    {
+        if ($post->user_id !== $request->user()->id) {
+            abort(403);
+        }
+
+        if (! is_string($post->media_path) || $post->media_path === '' || ! Storage::disk('local')->exists($post->media_path)) {
+            abort(404);
+        }
+
+        return Storage::disk('local')->response($post->media_path);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $variants
+     * @return list<array<string, mixed>>
+     */
+    private function scoreVariants(User $user, AccountProfile $profile, array $variants, ?string $topic): array
+    {
+        $moment = $this->bestMoment($user, $topic);
+        $floor = (int) ($profile->automation_level ?? 1) >= 3 ? 60 : 75;
+        $accountId = $user->connectedAccounts()->where('platform', 'x')->where('is_active', true)->orderBy('id')->value('id');
+
+        foreach ($variants as $index => $variant) {
+            $prediction = $this->virality->predict(
+                $user,
+                (string) ($variant['content'] ?? ''),
+                $moment['trend'],
+                $profile,
+                $accountId ? (int) $accountId : null,
+                $floor,
+                $moment['score'],
+            );
+            $variants[$index]['virality_score'] = (int) round($prediction['score']);
+            $variants[$index]['estimated_reach'] = $prediction['estimated_reach'];
+            $variants[$index]['worth_posting'] = $prediction['worth_posting'];
+            $variants[$index]['virality_reason'] = $prediction['reason'];
+        }
+
+        return $variants;
+    }
+
+    /**
+     * @return array{score: float, worth_posting: bool, reason: string, estimated_reach: string}
+     */
+    private function scoreDraft(User $user, string $content): array
+    {
+        $profile = $user->accountProfile;
+        $moment = $this->bestMoment($user, $content);
+        $floor = (int) ($profile?->automation_level ?? 1) >= 3 ? 60 : 75;
+        $accountId = $user->connectedAccounts()->where('platform', 'x')->where('is_active', true)->orderBy('id')->value('id');
+
+        return $this->virality->predict(
+            $user,
+            $content,
+            $moment['trend'],
+            $profile,
+            $accountId ? (int) $accountId : null,
+            $floor,
+            $moment['score'],
+        );
+    }
+
+    /**
+     * @return array{trend: \App\Models\Trend|null, score: float|null}
+     */
+    private function bestMoment(User $user, ?string $topic): array
+    {
+        $fromAccount = $this->trends->rankedFromAccount($user);
+        if (is_array($fromAccount) && $fromAccount !== []) {
+            return [
+                'trend' => $fromAccount[0]['trend'],
+                'score' => (float) $fromAccount[0]['opportunity_score'],
+            ];
+        }
+
+        $profile = $user->accountProfile;
+        if ($profile) {
+            $ranked = $this->opportunityScorer->rankedForProfile($profile, 5);
+            if ($ranked !== []) {
+                return [
+                    'trend' => $ranked[0]['trend'],
+                    'score' => (float) $ranked[0]['opportunity_score'],
+                ];
+            }
+        }
+
+        return ['trend' => null, 'score' => $topic ? 48.0 : 35.0];
     }
 }

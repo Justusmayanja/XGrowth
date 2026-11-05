@@ -6,8 +6,8 @@ Names in the repo:
 
 | Name | Where it appears |
 |---|---|
-| **Mackie17** | The product the user sees. Landing, app shell, billing, legal pages. |
-| **Xpulse** | Laravel app name, API health payload (`"app": "Xpulse API"`), Artisan commands (`xpulse:evaluate`). |
+| **Mackie17** | The product name. Landing, app shell, billing, legal pages, API health (`"app": "Mackie17 API"`), Artisan commands (`mackie17:evaluate`). |
+| **Xpulse** | Old product name. Command aliases (`xpulse:evaluate`) still work. Docker database credentials on the existing volume are still `xpulse`. |
 | **XGrowth** | Repository folder. |
 | **GrowthApp** | Early spec name in `docs/PROJECT_SPEC.md`. Ignore it for new work. |
 
@@ -150,7 +150,7 @@ On this machine, system PostgreSQL already listens on 5432, so `docker-compose.o
 
 PHP and Composer may be a user install in `~/.local/bin` rather than distro packages. That build can lack the `intl` extension, which makes `php artisan db:show` throw. The API itself runs without it.
 
-Grant admin with `php artisan xpulse:make-admin you@example.com`.
+Grant admin with `php artisan mackie17:make-admin you@example.com`.
 
 ## 4. Repository map
 
@@ -188,7 +188,7 @@ backend/
   app/Support/SetupCatalog.php     Platforms, goals, content-type mapping
   app/Support/YouTubeCatalog.php   Modes, formats, status labels
   routes/api.php
-  routes/console.php               Scheduler and xpulse:* / youtube:run / tiktok:run commands
+  routes/console.php               Scheduler and mackie17:* / youtube:run / tiktok:run commands
   config/billing.php               Shelf prices and allowances
 
 docs/                              Specs. This file is the one that matches the code.
@@ -300,7 +300,7 @@ Daily counters per user and `action_type`: `post`, `reply`, `follow`, `like`. De
 - `billing_subscriptions` — status, interval, currency, subtotal, discount, total, gateway ids, period end.
 - `billing_subscription_lines` — one row per platform on that subscription: tier, list and charged cents, whether it is the anchor (full price) line, accounts included, monthly allowance, allowance unit (`posts` on X, `clips` on TikTok, videos on YouTube).
 
-Trials are layered on subscriptions (`TrialService`). Picking platforms during setup calls `syncForPlatforms`. `xpulse:expire-trials` and `xpulse:billing-sweep` run hourly.
+Trials are layered on subscriptions (`TrialService`). Picking platforms during setup calls `syncForPlatforms`. `mackie17:expire-trials` and `mackie17:billing-sweep` run hourly.
 
 ### Other tables
 
@@ -369,7 +369,7 @@ Per user, `evaluateOpportunities()`:
 
 Engagement drafts are separate: `GET /api/engagement/feed`, `POST /api/engagement/reply-drafts`. They are an X feature. TikTok does not get a reply bot.
 
-Trend refresh: `FetchGlobalTrendsJob` at the times in platform setting `TREND_FETCH_TIMES` (default `06:00,14:00,22:00`) when the queue is Redis. Otherwise the scheduler calls `TrendEngineService::fetchGlobalTrends()` at those times. `php artisan xpulse:seed-trends` forces a refresh. `php artisan xpulse:evaluate` runs the growth pass by hand.
+Trend refresh: `FetchGlobalTrendsJob` at the times in platform setting `TREND_FETCH_TIMES` (default `06:00,14:00,22:00`) when the queue is Redis. Otherwise the scheduler calls `TrendEngineService::fetchGlobalTrends()` at those times. `php artisan mackie17:seed-trends` forces a refresh. `php artisan mackie17:evaluate` runs the growth pass by hand.
 
 ## 11. Billing
 
@@ -438,13 +438,13 @@ Defined in `backend/routes/console.php`.
 
 | Command | Purpose |
 |---|---|
-| `php artisan xpulse:evaluate` | Growth pass for every onboarded user |
-| `php artisan xpulse:seed-trends` | Force a trend refresh |
-| `php artisan xpulse:reset-safety` | Drop old budget rows |
-| `php artisan xpulse:make-admin {email}` | Set `is_admin` |
-| `php artisan xpulse:seed-demo` | Demo users, posts, decisions |
-| `php artisan xpulse:expire-trials` | End due trials |
-| `php artisan xpulse:billing-sweep` | End lapsed plans, flag unconfirmed renewals |
+| `php artisan mackie17:evaluate` | Growth pass for every onboarded user |
+| `php artisan mackie17:seed-trends` | Force a trend refresh |
+| `php artisan mackie17:reset-safety` | Drop old budget rows |
+| `php artisan mackie17:make-admin {email}` | Set `is_admin` |
+| `php artisan mackie17:seed-demo` | Demo users, posts, decisions |
+| `php artisan mackie17:expire-trials` | End due trials |
+| `php artisan mackie17:billing-sweep` | End lapsed plans, flag unconfirmed renewals |
 | `php artisan youtube:run` | YouTube engine for every eligible account |
 | `php artisan tiktok:run {--user=}` | TikTok engine for every eligible account, or one user |
 | `php artisan tiktok:render {--clip=} {--force}` | Queue one motion render |

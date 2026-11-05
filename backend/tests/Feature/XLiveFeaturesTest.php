@@ -121,7 +121,7 @@ class XLiveFeaturesTest extends TestCase
         $this->assertSame(1, $budget->accountLimit($pro->id));
         $this->assertContains($budget->dailyPostTarget($agency->id), [6, 7, 8]);
         $this->assertSame(4, $budget->accountLimit($agency->id));
-        $this->assertSame(9450 * 4, $budget->monthlyCapMills($agency->id));
+        $this->assertSame(12000 * 4, $budget->monthlyCapMills($agency->id));
     }
 
     public function test_the_reply_feed_uses_mentions_on_the_account(): void
@@ -1216,7 +1216,7 @@ class XLiveFeaturesTest extends TestCase
     {
         [$user] = $this->connectedCook();
         $account = $user->connectedAccounts()->first();
-        Cache::put('x-read-spend:v1:'.$account->id.':'.now()->toDateString(), 360, now()->addHour());
+        Cache::put('x-read-spend:v1:'.$account->id.':'.now()->toDateString(), 200, now()->addHour());
         Http::fake();
 
         $this->actingAs($user, 'sanctum')
@@ -1337,8 +1337,8 @@ class XLiveFeaturesTest extends TestCase
         $this->actingAs($user, 'sanctum')
             ->getJson('/api/dashboard/platform/x')
             ->assertOk()
-            ->assertJsonPath('judgment.line', 'It stayed quiet.')
-            ->assertJsonPath('judgment.reason', 'Nothing in this niche was loud enough. It did not post to fill the day.')
+            ->assertJsonPath('judgment.line', 'Mackie17 stayed quiet.')
+            ->assertJsonPath('judgment.reason', 'Nothing in this niche was loud enough. Mackie17 did not post to fill the day.')
             ->assertJsonPath('earned.profile.content', 'The weekly shop gets smaller when the meal is planned')
             ->assertJsonPath('earned.profile.visits', 6)
             ->assertJsonPath('earned.replies.content', 'A cheap dinner is rice, an egg, and soy sauce')

@@ -1,6 +1,6 @@
-# Xpulse
+# Mackie17
 
-> **Grow on X when the moment is right** — watches trends in your niche, scores opportunities, drafts content in your voice, and keeps your account growing while you're offline.
+> **Grow on X when the moment is right** — Mackie17 watches trends in your niche, scores opportunities, drafts content in your voice, and keeps your account growing while you're offline.
 
 **Not a scheduler. Built for opportunity.**
 
@@ -58,7 +58,7 @@ See [LOCAL_DEV.md](LOCAL_DEV.md) for full setup (SQLite, Docker, PostgreSQL).
 Observe → Analyze → Predict → Generate → Decide → Act → Learn
 ```
 
-Posts when **opportunity score > threshold** — not on fixed schedules.
+Mackie17 posts when **opportunity score > threshold** — not on fixed schedules.
 
 ## Source
 

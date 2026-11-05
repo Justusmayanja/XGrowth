@@ -10,15 +10,15 @@ const steps = [
     body: "Connect YouTube, TikTok, or X and describe who the account is for. After that, the work moves back to the shop, the studio, or the film day.",
     shot: "drafts" as const,
     points: [
-      "YouTube can make the video and post it, or wait for you.",
-      "TikTok makes the clip, suggests a time, and waits.",
-      "X posts when the moment is right. No schedule.",
+      "Mackie17 can make the YouTube video and post it, or wait for you.",
+      "Mackie17 makes the TikTok clip, suggests a time, and waits.",
+      "Mackie17 posts on X when the moment is right. No schedule.",
     ],
   },
   {
     label: "Draft",
     title: "The piece, from the account you described.",
-    body: "It looks for what fits that account, writes what should be said, and on YouTube and TikTok it makes the video. Bring footage you already filmed and YouTube edits that instead.",
+    body: "Mackie17 looks for what fits that account, writes what should be said, and on YouTube and TikTok makes the video. Bring footage you already filmed and Mackie17 edits that instead.",
     shot: "drafts" as const,
     points: [
       "YouTube: a video made for the channel, or an edit of yours.",
@@ -29,10 +29,10 @@ const steps = [
   {
     label: "Queue",
     title: "Each network leaves differently.",
-    body: "YouTube can post the finished video on its own, or hold it until you confirm. TikTok suggests a time and waits for your yes. X has no calendar. It sends when the moment looks strong enough.",
+    body: "Mackie17 can post the finished YouTube video, or hold it until you confirm. Mackie17 suggests a TikTok time and waits for your yes. X has no calendar. Mackie17 sends when the moment looks strong enough.",
     shot: "queue" as const,
     points: [
-      "The daily caps still count.",
+      "Posting stays at a human pace.",
       "A quiet day stays quiet.",
       "Pause from Settings without disconnecting.",
     ],
@@ -40,12 +40,12 @@ const steps = [
   {
     label: "Look back",
     title: "Results is a log, not a promise.",
-    body: "See what went out and which pieces people stayed with. The next round uses that. It will not post just to fill a quiet day.",
+    body: "See what went out and which pieces people stayed with. The next round uses that. Mackie17 will not post just to fill a quiet day.",
     shot: "results" as const,
     points: [
       "What went out, and what is still a draft.",
       "Which pieces you can turn into the next cut.",
-      "Replies hold when the day’s cap is close.",
+      "Replies hold when the pace is full.",
     ],
   },
 ];

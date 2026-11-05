@@ -29,7 +29,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/health', fn () => response()->json([
     'status' => 'ok',
-    'app' => 'Xpulse API',
+    'app' => 'Mackie17 API',
     'version' => '0.1.0',
 ]));
 
@@ -103,6 +103,7 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::put('/content/drafts/{post}', [ContentController::class, 'updateDraft']);
         Route::delete('/content/drafts/{post}', [ContentController::class, 'destroy']);
         Route::get('/content/posts', [ContentController::class, 'index']);
+        Route::get('/content/posts/{post}/media', [ContentController::class, 'media']);
 
         Route::get('/tiktok/ideas', [TikTokController::class, 'ideas']);
         Route::get('/tiktok/clips', [TikTokController::class, 'index']);

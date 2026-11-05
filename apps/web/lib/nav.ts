@@ -41,7 +41,7 @@ export const NAV: Record<Platform, NavGroup[]> = {
     {
       label: "Account",
       links: [
-        { href: "/safety", label: "Limits", icon: Shield },
+        { href: "/safety", label: "Safety", icon: Shield },
         { href: "/settings", label: "Settings", icon: Settings },
       ],
     },

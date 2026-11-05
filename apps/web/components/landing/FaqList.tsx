@@ -6,31 +6,31 @@ import { ChevronDown } from "lucide-react";
 const faqs = [
   {
     q: "How does YouTube work?",
-    a: "Connect the channel and describe who it is for. It looks for ideas that already feel ready to catch on, writes what should be said, and makes the video. If you already filmed something, hand that over and it edits it. Set posting to run and it can go up on its own. Leave it off and it waits until you confirm.",
+    a: "Connect the channel and describe who the audience is. Mackie17 looks for ideas that already feel ready to catch on, writes what should be said, and makes the video. If you already filmed something, hand that over and Mackie17 edits it. Set posting to run and Mackie17 can upload on its own. Leave posting off and Mackie17 waits until you confirm.",
   },
   {
     q: "How does TikTok work?",
-    a: "Connect the account and describe the business or the brand. It looks for ideas that suit that world, writes what should be said, and makes the clip. It suggests a time, then waits. Nothing posts until you confirm. After it is live, it pays attention to what people stayed for, and the next one gets closer.",
+    a: "Connect the account and describe the business or the brand. Mackie17 looks for ideas that suit that world, writes what should be said, and makes the clip. Mackie17 suggests a time, then waits. Nothing posts until you confirm. After a clip is live, Mackie17 pays attention to what people stayed for, and the next one gets closer.",
   },
   {
     q: "How does X work?",
-    a: "Connect the profile, describe the niche, and turn posting on. There is no schedule. It stays in that world and posts when the moment looks strong enough to travel. It notices what landed, then waits for the next moment that feels the same before it posts again.",
+    a: "Connect the profile, describe the niche, and turn posting on. There is no schedule. Mackie17 stays in that world and posts when the moment looks strong enough to travel, notices what landed, then waits for the next moment that feels the same.",
   },
   {
     q: "What do I write in the account description?",
-    a: "Who it is for, the business or the brand, and how it should sound. Write it once per account. That is what keeps the next piece in your world.",
+    a: "Who the account is for, the business or the brand, and how it should sound. Write that once per account. That is what keeps the next piece in your world.",
   },
   {
     q: "Can I bring something I already made?",
-    a: "Yes, on YouTube. Hand over footage you already filmed and it edits that into the piece. The point stays yours. Then it posts on its own, or waits until you confirm, depending on what you set.",
+    a: "Yes, on YouTube. Hand over footage you already filmed and Mackie17 edits that into the piece. The point stays yours. Then Mackie17 posts on its own, or waits until you confirm, depending on what you set.",
   },
   {
-    q: "Will it post on a quiet day just to stay active?",
-    a: "No. If nothing looks worth saying, it holds. On X it waits for a moment that looks strong enough. A quiet week does not get a filler post.",
+    q: "Will Mackie17 post on a quiet day just to stay active?",
+    a: "No. If nothing looks worth saying, Mackie17 holds. On X, Mackie17 waits for a moment that looks strong enough. A quiet week does not get a filler post.",
   },
   {
     q: "Does TikTok post on its own?",
-    a: "No. It makes the clip, suggests a time, and waits. You confirm, and only then does it post. That check stays with you.",
+    a: "No. Mackie17 makes the clip, suggests a time, and waits. You confirm, and only then does Mackie17 post. That check stays with you.",
   },
   {
     q: "Can this get an account restricted?",
@@ -38,11 +38,11 @@ const faqs = [
   },
   {
     q: "Do I have to be at the computer?",
-    a: "Not for X, once posting is on: it sends when the moment is worth it. Not for YouTube, if you set it to post on its own. TikTok is the one you still open. It suggests a time, and it waits until you confirm.",
+    a: "Not for X, once posting is on: Mackie17 sends when the moment is worth it. Not for YouTube, if you set Mackie17 to post on its own. TikTok is the one you still open. Mackie17 suggests a time, and waits until you confirm.",
   },
   {
     q: "What happens when the free trial ends?",
-    a: "The trial needs no card. When it ends, you choose a package if you want Mackie17 to keep working. Until you do, the trial is over.",
+    a: "Seven days, no card. When the trial ends, you choose a package if you want Mackie17 to keep working. Until you do, the trial is over.",
   },
   {
     q: "Can I cancel?",
@@ -50,7 +50,7 @@ const faqs = [
   },
   {
     q: "Can I change a piece before it goes out?",
-    a: "Yes. Drafts stay editable. TikTok does not post until you confirm. YouTube posts on its own only if you set that. On X, pause from Settings and the next one waits.",
+    a: "Yes. Drafts stay editable. Mackie17 does not post on TikTok until you confirm. Mackie17 posts on YouTube on its own only if you set that. On X, pause from Settings and the next one waits.",
   },
   {
     q: "Do you store my password?",
@@ -81,11 +81,9 @@ export function FaqList() {
                 aria-hidden="true"
               />
             </button>
-            {isOpen && (
-              <p id={panelId} className="motion-copy pb-4 text-base leading-relaxed text-muted">
-                {faq.a}
-              </p>
-            )}
+            <div id={panelId} hidden={!isOpen} className="pb-4 text-sm leading-relaxed text-muted">
+              {isOpen ? faq.a : null}
+            </div>
           </div>
         );
       })}

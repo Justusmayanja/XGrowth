@@ -5,25 +5,35 @@ namespace App\Services\XApi;
 use App\Models\ConnectedAccount;
 use App\Models\User;
 use App\Services\ApiSpend\ApiSpendService;
+use App\Services\GrowthAgent\SafetyEngineService;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use RuntimeException;
+use Throwable;
 
 class XApiService
 {
-    public function __construct(private readonly ApiSpendService $budget) {}
+    public function __construct(
+        private readonly ApiSpendService $budget,
+        private readonly SafetyEngineService $safety,
+    ) {}
 
-    public const SCOPES = 'tweet.read tweet.write users.read like.read offline.access';
+    public const SCOPES = 'tweet.read tweet.write users.read like.read media.write offline.access';
+
+    /** Set when a post had a picture: true if X accepted it. */
+    public ?bool $mediaAttached = null;
 
     /** X bills about $0.005 per post and $0.010 per user. Amounts are stored in thousandths of a dollar. */
     private const POST_MILLS = 5;
 
     private const USER_MILLS = 10;
 
-    /** Reads stop on their own so a heavy look cannot use the whole $0.46 day. */
-    private const DAILY_READ_MILLS = 360;
+    /** Reads stop on their own so a heavy look cannot use the whole $0.40 day. */
+    private const DAILY_READ_MILLS = 200;
 
     public function configured(): bool
     {
@@ -177,7 +187,7 @@ class XApiService
         );
     }
 
-    public function publishText(ConnectedAccount $account, string $content, string $type): string
+    public function publishText(ConnectedAccount $account, string $content, string $type, ?string $mediaPath = null): string
     {
         $parts = $type === 'thread'
             ? array_values(array_filter(array_map('trim', preg_split("/\n\s*\n/", $content) ?: [])))
@@ -207,16 +217,26 @@ class XApiService
         $token = $this->accessToken($account);
         $first = null;
         $replyTo = null;
+        $this->mediaAttached = null;
+        $mediaId = null;
+        if (is_string($mediaPath) && $mediaPath !== '' && $type !== 'thread') {
+            $mediaId = $this->uploadMedia($account, $token, $mediaPath);
+            $this->mediaAttached = $mediaId !== null;
+        }
 
-        foreach ($parts as $part) {
+        foreach ($parts as $index => $part) {
             $body = ['text' => $part];
             if ($replyTo) {
                 $body['reply'] = ['in_reply_to_tweet_id' => $replyTo];
             }
+            if ($index === 0 && $mediaId !== null) {
+                $body['media'] = ['media_ids' => [$mediaId]];
+            }
 
+            $this->humanPause();
             $response = Http::withToken($token)->post('https://api.twitter.com/2/tweets', $body);
             if ($response->failed()) {
-                throw new RuntimeException($this->apiError($response));
+                throw $this->writeFailed($account, $response);
             }
 
             $replyTo = (string) $response->json('data.id');
@@ -232,6 +252,45 @@ class XApiService
         return (string) $first;
     }
 
+    private function uploadMedia(ConnectedAccount $account, string $token, string $mediaPath): ?string
+    {
+        if (! Storage::disk('local')->exists($mediaPath)) {
+            return null;
+        }
+
+        $absolute = Storage::disk('local')->path($mediaPath);
+        $name = str_ends_with(strtolower($mediaPath), '.jpg') ? 'visual.jpg' : 'visual.png';
+        $mime = str_ends_with(strtolower($mediaPath), '.jpg') ? 'image/jpeg' : 'image/png';
+
+        try {
+            $response = Http::withToken($token)
+                ->attach('media', (string) file_get_contents($absolute), $name, ['Content-Type' => $mime])
+                ->post('https://api.twitter.com/2/media/upload', [
+                    'media_category' => 'tweet_image',
+                ]);
+        } catch (Throwable $e) {
+            Log::warning('X did not take the picture', [
+                'account_id' => $account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        if ($response->failed()) {
+            Log::warning('X did not take the picture', [
+                'account_id' => $account->id,
+                'status' => $response->status(),
+            ]);
+
+            return null;
+        }
+
+        $id = $response->json('data.id') ?? $response->json('media_id_string');
+
+        return is_string($id) && $id !== '' ? $id : (is_numeric($id) ? (string) $id : null);
+    }
+
     public function likeTweet(ConnectedAccount $account, string $tweetId): void
     {
         if (! $this->budget->canLike((int) $account->user_id, (int) $account->id)) {
@@ -241,12 +300,13 @@ class XApiService
 
         $token = $this->accessToken($account);
         $userId = (string) ($account->platform_account_id ?: $this->authenticatedUserId($token));
+        $this->humanPause(short: true);
         $response = Http::withToken($token)->post('https://api.twitter.com/2/users/'.$userId.'/likes', [
             'tweet_id' => $tweetId,
         ]);
 
         if ($response->failed()) {
-            throw new RuntimeException($this->apiError($response));
+            throw $this->writeFailed($account, $response);
         }
 
         $this->budget->spend((int) $account->user_id, ApiSpendService::LIKE_MILLS);
@@ -329,13 +389,14 @@ class XApiService
         $mills = ApiSpendService::POST_MILLS;
         $this->budget->assertCanSpend((int) $account->user_id, $mills);
 
+        $this->humanPause();
         $response = Http::withToken($this->accessToken($account))->post('https://api.twitter.com/2/tweets', [
             'text' => mb_substr($text, 0, 270),
             'reply' => ['in_reply_to_tweet_id' => $tweetId],
         ]);
 
         if ($response->failed()) {
-            throw new RuntimeException($this->apiError($response));
+            throw $this->writeFailed($account, $response);
         }
 
         $this->budget->spend((int) $account->user_id, $mills);
@@ -1568,6 +1629,30 @@ class XApiService
         }
 
         return $token;
+    }
+
+    private function writeFailed(ConnectedAccount $account, Response $response): RuntimeException
+    {
+        $message = $this->apiError($response);
+        $owner = $account->user ?? User::query()->find($account->user_id);
+        if ($owner) {
+            $this->safety->noteXFailure($owner, (int) $account->id, $response->status(), $message);
+        }
+
+        if ($response->status() === 429) {
+            $message = 'X asked this account to slow down. Posting waits.';
+        }
+
+        return new RuntimeException($message);
+    }
+
+    private function humanPause(bool $short = false): void
+    {
+        if (app()->runningUnitTests()) {
+            return;
+        }
+
+        usleep($short ? random_int(400_000, 1_800_000) : random_int(1_200_000, 7_000_000));
     }
 
     private function apiError(Response $response): string

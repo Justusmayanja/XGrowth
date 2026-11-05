@@ -131,7 +131,7 @@ class DashboardController extends Controller
             });
         }
         $drafts = (clone $postQuery)->where('status', 'draft')->latest()->limit(12)
-            ->get(['id', 'content', 'content_type', 'created_at']);
+            ->get(['id', 'content', 'content_type', 'media_path', 'created_at']);
         if ($platform === 'x') {
             $drafts = $drafts
                 ->reject(fn ($draft) => $this->x->isOutsideTheAccount((string) $draft->content, $purpose))

@@ -56,7 +56,7 @@ type Desk = {
   metrics: Metric[];
   metrics_error?: string | null;
   counts: { drafts: number; posted: number };
-  drafts: { id: number; content: string; content_type: string; created_at: string }[];
+  drafts: { id: number; content: string; content_type: string; media_path?: string | null; created_at: string }[];
   ideas: { name: string; suggestion?: string }[];
   pipeline?: YouTubeItem[];
   learned?: LearnedVideo[];
@@ -83,9 +83,9 @@ type Desk = {
 };
 
 const LEDE: Record<Platform, string> = {
-  x: "It watches your niche and posts when a moment is strong. There is no schedule.",
-  tiktok: "It finds ideas that suit the brand, writes them, makes the clip, and suggests a time. You say yes.",
-  youtube: "It ranks listings and comments you paste, writes this week's package, and keeps it local.",
+  x: "Mackie17 watches your niche and posts when a moment is strong. There is no schedule.",
+  tiktok: "Mackie17 finds ideas that suit the brand, writes them, makes the clip, and suggests a time. You say yes.",
+  youtube: "Mackie17 ranks listings and comments you paste, writes this week's package, and keeps it local.",
 };
 
 const FORMAT: Record<Platform, string> = {
@@ -102,7 +102,7 @@ function composeHref(platform: Platform, topic?: string) {
 
 function paceLine(desk: Desk): string {
   if (desk.pace) {
-    return `Today's cap is ${desk.pace.ceiling}. It posts only when a moment is strong.`;
+    return "Mackie17 posts when a moment is strong. A quiet day stays quiet.";
   }
   return desk.setup.settings.mode === "proactive" ? "Even on a quiet day" : "When something is happening";
 }
@@ -121,26 +121,26 @@ function relativeTime(iso: string): string {
 }
 
 function postingLine(desk: Desk): string {
-  if (desk.platform === "tiktok") return "Suggests a time, then waits for your yes";
+  if (desk.platform === "tiktok") return "Mackie17 suggests a time, then waits for your yes";
   if (desk.platform === "youtube") {
     const mode = YOUTUBE_MODES.find((item) => item.value === desk.setup.settings.video_mode)?.label ?? "YouTube";
     const format = YOUTUBE_FORMATS.find((item) => item.value === desk.setup.settings.format)?.label;
-    const publish = desk.setup.settings.publish === "auto" ? "Approves and queues the package locally" : "Waits for your approval, then queues locally";
+    const publish = desk.setup.settings.publish === "auto" ? "Mackie17 queues the package locally" : "Mackie17 waits for your yes, then queues locally";
     return [mode, format, publish].filter(Boolean).join(" · ");
   }
-  if (desk.setup.settings.engine_paused) return "Paused. Nothing is posted until you turn it back on";
+  if (desk.setup.settings.engine_paused) return "Paused. Mackie17 posts nothing until you turn posting back on";
   const posting = desk.setup.settings.auto_post_enabled !== false;
   switch (desk.setup.settings.automation_level) {
     case 0:
-      return "Suggests only. You post";
+      return "Mackie17 suggests only. You post";
     case 2:
-      return posting ? "Posts the strong moments on its own" : "Drafts the strong moments. You approve";
+      return posting ? "Mackie17 posts the strong moments" : "Mackie17 drafts the strong moments. You approve";
     case 3:
       return posting
-        ? "Posts on its own, even while you are offline"
+        ? "Mackie17 posts even while you are offline"
         : "Full automation is selected, but posting is off";
     default:
-      return "Drafts the moment. You approve";
+      return "Mackie17 drafts. You approve";
   }
 }
 
@@ -234,6 +234,9 @@ function DraftList({ desk, empty, loose = false }: { desk: Desk; empty: string; 
       {desk.drafts.map((draft) => (
         <li key={draft.id} className={loose ? "rounded-md px-2 py-2.5 transition-colors hover:bg-white/[0.04]" : "py-3 first:pt-0 last:pb-0"}>
           <Link href="/drafts" className="block rounded-md hover:text-foreground">
+            {draft.media_path ? (
+              <p className="mb-1 text-xs text-muted-foreground">Picture attached</p>
+            ) : null}
             <p className="line-clamp-2 text-sm">{draft.content}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               {contentFormatLabel(draft.content_type)} · {loose ? relativeTime(draft.created_at) : new Date(draft.created_at).toLocaleDateString()}
@@ -446,7 +449,7 @@ function XDeskView({
             <p className="mt-1 text-sm text-muted-foreground">{postingLine(desk)}</p>
             {desk.pace && (
               <p className="mt-1 text-xs text-muted-foreground">
-                The cap changes by day: {desk.pace.low}, {desk.pace.low + 1}, or {desk.pace.high}. It is not a schedule.
+                No posting clock. Mackie17 waits for a moment that can travel.
               </p>
             )}
           </CardContent>
@@ -497,9 +500,9 @@ function XDeskView({
       <Card>
         <CardContent className="pt-6">
           <p className="text-xs text-muted-foreground">Today</p>
-          <p className="mt-1 text-sm font-medium">{desk.judgment?.line ?? "It has not looked yet today."}</p>
+          <p className="mt-1 text-sm font-medium">{desk.judgment?.line ?? "Mackie17 has not looked yet today."}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {desk.judgment?.reason ?? "When it looks, this line says why it posted or why it stayed quiet."}
+            {desk.judgment?.reason ?? "This line says why Mackie17 posted or stayed quiet."}
           </p>
           {selected?.uses_main_voice && (
             <p className="mt-2 text-xs text-muted-foreground">

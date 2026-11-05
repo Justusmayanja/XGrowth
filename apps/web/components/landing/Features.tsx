@@ -8,25 +8,25 @@ const features: { title: string; description: string; icon: LucideIcon }[] = [
     title: "Niche radar",
     icon: Radar,
     description:
-      "Tracks what is rising in your market — stories, debates, and moments before they peak.",
+      "Mackie17 tracks what is rising in your market — stories, debates, and moments before they peak.",
   },
   {
     title: "Timing",
     icon: Clock,
     description:
-      "Knows when to post, when to reply, and when silence is the better move.",
+      "Mackie17 knows when to post, when to reply, and when silence is the better move.",
   },
   {
     title: "Compose",
     icon: PenLine,
     description:
-      "Turn a rough note or a trending angle into drafts that still sound like your brand.",
+      "Mackie17 turns a rough note or a trending angle into drafts that still sound like your brand.",
   },
   {
-    title: "Limits",
+    title: "Account safety",
     icon: Shield,
     description:
-      "Daily caps, spacing, and duplicate checks so accounts stay human-paced.",
+      "Mackie17 keeps human pacing, spacing, and duplicate checks so accounts stay safe.",
   },
   {
     title: "Results",
@@ -38,7 +38,7 @@ const features: { title: string; description: string; icon: LucideIcon }[] = [
     title: "Always on",
     icon: Radio,
     description:
-      "Keeps watching and drafting while you are offline, inside the rules you set.",
+      "Mackie17 keeps watching and drafting while you are offline, inside the rules you set.",
   },
 ];
 

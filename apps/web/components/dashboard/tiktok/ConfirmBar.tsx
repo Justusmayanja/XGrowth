@@ -26,7 +26,7 @@ export function ConfirmBar({
         <p className="text-sm text-muted-foreground">Best time to post: {time}.</p>
       </div>
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-        This sends the file to your TikTok drafts. You finish and post it in TikTok.
+        Mackie17 sends the file to your TikTok drafts. You finish and post it in TikTok.
       </p>
       {reason && (
         <p className="mt-2 max-w-xl text-sm" role="status">

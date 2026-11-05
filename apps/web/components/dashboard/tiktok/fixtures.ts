@@ -146,7 +146,7 @@ export const tiktokStateFixtures: TikTokStateFixture[] = [
     }),
   },
   {
-    name: "Waiting, daily cap reached",
+    name: "Waiting, pace is full",
     tiktok: desk({
       clip: clip(),
       pipeline: { ideas: 6, written: 2, waiting: 1, confirmed: 1, posted: 0 },

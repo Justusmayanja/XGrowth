@@ -74,14 +74,14 @@ const MODES = [
 
 const HANDS = [
   { value: 0, label: "I approve everything", hint: "Mackie17 only suggests." },
-  { value: 1, label: "I decide what goes live", hint: "It drafts. You say yes." },
-  { value: 2, label: "Post when the moment is strong", hint: "It publishes the clear ones and holds the rest." },
-  { value: 3, label: "Run it while I am away", hint: "Full posting, inside the limits you set." },
+  { value: 1, label: "I decide what goes live", hint: "Mackie17 drafts. You say yes." },
+  { value: 2, label: "Post when the moment is strong", hint: "Mackie17 publishes the clear ones and holds the rest." },
+  { value: 3, label: "Run while I am away", hint: "Full posting, at a human pace." },
 ];
 
 const YOUTUBE_PUBLISH = [
-  { value: "wait", label: "Wait for me", hint: "It prepares the title, description, and timing. You publish." },
-  { value: "auto", label: "Post on its own", hint: "When the video file is ready, it uploads without asking again." },
+  { value: "wait", label: "Wait for me", hint: "Mackie17 prepares the title, description, and timing. You publish." },
+  { value: "auto", label: "Post without asking", hint: "When the video file is ready, Mackie17 uploads without asking again." },
 ];
 
 const CHAPTER_STAGES: Record<Platform, ChapterStage[]> = {
@@ -534,12 +534,12 @@ export function OnboardingWizard() {
         case "niche":
           return {
             title: purpose === "business" ? "What field is the business in?" : "What do you cover?",
-            lede: "The niche is how it decides what is worth saying.",
+            lede: "The niche is how Mackie17 decides what is worth saying.",
           };
         case "describe":
           return { title: copy.describeLabel, lede: copy.describeHint };
         case "audience":
-          return { title: copy.audienceLabel, lede: "Be specific. It decides what the drafts talk about." };
+          return { title: copy.audienceLabel, lede: "Be specific. This decides what the drafts talk about." };
         case "voice":
           return { title: copy.voiceTitle, lede: copy.voiceLede };
       }
@@ -563,14 +563,14 @@ export function OnboardingWizard() {
         };
       case "publish":
         return step.platform === "tiktok"
-          ? { title: "How TikTok publishes.", lede: "TikTok never posts on its own. It waits for your yes." }
-          : { title: "How should YouTube publish?", lede: "When the video file is ready, it can upload on its own or wait for you." };
+          ? { title: "How TikTok publishes.", lede: "TikTok never posts on its own. Mackie17 waits for your yes." }
+          : { title: "How should YouTube publish?", lede: "When the video file is ready, Mackie17 can upload without asking, or wait for you." };
       case "done": {
         const nextPlatform = data.platforms.find((p) => p !== step.platform && !data.setups[p].completed);
         return {
           title: `${name} is ready.`,
           lede: nextPlatform
-            ? `Next is ${platformName(nextPlatform)}. It takes about a minute.`
+            ? `Next is ${platformName(nextPlatform)}. About a minute.`
             : "Everything you picked is set up. The desk is waiting.",
         };
       }
@@ -671,7 +671,7 @@ export function OnboardingWizard() {
             />
           </div>
           <div className="flex flex-col gap-2">
-            <p className="text-sm text-[#a1a1aa]">How much time can you give it each week?</p>
+            <p className="text-sm text-[#a1a1aa]">How much time can you give this each week?</p>
             <ChoiceList
               options={WEEKLY_TIME}
               value={data.discovery.weekly_time}
@@ -813,7 +813,7 @@ export function OnboardingWizard() {
       {step.kind === "chapter" && step.stage === "pace" && (
         <div className="space-y-6">
           <div className="flex flex-col gap-2">
-            <p className="text-sm text-[#a1a1aa]">When it writes</p>
+            <p className="text-sm text-[#a1a1aa]">When Mackie17 writes</p>
             <ChoiceList
               options={MODES}
               value={data.setups.x.mode}

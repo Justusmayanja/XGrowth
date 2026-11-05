@@ -206,6 +206,11 @@ export default function LoginPage() {
             <p className="mt-6 text-sm text-muted-foreground">
               New here? <AuthLink href={registerHref}>Create an account</AuthLink>
             </p>
+            <p className="mt-3 text-xs text-[#7f93ab]">
+              <AuthLink href="/privacy">Privacy</AuthLink>
+              {" · "}
+              <AuthLink href="/terms">Terms</AuthLink>
+            </p>
           </div>
         </div>
       </div>

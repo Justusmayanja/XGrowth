@@ -15,13 +15,13 @@ const linksAfter = [
 const productLinks = [
   {
     href: "/how-it-works",
-    title: "How it works",
+    title: "How Mackie17 works",
     text: "Connect the accounts, then leave the apps.",
   },
   {
     href: "/channels",
     title: "Channels",
-    text: "YouTube posts or waits. TikTok asks you. X sends when it is worth it.",
+    text: "Mackie17 posts on YouTube or waits. TikTok asks you. Mackie17 sends on X when the moment is worth it.",
   },
 ];
 

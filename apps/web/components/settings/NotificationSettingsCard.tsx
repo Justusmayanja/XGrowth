@@ -87,8 +87,8 @@ export function NotificationSettingsCard({ initial }: Props) {
           />
           <SettingsToggle
             id="notify_safety_alerts"
-            label="Safety limit warnings"
-            description="When you're approaching daily post, reply, or engagement caps."
+            label="Safety warnings"
+            description="When Mackie17 holds, or when X asks this account to wait."
             checked={settings.notify_safety_alerts}
             onChange={(checked) => update("notify_safety_alerts", checked)}
           />

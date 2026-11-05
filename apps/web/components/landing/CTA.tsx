@@ -8,8 +8,8 @@ export function CTA() {
         Start with the accounts you already run.
       </h2>
       <p className="mt-4 max-w-xl text-base leading-relaxed text-muted">
-        Describe them once. YouTube can make the video and post it, or wait for you. TikTok
-        suggests a time and waits for your yes. X posts when the moment is right. No card
+        Describe them once. Mackie17 can make the YouTube video and post it, or wait for you. Mackie17
+        suggests a TikTok time and waits for your yes. Mackie17 posts on X when the moment is right. No card
         required.
       </p>
       <div className="mt-8 flex flex-wrap items-center gap-5">

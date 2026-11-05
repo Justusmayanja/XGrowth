@@ -55,7 +55,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Mackie17 | Build the audience. Let the accounts earn.",
     description:
-      "YouTube can make the video and post it, or wait for you. TikTok waits for your yes. X posts when the moment is right.",
+      "Mackie17 can make the YouTube video and post it, or wait for you. TikTok waits for your yes. Mackie17 posts on X when the moment is right.",
     type: "website",
   },
   icons: {

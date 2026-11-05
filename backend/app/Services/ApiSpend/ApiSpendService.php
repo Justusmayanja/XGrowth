@@ -9,15 +9,15 @@ use RuntimeException;
 
 /**
  * One ledger per person for X reads, X writes, and OpenAI.
- * Amounts are thousandths of a dollar. The hard stop is about 35% of the
- * plan price, so a month that uses the full cap still leaves about 65%.
+ * Amounts are thousandths of a dollar. The hard stop is $0.40 a day
+ * per X account. On Starter that is $12 of the $27 month; the rest stays.
  */
 class ApiSpendService
 {
     /** Starter hard caps. Other plans read their own numbers from billing config. */
-    public const MONTHLY_CAP_MILLS = 9450;
+    public const MONTHLY_CAP_MILLS = 12000;
 
-    public const DAILY_CAP_MILLS = 315;
+    public const DAILY_CAP_MILLS = 400;
 
     /** @var array<int, string> */
     private array $tiers = [];
@@ -33,6 +33,9 @@ class ApiSpendService
     public const QUOTE_MILLS = 15;
 
     public const TWEET_RESERVE_MILLS = 8;
+
+    /** One standard square illustration. A flyer does not spend this. */
+    public const IMAGE_MILLS = 40;
 
     public const SEARCH_RESERVE_MILLS = 25;
 

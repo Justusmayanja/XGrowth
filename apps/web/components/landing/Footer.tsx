@@ -6,7 +6,7 @@ const columns = [
     title: "Product",
     links: [
       { href: "/features", label: "Features" },
-      { href: "/how-it-works", label: "How it works" },
+      { href: "/how-it-works", label: "How Mackie17 works" },
       { href: "/channels", label: "Channels" },
       { href: "/pricing", label: "Pricing" },
       { href: "/faq", label: "FAQ" },

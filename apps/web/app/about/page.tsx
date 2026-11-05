@@ -12,7 +12,7 @@ export default function AboutPage() {
       <p>
         Mackie17 is for people who already have an account on YouTube, TikTok, or X, and usually
         on more than one of them. You connect the accounts and describe who they are for. After
-        that it looks for what fits, makes the piece, and posts the way that network should.
+        that Mackie17 looks for what fits, makes the piece, and posts the way that network should.
       </p>
 
       <h2>What you bring</h2>
@@ -23,12 +23,12 @@ export default function AboutPage() {
 
       <h2>What each account does</h2>
       <ul className="list-disc space-y-2 pl-6">
-        <li>YouTube looks for what could catch on, writes it, and makes the video — or edits footage you brought — then posts on its own or waits for you</li>
-        <li>TikTok looks for what suits the business, writes it, and makes the clip, then suggests a time and waits for you to confirm</li>
-        <li>X stays in your niche and posts when the moment looks strong, with no schedule, then waits for the next moment like it</li>
+        <li>YouTube: Mackie17 looks for what could catch on, writes it, and makes the video — or edits footage you brought — then posts on its own or waits for you</li>
+        <li>TikTok: Mackie17 looks for what suits the business, writes it, and makes the clip, then suggests a time and waits for you to confirm</li>
+        <li>X: Mackie17 stays in your niche and posts when the moment looks strong, with no schedule, then waits for the next moment like it</li>
       </ul>
 
-      <h2>After it goes out</h2>
+      <h2>After a post goes out</h2>
       <p>
         Connect the accounts you already run, describe them, and then stay with the rest of the
         business. What actually gets posted is what the next round pays attention to, so TikTok
@@ -39,7 +39,7 @@ export default function AboutPage() {
       <h2>Contact</h2>
       <p>
         Questions or partnerships:{" "}
-        <a href="mailto:hello@xpulse.app">hello@xpulse.app</a>
+        <a href="mailto:info@mackie17.com">info@mackie17.com</a>
       </p>
     </LegalLayout>
   );

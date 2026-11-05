@@ -259,7 +259,7 @@ class PlanChangeTest extends TestCase
         ];
 
         $this->actingAs($admin, 'sanctum')->patchJson('/api/admin/billing/prices', $price(38400))->assertStatus(422);
-        $this->actingAs($admin, 'sanctum')->patchJson('/api/admin/billing/prices', $price(29000))->assertStatus(422);
+        $this->actingAs($admin, 'sanctum')->patchJson('/api/admin/billing/prices', $price(25000))->assertStatus(422);
         $this->actingAs($admin, 'sanctum')->patchJson('/api/admin/billing/prices', $price(30720))
             ->assertOk()
             ->assertJsonPath('discount_percent', 20);

@@ -31,11 +31,18 @@ const TONE_LABELS: Record<string, string> = {
 
 const COMPOSE_COPY = {
   x: { title: "Compose", lede: "Write a post, thread, poll, or quote for X." },
-  tiktok: { title: "New clip", lede: "Start from an idea. It writes the hook and caption for the clip." },
+  tiktok: { title: "New clip", lede: "Start from an idea. Mackie17 writes the hook and caption for the clip." },
   youtube: { title: "YouTube text", lede: "Write a title, description, or community post. These save as text drafts; they do not create a video package." },
 } as const;
 
-type Variant = { content: string; angle?: string | null; virality_score: number; estimated_reach: string };
+type Variant = {
+  content: string;
+  angle?: string | null;
+  virality_score: number;
+  estimated_reach: string;
+  worth_posting?: boolean;
+  virality_reason?: string;
+};
 
 type ComposeMode = "suggest" | "describe";
 
@@ -59,6 +66,7 @@ export default function ContentStudioPage() {
   const [tone, setTone] = useState("professional");
   const [contentType, setContentType] = useState("tweet");
   const [useWebSearch, setUseWebSearch] = useState(false);
+  const [withPicture, setWithPicture] = useState(false);
   const [usage, setUsage] = useState<AiUsageStatus | null>(null);
 
   const [topic, setTopic] = useState("");
@@ -156,18 +164,29 @@ export default function ContentStudioPage() {
     );
   }
 
+  const pictureOn = withPicture && platform === "x" && (contentType === "tweet" || contentType === "quote");
+
   async function saveDraft(variant: Variant, index: number) {
     setSavingId(index);
     try {
-      await api("/content/drafts", {
-        method: "POST",
-        body: JSON.stringify({
-          content: variant.content,
-          content_type: contentType,
-          virality_predicted: variant.virality_score,
-        }),
-      });
-      toast.success("Draft saved");
+      const saved = await api<{ media_attached?: boolean }>(
+        "/content/drafts",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            content: variant.content,
+            content_type: contentType,
+            virality_predicted: variant.virality_score,
+            with_visual: pictureOn,
+          }),
+        },
+        pictureOn ? 45000 : 8000,
+      );
+      if (pictureOn && saved.media_attached === false) {
+        toast.error("Saved the words. A picture could not be made.");
+      } else {
+        toast.success(pictureOn ? "Draft saved with a picture" : "Draft saved");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save draft");
     } finally {
@@ -178,16 +197,29 @@ export default function ContentStudioPage() {
   async function postNow(variant: Variant, index: number) {
     setPostingId(index);
     try {
-      const saved = await api<{ post: { id: number } }>("/content/drafts", {
-        method: "POST",
-        body: JSON.stringify({
-          content: variant.content,
-          content_type: contentType,
-          virality_predicted: variant.virality_score,
-        }),
-      });
+      const saved = await api<{ post: { id: number }; media_attached?: boolean }>(
+        "/content/drafts",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            content: variant.content,
+            content_type: contentType,
+            virality_predicted: variant.virality_score,
+            with_visual: pictureOn,
+          }),
+        },
+        pictureOn ? 45000 : 8000,
+      );
       try {
-        await api(`/content/drafts/${saved.post.id}/publish`, { method: "POST" });
+        const posted = await api<{ media_warning?: string }>(
+          `/content/drafts/${saved.post.id}/publish`,
+          { method: "POST" },
+          pictureOn ? 20000 : 8000,
+        );
+        if (posted.media_warning) {
+          toast.success(posted.media_warning);
+          return;
+        }
       } catch (err) {
         const reason = err instanceof Error ? err.message : "Could not post to X";
         toast.error(`${reason} It is saved in drafts.`);
@@ -260,7 +292,7 @@ export default function ContentStudioPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="topic">
-                  {mode === "suggest" ? "Anything it should include?" : "What do you want to post about?"}
+                  {mode === "suggest" ? "Anything Mackie17 should include?" : "What do you want to post about?"}
                 </Label>
                 <Textarea
                   id="topic"
@@ -312,6 +344,22 @@ export default function ContentStudioPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {platform === "x" && (contentType === "tweet" || contentType === "quote") && (
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={withPicture}
+                    onChange={(e) => setWithPicture(e.target.checked)}
+                  />
+                  <span>
+                    Add a picture
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      A flyer or an illustration from this account&apos;s description. Autopilot also adds one after a run of text posts. Reconnect X once so pictures can be posted.
+                    </span>
+                  </span>
+                </label>
+              )}
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
@@ -367,8 +415,8 @@ export default function ContentStudioPage() {
                     className="mb-3"
                   />
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      Score {v.virality_score}/100 · Reach {v.estimated_reach}
+                    <span className="text-xs text-muted-foreground" title={v.virality_reason ?? ""}>
+                      {v.worth_posting ? "Worth posting" : "Hold"} · {v.virality_score}/100 · {v.estimated_reach}
                     </span>
                     <Button
                       type="button"

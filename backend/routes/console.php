@@ -21,27 +21,27 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Artisan::command('xpulse:evaluate', function () {
+Artisan::command('mackie17:evaluate', function () {
     $count = app(GrowthAgentService::class)->evaluateAllUsers();
     $this->info("Evaluated {$count} user(s).");
 })->purpose('Run growth opportunity evaluation for all onboarded users');
 
-Artisan::command('xpulse:seed-trends', function () {
+Artisan::command('mackie17:seed-trends', function () {
     $trends = app(TrendEngineService::class)->fetchGlobalTrends(force: true);
     $this->info('Refreshed '.count($trends).' trend(s).');
 })->purpose('Manually refresh the shared trend catalog. Account topics use the home timeline and are not refreshed here.');
 
-Artisan::command('xpulse:reset-safety', function () {
+Artisan::command('mackie17:reset-safety', function () {
     $deleted = app(SafetyEngineService::class)->resetDailyBudgets();
     $this->info("Removed {$deleted} expired safety budget row(s).");
 })->purpose('Clean up expired daily rate-limit budget rows');
 
-Artisan::command('xpulse:seed-demo {--force : Re-seed demo users even if they already exist}', function () {
+Artisan::command('mackie17:seed-demo {--force : Re-seed demo users even if they already exist}', function () {
     $result = app(AdminDemoDataService::class)->seed($this->option('force'));
     $this->info("Seeded {$result['users']} user(s), {$result['trends']} trend(s), {$result['posts']} post(s), {$result['decisions']} decision(s).");
 })->purpose('Seed demo users, posts, and decisions for admin development');
 
-Artisan::command('xpulse:make-admin {email : User email address}', function (string $email) {
+Artisan::command('mackie17:make-admin {email : User email address}', function (string $email) {
     $user = User::where('email', $email)->first();
 
     if (! $user) {
@@ -56,15 +56,37 @@ Artisan::command('xpulse:make-admin {email : User email address}', function (str
     return 0;
 })->purpose('Grant admin access to a user by email');
 
-Artisan::command('xpulse:expire-trials', function () {
+Artisan::command('mackie17:expire-trials', function () {
     $count = app(TrialService::class)->expireDue();
     $this->info("Ended {$count} free trial(s).");
 })->purpose('End free trials whose trial period is over');
 
-Artisan::command('xpulse:billing-sweep', function () {
+Artisan::command('mackie17:billing-sweep', function () {
     $result = app(BillingLifecycle::class)->sweep();
     $this->info("Ended {$result['ended']} plan(s), marked {$result['past_due']} past due.");
 })->purpose('End plans whose paid period ran out and flag unconfirmed renewals');
+
+Artisan::command('xpulse:evaluate', function () {
+    return $this->call('mackie17:evaluate');
+})->purpose('Alias for mackie17:evaluate');
+Artisan::command('xpulse:seed-trends', function () {
+    return $this->call('mackie17:seed-trends');
+})->purpose('Alias for mackie17:seed-trends');
+Artisan::command('xpulse:reset-safety', function () {
+    return $this->call('mackie17:reset-safety');
+})->purpose('Alias for mackie17:reset-safety');
+Artisan::command('xpulse:seed-demo {--force : Re-seed demo users even if they already exist}', function () {
+    return $this->call('mackie17:seed-demo', ['--force' => $this->option('force')]);
+})->purpose('Alias for mackie17:seed-demo');
+Artisan::command('xpulse:make-admin {email : User email address}', function (string $email) {
+    return $this->call('mackie17:make-admin', ['email' => $email]);
+})->purpose('Alias for mackie17:make-admin');
+Artisan::command('xpulse:expire-trials', function () {
+    return $this->call('mackie17:expire-trials');
+})->purpose('Alias for mackie17:expire-trials');
+Artisan::command('xpulse:billing-sweep', function () {
+    return $this->call('mackie17:billing-sweep');
+})->purpose('Alias for mackie17:billing-sweep');
 
 Schedule::call(fn () => app(TrialService::class)->expireDue())
     ->hourly()

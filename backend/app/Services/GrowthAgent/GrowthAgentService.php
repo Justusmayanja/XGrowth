@@ -8,6 +8,7 @@ use App\Models\Post;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use App\Services\AICore\AICoreService;
+use App\Services\Content\PostVisualService;
 use App\Services\ApiSpend\ApiSpendService;
 use App\Services\TrendEngine\OpportunityScorerService;
 use App\Services\TrendEngine\TrendEngineService;
@@ -30,6 +31,8 @@ class GrowthAgentService
         private readonly TrendEngineService $trends,
         private readonly ApiSpendService $budget,
         private readonly XGoalPlan $goals,
+        private readonly PostVisualService $visuals,
+        private readonly ViralityPredictorService $virality,
     ) {}
 
     private bool $draftedThisRun = false;
@@ -172,7 +175,7 @@ class GrowthAgentService
      */
     private function evaluateWithBrain(User $user, AccountProfile $profile, array $ranked): string
     {
-        $safetyStatus = $this->safetyEngine->status($user);
+        $safetyStatus = $this->safetyEngine->status($user, $this->xAccount($user)?->id);
         $evaluation = $this->growthBrain->evaluate($user, $profile, $ranked, $safetyStatus);
 
         /** @var \App\Models\Trend|null $trend */
@@ -199,7 +202,7 @@ class GrowthAgentService
             $reason = 'Reply under "'.$trend->name.'". It already has an audience, which is what this goal counts.';
         }
 
-        if ($decision === 'POST' && ! $this->safetyEngine->canAct($user, 'post')) {
+        if ($decision === 'POST' && ! $this->safetyEngine->canAct($user, 'post', $this->xAccount($user)?->id)) {
             return $this->logDecision(
                 $user,
                 'WAIT',
@@ -276,7 +279,7 @@ class GrowthAgentService
             'mix' => $mix['prefer'],
         ];
 
-        if (! $this->safetyEngine->canAct($user, 'post')) {
+        if (! $this->safetyEngine->canAct($user, 'post', $this->xAccount($user)?->id)) {
             return $this->logDecision(
                 $user,
                 'WAIT',
@@ -527,18 +530,28 @@ class GrowthAgentService
 
         $context['draft_post_id'] = $draft->id;
         $context['draft_preview'] = mb_substr($draft->content, 0, 160);
-        $context['virality_predicted'] = $draft->virality_predicted;
 
         $floor = $this->viralityFloor($profile);
-        $virality = (float) ($draft->virality_predicted ?? 0);
+        $prediction = $this->virality->predict(
+            $user,
+            $draft->content,
+            $trend,
+            $profile,
+            $this->xAccount($user)?->id,
+            $floor,
+            $score,
+        );
+        $draft->update(['virality_predicted' => $prediction['score']]);
+        $context['virality_predicted'] = $prediction['score'];
+        $context['virality'] = $prediction;
 
-        if ($virality < $floor) {
+        if (! $prediction['worth_posting']) {
             return $this->logDecision(
                 $user,
                 'WAIT',
                 'held_low_virality',
                 $score,
-                $reason." — held the draft (virality {$virality}/100, needs {$floor} in this niche)",
+                $prediction['reason'],
                 $context
             );
         }
@@ -556,13 +569,18 @@ class GrowthAgentService
             );
         }
 
-        if (! $this->safetyEngine->canAct($user, 'post')) {
+        $safetyHold = $this->safetyEngine->postHoldReason(
+            $user,
+            (int) $account->id,
+            $this->virality->isSpike($trend, $score),
+        );
+        if ($safetyHold !== null) {
             return $this->logDecision(
                 $user,
                 'WAIT',
                 'draft_prepared',
                 $score,
-                'Daily post limit reached — the draft is saved',
+                $safetyHold,
                 $context
             );
         }
@@ -590,7 +608,7 @@ class GrowthAgentService
         }
 
         try {
-            $platformPostId = $this->xApi->publishText($account, $draft->content, $draft->content_type);
+            $platformPostId = $this->xApi->publishText($account, $draft->content, $draft->content_type, $draft->media_path);
         } catch (RuntimeException $e) {
             Cache::forget($this->publishLockKey($user->id));
             Log::warning('Autopublish failed', [
@@ -617,7 +635,7 @@ class GrowthAgentService
         ]);
         Cache::forget($this->publishLockKey($user->id));
         $this->postedThisRun = true;
-        $this->safetyEngine->recordAction($user, 'post');
+        $this->safetyEngine->recordAction($user, 'post', (int) $account->id);
 
         return $this->logDecision(
             $user,
@@ -849,7 +867,7 @@ class GrowthAgentService
                 }
                 try {
                     $this->xApi->likeTweet($account, $candidate['id']);
-                    $this->safetyEngine->recordAction($user, 'like');
+                    $this->safetyEngine->recordAction($user, 'like', (int) $account->id);
                     $this->rememberTouch($user, 'like', $candidate['id']);
                     Cache::put($this->engageGapKey($user->id, 'like'), now()->timestamp, now()->addDay());
                     $this->logDecision($user, 'ENGAGE', 'liked', null, 'Liked one post. Most posts are left alone.', [
@@ -914,7 +932,7 @@ class GrowthAgentService
                     'connected_account_id' => $account->id,
                     'posted_at' => now(),
                 ]);
-                $this->safetyEngine->recordAction($user, 'reply');
+                $this->safetyEngine->recordAction($user, 'reply', (int) $account->id);
                 $this->rememberTouch($user, 'reply', $candidate['id']);
                 Cache::put($this->engageGapKey($user->id, 'reply'), now()->timestamp, now()->addDay());
                 $this->logDecision($user, 'ENGAGE', 'replied', null, $this->goals->allowsLink($profile)
@@ -1092,11 +1110,11 @@ class GrowthAgentService
 
     private function canEngageNow(User $user, string $action, int $dailyCap, int $gapMinutes): bool
     {
-        if (! $this->safetyEngine->canAct($user, $action)) {
+        if (! $this->safetyEngine->canAct($user, $action, $this->xAccount($user)?->id)) {
             return false;
         }
 
-        $status = $this->safetyEngine->status($user);
+        $status = $this->safetyEngine->status($user, $this->xAccount($user)?->id);
         if ((int) ($status['actions'][$action]['count'] ?? 0) >= $dailyCap) {
             return false;
         }
@@ -1295,14 +1313,34 @@ class GrowthAgentService
                 return null;
             }
 
+            $mediaPath = null;
+            if ($this->visuals->due($user, $accountId)) {
+                try {
+                    $made = $this->visuals->make($user, $profile, $content);
+                    $mediaPath = $made['path'] ?? null;
+                } catch (Throwable) {
+                    $mediaPath = null;
+                }
+            }
+
+            $prediction = $this->virality->predict(
+                $user,
+                $content,
+                $isOriginal ? null : $trend,
+                $profile,
+                $accountId,
+                $this->viralityFloor($profile),
+            );
+
             $draft = Post::create([
                 'user_id' => $user->id,
                 'connected_account_id' => $accountId,
                 'trend_id' => $isOriginal ? null : $trend?->id,
                 'content' => $content,
+                'media_path' => $mediaPath,
                 'content_type' => 'tweet',
                 'status' => 'draft',
-                'virality_predicted' => $variant['virality_score'],
+                'virality_predicted' => $prediction['score'],
             ]);
             Cache::put($draftsKey, (int) Cache::get($draftsKey, 0) + 1, now()->endOfDay()->addHour());
 
@@ -1385,7 +1423,7 @@ class GrowthAgentService
      */
     public function evaluate(User $user, AccountProfile $profile, float $opportunityScore): string
     {
-        if (! $this->safetyEngine->canAct($user, 'post')) {
+        if (! $this->safetyEngine->canAct($user, 'post', $this->xAccount($user)?->id)) {
             $this->logDecision($user, 'WAIT', null, $opportunityScore, 'Safety limits reached', []);
 
             return 'WAIT';

@@ -21,7 +21,7 @@ const POSTING_MODES = [
   {
     value: 1,
     label: "Confirm before posting",
-    hint: "It drafts the post and waits for your yes.",
+    hint: "Mackie17 drafts the post and waits for your yes.",
   },
   AUTOMATION_LEVELS.find((level) => level.value === 2)!,
   AUTOMATION_LEVELS.find((level) => level.value === 0)!,
@@ -106,8 +106,8 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
       <CardContent>
         <div className="space-y-5">
           <div className="space-y-2">
-            <p className="text-sm font-medium">How it posts</p>
-            <div className="flex flex-col gap-2" role="radiogroup" aria-label="How it posts">
+            <p className="text-sm font-medium">How Mackie17 posts</p>
+            <div className="flex flex-col gap-2" role="radiogroup" aria-label="How Mackie17 posts">
               {POSTING_MODES.map((mode) => {
                 const selected = settings.automation_level === mode.value;
                 return (
@@ -147,7 +147,7 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
 
           {full && !xConnected && (
             <p className="text-sm text-muted-foreground">
-              Connect X below. Until then, full automation can draft, but it cannot publish.
+              Connect X below. Until then, full automation can draft, but Mackie17 cannot publish.
             </p>
           )}
 
@@ -161,7 +161,7 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
             />
             <SettingsToggle
               id="auto_post_enabled"
-              label="Post on its own"
+              label="Post without asking"
               description="On publishes when the mode above allows it. Off keeps every post as a draft, even in full automation."
               checked={settings.auto_post_enabled}
               onChange={(checked) => patch({ auto_post_enabled: checked })}
@@ -169,8 +169,8 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
             />
             <SettingsToggle
               id="auto_reply_enabled"
-              label="Reply on its own"
-              description="On sends a few replies a day, written for that post. It does not reply to every post."
+              label="Reply without asking"
+              description="On sends a few replies a day, written for that post. Mackie17 does not reply to every post."
               checked={settings.auto_reply_enabled}
               onChange={(checked) => patch({ auto_reply_enabled: checked })}
               disabled={paused}
@@ -178,7 +178,7 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
             <SettingsToggle
               id="auto_engage_enabled"
               label="Like some posts"
-              description="On likes a few posts in the niche. It does not like every post, and it leaves gaps between likes."
+              description="On likes a few posts in the niche. Mackie17 does not like every post, and leaves gaps between likes."
               checked={settings.auto_engage_enabled}
               onChange={(checked) => patch({ auto_engage_enabled: checked })}
               disabled={paused}
@@ -194,7 +194,7 @@ export function AutomationSettingsCard({ initial, xConnected = false }: Props) {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            It skips some big accounts, and it likes and replies only sometimes. A post goes out when a moment in the niche is loud. A quiet timeline stays quiet, so there is no hour a tweet is due.
+            Mackie17 skips some big accounts, and likes and replies only sometimes. A post goes out when a moment in the niche is loud. A quiet timeline stays quiet, so there is no hour a tweet is due.
           </p>
 
           <Link href="/growth-agent">

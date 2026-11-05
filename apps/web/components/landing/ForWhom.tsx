@@ -9,14 +9,14 @@ const people: { title: string; fit: string; description: string; icon: LucideIco
     fit: "TikTok waits for your yes",
     icon: Store,
     description:
-      "Describe the business once. It makes the clip and suggests a time. Nothing goes out until you confirm.",
+      "Describe the business once. Mackie17 makes the clip and suggests a time. Nothing goes out until you confirm.",
   },
   {
     title: "A channel",
-    fit: "YouTube posts, or waits",
+    fit: "Mackie17 posts on YouTube, or waits",
     icon: Clapperboard,
     description:
-      "Describe who the channel is for. It writes the piece and makes the video, or edits footage you already filmed. You choose whether it posts or holds.",
+      "Describe who the channel is for. Mackie17 writes the piece and makes the video, or edits footage you already filmed. You choose whether Mackie17 posts or holds.",
   },
   {
     title: "More than one account",
@@ -34,7 +34,7 @@ export function ForWhom() {
     <section id="who" ref={ref} className={`landing-reveal py-24 ${visible ? "visible" : ""}`}>
       <div className="mx-auto max-w-6xl px-6">
         <div className="mx-auto max-w-2xl text-center">
-          <p className="mb-3 text-sm font-medium uppercase tracking-widest text-[#f0b2a6]">Who it is for</p>
+          <p className="mb-3 text-sm font-medium uppercase tracking-widest text-[#f0b2a6]">Who Mackie17 is for</p>
           <h2 className="landing-section-title motion-copy motion-live">
             People who already run the account
           </h2>

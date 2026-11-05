@@ -4,21 +4,21 @@ const quotes = [
     role: "Product studio",
     where: "X · when the moment is right",
     quote:
-      "I connected X and left posting on. There is no calendar. It sends while I am with a client, and only when the moment looks worth it.",
+      "I connected X and left posting on. There is no calendar. Mackie17 sends while I am with a client, and only when the moment looks worth it.",
   },
   {
     name: "Jonah",
     role: "Tutorial channel",
     where: "YouTube · posts or waits",
     quote:
-      "I described the channel once. It makes the video, or edits what I already filmed. I can let it post, or I look first.",
+      "I described the channel once. Mackie17 makes the video, or edits what I already filmed. I can let Mackie17 post, or I look first.",
   },
   {
     name: "Priya",
     role: "Shop",
     where: "TikTok · you confirm",
     quote:
-      "It makes the clip for the shop and suggests a time. Nothing goes out until I say yes. The next one is closer than the last.",
+      "Mackie17 makes the clip for the shop and suggests a time. Nothing goes out until I say yes. The next one is closer than the last.",
   },
 ];
 

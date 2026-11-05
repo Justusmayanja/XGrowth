@@ -1,8 +1,8 @@
-# Xpulse — Complete Development Plan
+# Mackie17 — Complete Development Plan
 
 **From zero to production-ready Growth Engine for X**
 
-> **Last synced:** July 2026 · **Product name:** Xpulse (repo folder may still read `GrowthApp`)
+> **Last synced:** July 2026 · **Product name:** Mackie17 (repo folder may still read `GrowthApp`; old name was Xpulse)
 
 This plan follows every decision in [`PROJECT_FINDINGS.md`](PROJECT_FINDINGS.md). For historical context see [`SOURCE_CONVERSATION.md`](SOURCE_CONVERSATION.md).
 
@@ -48,7 +48,7 @@ This plan follows every decision in [`PROJECT_FINDINGS.md`](PROJECT_FINDINGS.md)
 ```
 GrowthApp/                          # repo folder name (rename optional)
 ├── apps/
-│   └── web/                        # Next.js dashboard (Xpulse UI)
+│   └── web/                        # Next.js dashboard (Mackie17 UI)
 ├── backend/                        # Laravel 12 API
 │   ├── app/
 │   │   ├── Http/Controllers/Api/   # 10 controllers
@@ -94,7 +94,7 @@ GrowthApp/                          # repo folder name (rename optional)
 - [ ] Create **OpenAI** API key with usage limits
 - [ ] Register **Paddle** seller account — verify Uganda payouts
 - [ ] Register **Flutterwave** for African payments
-- [ ] Buy domain (Xpulse — after name finalized)
+- [ ] Buy domain (Mackie17 — after name finalized)
 - [ ] Create GitHub repo and push initial commit
 
 ### Day 2: Local Environment
@@ -191,7 +191,7 @@ GrowthApp/                          # repo folder name (rename optional)
 
 ### Global Trend Engine
 - [x] `FetchGlobalTrendsJob` + scheduler every **5 min** (`routes/console.php`)
-- [x] `xpulse:seed-trends` artisan command + `MockTrendSeeder`
+- [x] `mackie17:seed-trends` artisan command + `MockTrendSeeder`
 - [~] Trend fetch — **mock catalog** in `TrendEngineService` (no X API yet)
 - [x] `trends` table with score, velocity, growth_rate, niche_tags
 - [x] One global fetch — not per-user
@@ -226,7 +226,7 @@ GrowthApp/                          # repo folder name (rename optional)
 - [ ] Duplicate text similarity checks
 - [ ] Randomized delays (3–42 min between actions)
 - [ ] New account warmup rules
-- [x] `SafetyResetJob` daily cleanup — scheduler at 00:05 + `xpulse:reset-safety`
+- [x] `SafetyResetJob` daily cleanup — scheduler at 00:05 + `mackie17:reset-safety`
 
 ### Growth Engine UI
 - [x] Sidebar: **Growth Engine** (`/growth-agent`)
@@ -403,9 +403,9 @@ Production crontab:
 
 Artisan commands:
 ```bash
-php artisan xpulse:seed-trends
-php artisan xpulse:evaluate
-php artisan xpulse:reset-safety
+php artisan mackie17:seed-trends
+php artisan mackie17:evaluate
+php artisan mackie17:reset-safety
 php artisan schedule:list
 ```
 
@@ -434,7 +434,7 @@ php artisan queue:work redis --queue=analytics --tries=3
 
 | Method | Endpoint | Purpose | Notes |
 |--------|----------|---------|-------|
-| GET | `/api/health` | Health check | Returns Xpulse API v0.1.0 |
+| GET | `/api/health` | Health check | Returns Mackie17 API v0.1.0 |
 | POST | `/api/auth/register` | Sign up | |
 | POST | `/api/auth/login` | Login | |
 | POST | `/api/auth/logout` | Logout | Sanctum |

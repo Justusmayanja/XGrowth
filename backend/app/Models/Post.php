@@ -14,6 +14,7 @@ class Post extends Model
         'platform_post_id',
         'content_type',
         'content',
+        'media_path',
         'status',
         'virality_predicted',
         'impressions',

@@ -43,6 +43,7 @@ return [
             'tiers' => [
                 'starter' => [
                     'name' => 'Starter',
+                    // $27 a month. $0.40 a day ($12 a month) is the X and OpenAI stop. The other $15 stays.
                     'list_cents' => 2700,
                     'minimum_cents' => 2200,
                     'accounts' => 1,
@@ -54,10 +55,9 @@ return [
                         'Drafts wait for your yes',
                         'Followers, impressions, and likes',
                     ],
-                    // Hard stop is 35% of $27. A full day of posts, replies, likes, and reads fits under it.
                     'api' => [
-                        'monthly_cap_mills' => 9450,
-                        'daily_cap_mills' => 315,
+                        'monthly_cap_mills' => 12000,
+                        'daily_cap_mills' => 400,
                         'post_low' => 6,
                         'post_high' => 8,
                         'replies' => 2,
@@ -69,6 +69,7 @@ return [
                 ],
                 'pro' => [
                     'name' => 'Pro',
+                    // One account with the extra posts. $0.40 a day is still the cost floor; the rest of $46 stays.
                     'list_cents' => 4600,
                     'minimum_cents' => 3700,
                     'accounts' => 1,
@@ -81,10 +82,10 @@ return [
                         'Larger accounts in this circle, on the replies page',
                         'Followers, impressions, likes, replies, reposts, and profile visits, refreshed daily',
                     ],
-                    // Two extra posts a day. The hard stop stays near a third of $46.
+                    // Same $0.40 day as Starter. Extra posts share that budget.
                     'api' => [
-                        'monthly_cap_mills' => 15900,
-                        'daily_cap_mills' => 530,
+                        'monthly_cap_mills' => 12000,
+                        'daily_cap_mills' => 400,
                         'post_low' => 11,
                         'post_high' => 13,
                         'replies' => 5,
@@ -96,6 +97,7 @@ return [
                 ],
                 'agency' => [
                     'name' => 'Agency',
+                    // Four Starter accounts: 4 × $27.
                     'list_cents' => 10800,
                     'minimum_cents' => 8800,
                     'accounts' => 4,
@@ -108,10 +110,10 @@ return [
                         'Each account has its own replies, likes, and API budget',
                         'The fuller totals on the dashboard',
                     ],
-                    // Per account, same as Starter. The ledger multiplies by the 4 accounts.
+                    // Per account, same $0.40 day as Starter. The ledger multiplies by the 4 accounts.
                     'api' => [
-                        'monthly_cap_mills' => 9450,
-                        'daily_cap_mills' => 315,
+                        'monthly_cap_mills' => 12000,
+                        'daily_cap_mills' => 400,
                         'post_low' => 6,
                         'post_high' => 8,
                         'replies' => 2,

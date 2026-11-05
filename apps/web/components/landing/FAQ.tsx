@@ -11,18 +11,18 @@ const faqs = [
   },
   {
     q: "Will this put my X account at risk?",
-    a: "Mackie17 is built with account protection: rate limits, natural pacing, duplicate checks, and random delays. It is designed to behave like a thoughtful creator, not a spam bot.",
+    a: "Mackie17 is built with account protection: rate limits, natural pacing, duplicate checks, and random delays. Mackie17 is designed to behave like a thoughtful creator, not a spam bot.",
   },
   {
-    q: "Does it work while I'm offline?",
-    a: "Yes. Mackie17 runs continuously. Your phone can be off and the dashboard closed, and it keeps watching trends and acting based on the settings you choose.",
+    q: "Does Mackie17 work while I'm offline?",
+    a: "Yes. Mackie17 runs continuously. Your phone can be off and the dashboard closed, and Mackie17 keeps watching trends and acting based on the settings you choose.",
   },
   {
     q: "What happens after I sign up?",
     a: "You answer a short setup about your goals, niche, audience, and voice. Mackie17 uses that to tailor trends, timing, and content to your account from day one.",
   },
   {
-    q: "What niches does it support?",
+    q: "What niches does Mackie17 support?",
     a: "Football, tech, business, crypto, motivation, memes, local news, entertainment, and custom niches. You describe your account during setup.",
   },
   {

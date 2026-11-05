@@ -5,7 +5,6 @@ import { LoadingMark } from "@/components/LoadingMark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import type { SafetyStatus } from "@/lib/settings";
 
 type Props = {
@@ -13,36 +12,49 @@ type Props = {
   loading: boolean;
 };
 
+function statusLabel(safety: SafetyStatus): { label: string; detail: string } {
+  if (safety.frozen) {
+    return { label: "Waiting", detail: safety.freeze_reason ?? "X asked this account to wait." };
+  }
+  if (safety.quiet_room) {
+    return {
+      label: "Holding",
+      detail: safety.quiet_reason ?? "Mackie17 is waiting for a stronger moment.",
+    };
+  }
+  return { label: "Protected", detail: "Mackie17 is pacing this account so posting stays human." };
+}
+
 export function SafetySummaryCard({ safety, loading }: Props) {
+  const status = safety ? statusLabel(safety) : null;
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Safety limits</CardTitle>
-        <CardDescription>Daily caps for this account, on every platform you connect</CardDescription>
+        <CardTitle>Account safety</CardTitle>
+        <CardDescription>Pace, freeze, and holds for this account</CardDescription>
       </CardHeader>
       <CardContent>
-        {loading || !safety ? (
+        {loading || !safety || !status ? (
           <LoadingMark />
         ) : (
           <>
-            <div className="mb-4 flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">Safety score</span>
-              <Badge variant="secondary">{safety.safety_score}/100</Badge>
+            <div className="mb-3 flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">Status</span>
+              <Badge variant="secondary">{status.label}</Badge>
             </div>
-            <Progress value={safety.safety_score} className="mb-4" />
-            <ul className="mb-4 space-y-2 text-sm text-muted-foreground">
-              {Object.entries(safety.actions).map(([action, data]) => (
-                <li key={action} className="flex justify-between capitalize">
-                  <span>{action.replace("_", " ")}</span>
-                  <span>
-                    {data.count} / {data.daily_limit}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            {safety.frozen && (
+              <p className="mb-3 text-sm text-red-300">{status.detail}</p>
+            )}
+            {safety.quiet_room && !safety.frozen && (
+              <p className="mb-3 text-sm text-amber-300">{status.detail}</p>
+            )}
+            {!safety.frozen && !safety.quiet_room && (
+              <p className="mb-4 text-sm text-muted-foreground">{status.detail}</p>
+            )}
             <Link href="/safety">
               <Button variant="outline" size="sm">
-                Open limits
+                Open account safety
               </Button>
             </Link>
           </>

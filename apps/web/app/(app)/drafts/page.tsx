@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { PostMedia } from "@/components/PostMedia";
 import { contentFormatLabel } from "@/lib/content-formats";
 import { platformOfFormat, usePlatform } from "@/lib/platform";
 
@@ -28,6 +29,7 @@ type Draft = {
   id: number;
   content: string;
   content_type: string;
+  media_path?: string | null;
   status: string;
   virality_predicted: number | null;
   created_at: string;
@@ -117,9 +119,18 @@ export default function DraftsPage() {
   async function publishDraft(id: number) {
     setSavingId(id);
     try {
-      await api(`/content/drafts/${id}/publish`, { method: "POST" });
-      setDrafts((current) => current.filter((draft) => draft.id !== id));
-      toast.success("Posted to X");
+      const draft = allDrafts.find((item) => item.id === id);
+      const posted = await api<{ media_warning?: string }>(
+        `/content/drafts/${id}/publish`,
+        { method: "POST" },
+        draft?.media_path ? 20000 : 8000,
+      );
+      setDrafts((current) => current.filter((item) => item.id !== id));
+      if (posted.media_warning) {
+        toast.success(posted.media_warning);
+      } else {
+        toast.success("Posted to X");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not post to X");
     } finally {
@@ -180,12 +191,14 @@ export default function DraftsPage() {
                 </>
               ) : (
                 <>
+                  {draft.media_path ? <PostMedia postId={draft.id} /> : null}
                   <p className="mb-3 text-sm leading-relaxed">{draft.content}</p>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-muted-foreground">{contentFormatLabel(draft.content_type)}</span>
                     {draft.virality_predicted != null && (
                       <span className="text-xs text-muted-foreground">
-                        Score {Math.round(Number(draft.virality_predicted))}/100
+                        {Number(draft.virality_predicted) >= 75 ? "Worth posting" : "Hold"} ·{" "}
+                        {Math.round(Number(draft.virality_predicted))}/100
                       </span>
                     )}
                     <span className="text-xs text-muted-foreground">

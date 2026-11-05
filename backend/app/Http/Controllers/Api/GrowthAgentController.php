@@ -94,7 +94,7 @@ class GrowthAgentController extends Controller
         if ($decisions->isEmpty()) {
             return response()->json([
                 'decisions' => [],
-                'empty_message' => 'Run an evaluation to see how Xpulse scores opportunities in your niche.',
+                'empty_message' => 'Run an evaluation to see how Mackie17 scores opportunities in your niche.',
             ]);
         }
 

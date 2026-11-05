@@ -2,7 +2,7 @@
 
 > **This roadmap is outdated.** It described an early **GrowthApp** vision: Chrome extension-first MVP, Turborepo monorepo, Drizzle/Prisma, BullMQ, and Stripe billing.
 
-**The product is now [Xpulse](DEVELOPMENT_PLAN.md)** — a web-first event-driven Growth Engine built with **Laravel 12 + Next.js 15**.
+**The product is now [Mackie17](DEVELOPMENT_PLAN.md)** — a web-first event-driven Growth Engine built with **Laravel 12 + Next.js 15**.
 
 ---
 

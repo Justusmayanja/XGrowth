@@ -22,7 +22,7 @@ class AdminDemoDataService
         $catalog = [
             [
                 'name' => 'Alex Rivera',
-                'email' => 'alex@xpulse.dev',
+                'email' => 'alex@mackie17.com',
                 'plan' => 'pro',
                 'is_admin' => true,
                 'x_username' => 'alexrivera',
