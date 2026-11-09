@@ -10,6 +10,7 @@ import { SocialLogo } from "@/components/SocialLogo";
 import { api, getToken } from "@/lib/api";
 import { openPage } from "@/lib/nav-recovery";
 import { readCart } from "@/lib/billing";
+import { getYouTubeStatus, startYouTubeConnect, type YouTubeConnectionStatus } from "@/lib/youtube";
 import {
   ABOUT_COPY,
   type Discovery,
@@ -218,6 +219,8 @@ export function OnboardingWizard() {
   const [aboutDoneAtLoad, setAboutDoneAtLoad] = useState(false);
   const [xStatus, setXStatus] = useState<XConnectStatus | null>(null);
   const [connectingX, setConnectingX] = useState(false);
+  const [youtubeStatus, setYoutubeStatus] = useState<YouTubeConnectionStatus | null>(null);
+  const [connectingYouTube, setConnectingYouTube] = useState(false);
   const [ideas, setIdeas] = useState<NicheIdea[]>([]);
   const [ideasNote, setIdeasNote] = useState("");
   const [loadingIdeas, setLoadingIdeas] = useState(false);
@@ -296,7 +299,7 @@ export function OnboardingWizard() {
   }, [focus]);
 
   useEffect(() => {
-    if (step?.kind === "chapter" && step.stage === "connect" && !xStatus) {
+    if (step?.kind === "chapter" && step.stage === "connect" && step.platform === "x" && !xStatus) {
       api<XConnectStatus>("/connected-accounts/x/status?next=/onboarding")
         .then(setXStatus)
         .catch(() =>
@@ -304,6 +307,36 @@ export function OnboardingWizard() {
         );
     }
   }, [step, xStatus]);
+
+  useEffect(() => {
+    const onYouTube =
+      step?.kind === "chapter" &&
+      step.platform === "youtube" &&
+      (step.stage === "publish" || step.stage === "done");
+    if (!onYouTube || youtubeStatus) return;
+    let cancelled = false;
+    getYouTubeStatus()
+      .then((payload) => {
+        if (!cancelled) setYoutubeStatus(payload.data);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setYoutubeStatus({
+            configured: false,
+            connected: false,
+            display_name: null,
+            connected_at: null,
+            needs_reconnect: false,
+            upload_granted: false,
+            needs_upload_consent: false,
+            metrics: { subscribers: null, views: null, watch_hours: null, error: null },
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [step, youtubeStatus]);
 
   function enterStep(next: number, list: Step[] = steps, current: WizardData = data) {
     const target = list[next];
@@ -429,6 +462,23 @@ export function OnboardingWizard() {
       body: JSON.stringify(body),
     });
     updateSetup(platform, { completed: state.setups[platform]?.completed ?? true });
+  }
+
+  async function connectYouTube() {
+    if (step?.kind === "chapter" && step.stage !== "done" && !canContinue()) {
+      setError("Please complete this step before connecting.");
+      return;
+    }
+    setConnectingYouTube(true);
+    setError("");
+    try {
+      const payload = await startYouTubeConnect();
+      if (!data.setups.youtube.completed) await saveChapter("youtube");
+      window.location.assign(payload.data.authorize_url);
+    } catch (err) {
+      setConnectingYouTube(false);
+      setError(err instanceof Error ? err.message : "We couldn't connect YouTube. Try again.");
+    }
   }
 
   async function next() {
@@ -917,17 +967,32 @@ export function OnboardingWizard() {
             onChange={(publish) => updateSetup("youtube", { publish })}
           />
           <div className="choice-note text-sm">
-            <p className="font-medium">Connecting YouTube</p>
+            <p className="font-medium">Connect your channel</p>
             <p className="mt-2 leading-relaxed text-muted">
-              The channel connection opens after Google approves the app. Scripts, episode plans, and
-              edit plans are written before that. Nothing uploads until the connection and the video file exist.
+              This reads the channel name, subscribers, views, and watch time. It cannot upload or publish.
+              Uploads are a second consent in Settings. You can skip this and connect later.
             </p>
+            <YouTubeConnectAction
+              status={youtubeStatus}
+              busy={connectingYouTube}
+              onConnect={() => void connectYouTube()}
+            />
           </div>
         </div>
       )}
 
       {step.kind === "chapter" && step.stage === "done" ? (
         <div className="mt-2 flex flex-wrap items-center gap-3">
+          {step.platform === "youtube" && (
+            <div className="choice-note w-full text-sm">
+              <p className="font-medium">YouTube channel</p>
+              <YouTubeConnectAction
+                status={youtubeStatus}
+                busy={connectingYouTube}
+                onConnect={() => void connectYouTube()}
+              />
+            </div>
+          )}
           {nextPending ? (
             <>
               <button
@@ -985,5 +1050,36 @@ export function OnboardingWizard() {
         </div>
       )}
     </SetupFrame>
+  );
+}
+
+function YouTubeConnectAction({
+  status,
+  busy,
+  onConnect,
+}: {
+  status: YouTubeConnectionStatus | null;
+  busy: boolean;
+  onConnect: () => void;
+}) {
+  if (!status) {
+    return <p className="mt-3 text-muted">Checking the YouTube connection…</p>;
+  }
+  if (status.connected) {
+    const name = status.display_name ? ` as ${status.display_name}` : "";
+    return <p className="mt-3 font-medium">Connected{name}.</p>;
+  }
+  if (!status.configured) {
+    return (
+      <p className="mt-3 leading-relaxed text-muted">
+        YouTube channel linking is not turned on for this server yet. Finish setup now. The channel can be connected from Settings once linking is turned on.
+      </p>
+    );
+  }
+  const label = status.needs_reconnect ? "Reconnect YouTube" : "Connect YouTube";
+  return (
+    <button type="button" className="setup-secondary mt-3" disabled={busy} onClick={onConnect}>
+      {busy ? "Opening YouTube…" : label}
+    </button>
   );
 }

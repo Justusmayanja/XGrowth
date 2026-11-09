@@ -32,7 +32,7 @@ The same account description must not produce the same sentence on every network
 | Medium | Text: post, thread, poll, quote | Short clip plus a caption | Short, episode, or an edit of footage the user filmed |
 | When it publishes | No calendar. If posting is on, it sends when a moment scores high enough to travel | It suggests a time, then waits. Nothing goes out until the user confirms | User chooses at setup: post on its own, or wait for a yes |
 | What “automation” means | Opportunity scoring and, at higher levels, unattended posting | Make the clip and offer a time. Confirmation stays on, including paid tiers | Make or edit the video, then follow the publish setting |
-| Live connection | X OAuth works | Login Kit linking is built and stays off until the TikTok keys exist. Render and upload are not built | Connection is not built. Upload waits on the channel connection and a video file |
+| Live connection | X OAuth works | Login Kit linking is built and stays off until the TikTok keys exist. Render and upload are not built | Read-only channel OAuth works from Settings and YouTube setup. Upload is a second consent and still needs a video file |
 | Engine in code | `GrowthAgentService`, every 5 minutes | None | `YouTubeEngineService`, hourly and once when setup completes |
 | Desk | `/dashboard/x` | `/dashboard/tiktok` | `/dashboard/youtube` |
 
