@@ -217,14 +217,17 @@ class PostVisualTest extends TestCase
             'media_path' => $made['path'],
         ]);
 
-        $uploads = 0;
-        Http::fake(function ($request) use (&$uploads) {
+        $denyNext = false;
+        Http::fake(function ($request) use (&$denyNext) {
             if (str_contains($request->url(), '/2/media/upload')) {
-                $uploads++;
+                if ($denyNext) {
+                    return Http::response(['detail' => 'no'], 403);
+                }
+                if (str_contains($request->url(), '/finalize')) {
+                    $denyNext = true;
+                }
 
-                return $uploads === 1
-                    ? Http::response(['data' => ['id' => '555']], 200)
-                    : Http::response(['detail' => 'no'], 403);
+                return Http::response(['data' => ['id' => '555']], 200);
             }
 
             if (str_contains($request->url(), '/2/tweets')) {
