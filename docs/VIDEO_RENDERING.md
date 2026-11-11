@@ -4,7 +4,7 @@ Mackie17 can make a vertical motion video for a waiting or queued clip. Confirm 
 
 ## Store
 
-One private disk, `media`, driver `MEDIA_DRIVER` (`local` or `s3`). Wasabi credentials live only on that disk. The disk name `tiktok_videos` is the same store with the prefix `tiktok`, so upload and draft code keep their current disk name.
+One private disk, `media`, on this server at `storage/app/private/media`. The disk name `tiktok_videos` is the same store with the prefix `tiktok`, so upload and draft code keep their current disk name.
 
 Object keys inside the TikTok namespace:
 
@@ -15,7 +15,7 @@ Object keys inside the TikTok namespace:
 
 Intermediates stay in `storage/app/tiktok-work/{clip}-{random}/` and `storage/app/tiktok-staging/{clip}/`. A sweep removes work directories older than 6 hours. Listing is per user prefix. Nothing scans the whole bucket.
 
-`docs/WASABI_SETUP.md` is the bucket checklist. `php artisan tiktok:storage-check` writes and deletes a canary. `php artisan tiktok:migrate-videos` copies legacy local files and leaves the source in place.
+`php artisan tiktok:storage-check` writes and deletes a canary. `php artisan tiktok:migrate-videos` copies legacy local files onto that disk and leaves the source in place.
 
 ## When a render starts
 
@@ -23,7 +23,7 @@ Intermediates stay in `storage/app/tiktok-work/{clip}-{random}/` and `storage/ap
 
 The render is skipped, with a plain note, when the user is blocked, the type is not motion, the language is not English, or the speech budget cannot be reserved. A user-uploaded file is left alone. `POST /api/tiktok/clips/{clip}/render` can make a clip again at most twice.
 
-`GET /api/dashboard/platform/tiktok` does not start a render. The preview URL is a separate request, 30 minutes on S3, or an authenticated stream on the local disk.
+`GET /api/dashboard/platform/tiktok` does not start a render. The preview URL is a separate request: a 30-minute signed route for the file on this server.
 
 ## What the renderer does
 

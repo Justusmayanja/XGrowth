@@ -67,7 +67,7 @@ Split the long card into tabs or accordion sections on one page (match the exist
 - Run `tsc --noEmit`, the linter if one exists, and `next build` (report the known Google Fonts timeout if it recurs).
 - Keyboard-only pass: picker radios, switches, upload picker, preview controls, regenerate, safe-area toggle.
 - Screen-reader basics: live regions announce render state changes once, not every poll.
-- Test the player against both storage drivers (local signed route, and S3 signed URL if Wasabi credentials exist).
+- Test the player against the signed preview route.
 - Throttle to "Fast 3G" and report time to poster and time to first frame.
 
 ## 5. Acceptance criteria

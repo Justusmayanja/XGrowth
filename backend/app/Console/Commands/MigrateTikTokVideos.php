@@ -8,14 +8,15 @@ use Illuminate\Support\Facades\Storage;
 
 class MigrateTikTokVideos extends Command
 {
-    protected $signature = 'tiktok:migrate-videos {--from=local} {--to=s3} {--dry-run}';
+    protected $signature = 'tiktok:migrate-videos {--from=local} {--to=media} {--dry-run}';
 
     protected $description = 'Copy TikTok videos onto the shared media disk after the checksum matches';
 
     public function handle(): int
     {
         $from = $this->option('from') === 'local' ? 'tiktok_videos_local' : (string) $this->option('from');
-        $to = $this->option('to') === 's3' ? 'tiktok_videos' : (string) $this->option('to');
+        $toName = (string) $this->option('to');
+        $to = in_array($toName, ['media', 's3'], true) ? 'tiktok_videos' : $toName;
         $dry = (bool) $this->option('dry-run');
 
         if (! config('filesystems.disks.'.$from) || ! config('filesystems.disks.'.$to)) {

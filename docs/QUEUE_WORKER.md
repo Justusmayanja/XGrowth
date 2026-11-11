@@ -40,4 +40,4 @@ stdout_logfile=/var/log/mackie17-renders.log
 
 `stopwaitsecs` stays above the job timeout so a deploy does not kill a render mid-file. Run `php artisan queue:restart` after the new code is in place, then let Supervisor start the new processes.
 
-The app server should be in the EU, close to the Wasabi `eu-central-1` bucket. ffmpeg is the Ubuntu apt package (`ffmpeg`), not the snap build.
+ffmpeg is the Ubuntu apt package (`ffmpeg`), not the snap build.
