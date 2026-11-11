@@ -11,6 +11,7 @@ use App\Services\Storage\MediaStore;
 use App\Support\TikTokCatalog;
 use App\Support\TikTokContentPosting;
 use App\Support\TikTokVideoCatalog;
+use App\Support\TikTokWeek;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -102,7 +103,10 @@ class TikTokRenderService
             $spec['captions'] = (bool) $preferences->toArray()['captions']['enabled'];
             $spec['music'] = $preferences->musicEnabled() ? TikTokVideoPreferences::licensedMusic() : [];
             $directory = $work->begin($clip->id);
-            $files = $this->motion->render($user, $directory, $spec, $this->speech());
+            $format = (string) ($started->package['week']['format'] ?? TikTokWeek::MOTION);
+            $files = $format === TikTokWeek::SCENE
+                ? app(KlingSceneRenderer::class)->render($user, $directory, $spec, $this->speech())
+                : $this->motion->render($user, $directory, $spec, $this->speech());
             $stored = $this->store($clip->fresh() ?? $clip, $user, $files);
         } catch (Throwable $e) {
             Log::warning('TikTok render failed', [
@@ -113,7 +117,12 @@ class TikTokRenderService
             $this->deleteKeys($stored);
             $fresh = $clip->fresh() ?? $clip;
             $message = $e->getMessage();
-            $plain = $message === TikTokCatalog::RENDER_VOICE_UNAVAILABLE || $message === TikTokCatalog::RENDER_BUSY
+            $plain = in_array($message, [
+                TikTokCatalog::RENDER_VOICE_UNAVAILABLE,
+                TikTokCatalog::RENDER_BUSY,
+                TikTokCatalog::RENDER_SCENE_UNAVAILABLE,
+                TikTokCatalog::RENDER_SCENE_FAILED,
+            ], true)
                 ? $message
                 : "We couldn't make the video. Try again, or add your own.";
             try {
@@ -202,6 +211,10 @@ class TikTokRenderService
             return 'This account cannot make a video right now.';
         }
         $preferences = TikTokVideoPreferences::forUser($user);
+        $format = (string) ($clip->package['week']['format'] ?? TikTokWeek::MOTION);
+        if ($format === TikTokWeek::SCENE && ! app(KlingVideoClient::class)->configured()) {
+            return TikTokCatalog::RENDER_SCENE_UNAVAILABLE;
+        }
         if ($preferences->type() !== TikTokVideoCatalog::TYPE_MOTION || ! TikTokVideoCatalog::typeAvailable($preferences->type())) {
             return 'This video style is not available yet.';
         }
@@ -236,9 +249,11 @@ class TikTokRenderService
 
     private function speech(): SpeechProvider
     {
-        return config('tiktok_video.tts_driver') === 'openai'
-            ? app(OpenAiSpeechProvider::class)
-            : app(FakeSpeechProvider::class);
+        return match ((string) config('tiktok_video.tts_driver')) {
+            'openai' => app(OpenAiSpeechProvider::class),
+            'elevenlabs' => app(ElevenLabsSpeechProvider::class),
+            default => app(FakeSpeechProvider::class),
+        };
     }
 
     /**

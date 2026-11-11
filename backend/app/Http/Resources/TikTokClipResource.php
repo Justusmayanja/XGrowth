@@ -29,6 +29,7 @@ class TikTokClipResource extends JsonResource
             'status_label' => $this->statusLabel(),
             'kind' => $kind,
             'kind_label' => $kind ? TikTokCatalog::kindLabel($kind) : null,
+            'week' => $this->weekPayload($package),
             'topic' => $this->topic,
             'hook' => $this->hook,
             'script_lines' => $this->scriptLines(),
@@ -55,6 +56,40 @@ class TikTokClipResource extends JsonResource
             'video' => $this->videoPayload(),
             'upload_error' => $this->upload_error,
             'upload_progress' => $this->upload_progress,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $package
+     * @return array{format: string, job: string, label: string}|null
+     */
+    private function weekPayload(array $package): ?array
+    {
+        $week = $package['week'] ?? null;
+        if (! is_array($week)) {
+            return null;
+        }
+        $format = (string) ($week['format'] ?? '');
+        $job = (string) ($week['job'] ?? '');
+        $pictures = [
+            'motion' => 'Motion graphics',
+            'scene' => 'Scene',
+            'card' => 'Invite card',
+        ];
+        $jobs = [
+            'teach' => 'Teaches',
+            'show' => 'Shows the situation',
+            'correct' => 'Corrects a mistake',
+            'invite' => 'Asks for the next step',
+        ];
+        if (! isset($pictures[$format], $jobs[$job])) {
+            return null;
+        }
+
+        return [
+            'format' => $format,
+            'job' => $job,
+            'label' => $pictures[$format].' · '.$jobs[$job],
         ];
     }
 

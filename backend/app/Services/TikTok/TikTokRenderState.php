@@ -82,6 +82,8 @@ class TikTokRenderState
 
             return $render;
         }, function (array $package) {
+            $format = (string) ($package['week']['format'] ?? 'motion');
+            $package['render']['provider'] = $format === 'scene' ? 'kling' : 'ffmpeg';
             $publish = is_array($package['publish'] ?? null) ? $package['publish'] : [];
             $publish['ai_generated'] = true;
             $package['publish'] = $publish;

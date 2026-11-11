@@ -44,6 +44,20 @@ return [
         'redirect' => env('X_REDIRECT_URI', 'http://127.0.0.1:8000/api/auth/x/callback'),
     ],
 
+    'elevenlabs' => [
+        'key' => env('ELEVENLABS_API_KEY'),
+        'model' => env('ELEVENLABS_MODEL', 'eleven_multilingual_v2'),
+        'voices' => [
+            'female' => env('ELEVENLABS_VOICE_FEMALE', '21m00Tcm4TlvDq8ikWAM'),
+            'male' => env('ELEVENLABS_VOICE_MALE', 'pNInz6obpgDQGcFmaJgB'),
+        ],
+    ],
+
+    'kling' => [
+        'key' => env('KLING_API_KEY'),
+        'base_url' => env('KLING_API_BASE', 'https://api-singapore.klingai.com'),
+    ],
+
     'tiktok' => [
         'client_key' => env('TIKTOK_CLIENT_KEY'),
         'client_secret' => env('TIKTOK_CLIENT_SECRET'),

@@ -10,6 +10,7 @@ use App\Models\TikTokClip;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use App\Support\TikTokCatalog;
+use App\Support\TikTokWeek;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -110,21 +111,28 @@ class TikTokEngineService
             ->value('learning_note');
         $learningNote = is_string($learningNote) && $learningNote !== '' ? $learningNote : null;
 
+        $made = TikTokClip::query()
+            ->forUser($user)
+            ->where('status', '!=', TikTokCatalog::DISCARDED)
+            ->count();
+        $week = TikTokWeek::forIndex($made);
+
         try {
             $enabled = TikTokVideoPreferences::forUser($user)->enabledContext();
-            $script = $this->scripts->clip($user, $profile, $idea, $learningNote, $enabled);
+            $script = $this->scripts->clip($user, $profile, $idea, $learningNote, $enabled, $week);
         } catch (Throwable $e) {
             Log::warning('TikTok script fell back to the local writer', [
                 'user_id' => $user->id,
                 'error' => $e::class,
             ]);
-            $script = $this->scripts->fallback($user, $profile, $idea, $learningNote);
+            $script = $this->scripts->fallback($user, $profile, $idea, $learningNote, $week);
         }
 
         $when = $this->times->next($profile->timezone, now());
         $package = [
             'idea_kind' => $script['idea_kind'],
             'goal_keys' => $profile->goalsFor('tiktok'),
+            'week' => $week,
             'shots' => $script['shots'],
             'on_screen_text' => $script['on_screen_text'],
             'sound_note' => $script['sound_note'],

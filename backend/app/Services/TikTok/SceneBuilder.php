@@ -4,6 +4,7 @@ namespace App\Services\TikTok;
 
 use App\Models\TikTokClip;
 use App\Support\TikTokVideoCatalog;
+use App\Support\TikTokWeek;
 
 /**
  * Turns an already-written script into scenes. No model call.
@@ -26,6 +27,7 @@ class SceneBuilder
             $scenes[] = [
                 'n' => $index + 1,
                 'kind' => $kind,
+                'icon' => $this->icon($clip, $index, $count),
                 'narration' => SceneText::plain($line, 180),
                 'on_screen_text' => SceneText::plain($this->onScreen($clip, $line, $kind, $enabled), 80),
                 'seconds_estimate' => max(2, (int) floor($target / $count)),
@@ -88,6 +90,16 @@ class SceneBuilder
         }
 
         return array_slice($lines, 0, 7);
+    }
+
+    private function icon(TikTokClip $clip, int $index, int $count): string
+    {
+        $format = (string) ($clip->package['week']['format'] ?? TikTokWeek::MOTION);
+        if ($format === TikTokWeek::CARD || $index === $count - 1) {
+            return 'arrow';
+        }
+
+        return ['calendar', 'receipt', 'clock', 'steps'][$index % 4];
     }
 
     private function kind(string $line, int $index, int $count): string
