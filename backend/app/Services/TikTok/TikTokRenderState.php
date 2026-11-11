@@ -4,8 +4,8 @@ namespace App\Services\TikTok;
 
 use App\Models\TikTokClip;
 use App\Support\TikTokCatalog;
-use InvalidArgumentException;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 /**
  * Owns package.render transitions. succeed() is the only generated-path writer of render.ready.
@@ -82,6 +82,8 @@ class TikTokRenderState
 
             return $render;
         }, function (array $package) {
+            $format = (string) ($package['week']['format'] ?? 'motion');
+            $package['render']['provider'] = $format === 'scene' ? 'kling' : 'ffmpeg';
             $publish = is_array($package['publish'] ?? null) ? $package['publish'] : [];
             $publish['ai_generated'] = true;
             $package['publish'] = $publish;

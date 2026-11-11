@@ -57,7 +57,13 @@ class MotionGraphicsProvider
             $ass = $work.'/scene-'.$n.'.ass';
             $this->ass->write($ass, $scene, is_array($spec['brand'] ?? null) ? $spec['brand'] : [], (bool) ($spec['captions'] ?? true));
             $out = $work.'/scene-'.$n.'.mp4';
-            $this->ffmpeg->run($this->sceneArguments($out, $audio, $ass, $seconds, $color, $logo, $fontDir), 120);
+            $iconName = (string) ($scene['icon'] ?? '');
+            $icon = null;
+            if ($iconName !== '') {
+                $icon = $work.'/icon-'.$n.'.png';
+                app(MotionIcon::class)->write($icon, $iconName);
+            }
+            $this->ffmpeg->run($this->sceneArguments($out, $audio, $ass, $seconds, $color, $logo, $fontDir, $icon, $iconName), 120);
             $files[] = $out;
         }
 
@@ -100,7 +106,7 @@ class MotionGraphicsProvider
     /**
      * @return list<string>
      */
-    public function sceneArguments(string $videoOut, string $audio, string $ass, float $seconds, string $color, ?string $logo, string $fontDir): array
+    public function sceneArguments(string $videoOut, string $audio, string $ass, float $seconds, string $color, ?string $logo, string $fontDir, ?string $icon = null, string $iconName = ''): array
     {
         $duration = number_format($seconds, 2, '.', '');
         $args = [
@@ -113,11 +119,26 @@ class MotionGraphicsProvider
             $outAt = max(0, $seconds - 0.15);
             $filter = '[0:v]fade=t=in:st=0:d=0.15,fade=t=out:st='.number_format($outAt, 2, '.', '').':d=0.15,ass=filename='.$this->filterPath($ass).':fontsdir='.$this->filterPath($fontDir);
         }
+        $next = 2;
         if ($logo) {
             $args[] = '-i';
             $args[] = $logo;
-            $filter .= '[base];[2:v]scale=240:-1[logo];[base][logo]overlay=x=(W-w)/2:y=140[v]';
-        } else {
+            $filter .= '[base];['.$next.':v]scale=240:-1[logo];[base][logo]overlay=x=(W-w)/2:y=140';
+            $next++;
+            $filter .= $icon ? '[placed]' : '[v]';
+        }
+        if ($icon) {
+            $args[] = '-i';
+            $args[] = $icon;
+            $from = $logo ? '[placed]' : $filter;
+            if (! $logo) {
+                $filter .= '[placed]';
+                $from = '[placed]';
+            }
+            [$x, $y] = $this->iconMotion($iconName);
+            $filter .= ';['.$next.':v]format=rgba,scale=200:200[icon];'.$from.'[icon]overlay=x=\''.$x.'\':y=\''.$y.'\':format=auto[v]';
+        }
+        if (! $logo && ! $icon) {
             $filter .= '[v]';
         }
         $args[] = '-filter_complex';
@@ -152,6 +173,20 @@ class MotionGraphicsProvider
         array_push($args, '-c:v', 'libx264', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-r', '30', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', $final);
 
         return $args;
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function iconMotion(string $name): array
+    {
+        return match ($name) {
+            'receipt' => ['(W-w)/2', '160+70*t'],
+            'clock' => ['(W-w)/2', 'H*0.36+24*sin(2*PI*t/3)'],
+            'steps' => ['(W-w)/2', 'H*0.40'],
+            'arrow' => ['(W-w)/2', 'H*0.62-28*t'],
+            default => ['40+90*t', 'H*0.34'],
+        };
     }
 
     /**

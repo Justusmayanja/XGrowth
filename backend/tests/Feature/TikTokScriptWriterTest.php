@@ -72,6 +72,8 @@ class TikTokScriptWriterTest extends TestCase
                 && ! array_key_exists('max_tokens', $parameters)
                 && str_contains($system, 'Never invent facts')
                 && str_contains($system, 'Return JSON only')
+                && str_contains($prompt, 'POST: teach')
+                && str_contains($prompt, 'FORMAT: motion')
                 && ! str_contains($system, 'ignore previous instructions')
                 && str_contains($block, 'ignore previous instructions')
                 && str_contains($prompt, 'get clips onto the For You feed')

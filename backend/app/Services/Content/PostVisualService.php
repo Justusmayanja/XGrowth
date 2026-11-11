@@ -4,6 +4,7 @@ namespace App\Services\Content;
 
 use App\Models\AccountProfile;
 use App\Models\User;
+use App\Services\AICore\AICoreService;
 use App\Services\ApiSpend\ApiSpendService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -13,11 +14,18 @@ use Throwable;
 
 /**
  * A picture for an X post, once the last few posts were only words.
- * Caption sits on a top bar. The flyer, photo, or illustration fills the space under it.
+ * Mackie17 writes the image prompt. The image model paints it.
+ * A short line sits on a top bar. The picture fills the space under it.
+ * If the model is unavailable and no kind was chosen, a drawn card is the fallback.
  */
 class PostVisualService
 {
-    public function __construct(private readonly ApiSpendService $budget) {}
+    public ?string $lastError = null;
+
+    public function __construct(
+        private readonly ApiSpendService $budget,
+        private readonly AICoreService $ai,
+    ) {}
 
     public function due(User $user, ?int $accountId): bool
     {
@@ -53,19 +61,13 @@ class PostVisualService
     {
         $about = $profile ?? new AccountProfile;
         $requested = $this->normalizeKind($kind) ?? $this->nextKind($user);
-        $bytes = null;
+        $bytes = $this->illustration($user, $about, $caption, $requested);
         $used = $requested;
-
-        if ($requested === 'flyer') {
+        if ($bytes === null && $kind === null) {
             $bytes = $this->flyerPng($about, $caption);
-        } else {
-            $bytes = $this->illustration($user, $about, $caption, $requested);
-            if ($bytes === null && $kind === null) {
-                $bytes = $this->flyerPng($about, $caption);
-                $used = 'flyer';
-            } elseif (is_string($bytes)) {
-                $bytes = $this->captionOnTop($bytes, $caption, $about);
-            }
+            $used = 'flyer';
+        } elseif (is_string($bytes)) {
+            $bytes = $this->captionOnTop($bytes, $caption, $about);
         }
 
         if ($bytes === null) {
@@ -77,6 +79,51 @@ class PostVisualService
         Storage::disk('local')->put($path, $bytes);
 
         return ['path' => $path, 'kind' => $used];
+    }
+
+    /**
+     * Keep a picture on disk until the draft that shows it is saved.
+     *
+     * @param  'flyer'|'photo'|'illustration'  $kind
+     * @return array{id: string, path: string, kind: string}|null
+     */
+    public function preview(User $user, ?AccountProfile $profile, string $caption, string $kind): ?array
+    {
+        $this->clearUnusedPreviews($user);
+        $made = $this->make($user, $profile, $caption, $kind);
+        if ($made === null) {
+            return null;
+        }
+
+        $id = str_replace('-', '', (string) Str::uuid());
+        Storage::disk('local')->put($this->previewMetaPath($user, $id), json_encode([
+            'path' => $made['path'],
+            'kind' => $made['kind'],
+        ], JSON_THROW_ON_ERROR));
+
+        return ['id' => $id, 'path' => $made['path'], 'kind' => $made['kind']];
+    }
+
+    /**
+     * @return array{path: string, kind: string}|null
+     */
+    public function readPreview(User $user, string $id): ?array
+    {
+        $meta = $this->previewMeta($user, $id);
+        if ($meta === null || ! Storage::disk('local')->exists($meta['path'])) {
+            return null;
+        }
+
+        return $meta;
+    }
+
+    public function forgetPreview(User $user, string $id): void
+    {
+        if (! $this->validPreviewId($id)) {
+            return;
+        }
+
+        Storage::disk('local')->delete($this->previewMetaPath($user, $id));
     }
 
     private function normalizeKind(?string $kind): ?string
@@ -98,32 +145,46 @@ class PostVisualService
 
     private function illustration(User $user, AccountProfile $profile, string $caption, string $kind = 'illustration'): ?string
     {
-        if (app()->runningUnitTests()) {
+        if (app()->runningUnitTests() && config('openai.allow_image_http') !== true) {
             return null;
         }
 
+        $this->lastError = null;
+
         $key = config('openai.api_key');
         if (! is_string($key) || $key === '') {
+            $this->lastError = 'A picture could not be made.';
+
             return null;
         }
 
         if (! $this->budget->canSpend($user->id, ApiSpendService::IMAGE_MILLS)) {
+            $this->lastError = 'A picture could not be made.';
+
             return null;
         }
 
+        $imageModel = (string) config('openai.image_model', 'gpt-image-2.6-flare');
+
         try {
             $response = Http::withToken($key)
-                ->timeout(25)
-                ->post('https://api.openai.com/v1/images/generations', [
-                    'model' => 'dall-e-3',
-                    'prompt' => $this->imagePrompt($profile, $caption, $kind),
-                    'size' => '1024x1024',
-                    'quality' => 'standard',
-                    'n' => 1,
-                    'response_format' => 'b64_json',
+                ->timeout(90)
+                ->post('https://api.openai.com/v1/responses', [
+                    'model' => (string) config('openai.model', 'gpt-5.4-mini'),
+                    'input' => 'Draw this picture. '.$this->picturePrompt($user, $profile, $caption, $kind),
+                    'tool_choice' => ['type' => 'image_generation'],
+                    'tools' => [[
+                        'type' => 'image_generation',
+                        'model' => $imageModel,
+                        'size' => '1024x1024',
+                        'quality' => 'medium',
+                        'output_format' => 'png',
+                        'action' => 'generate',
+                    ]],
                 ]);
         } catch (Throwable $e) {
             Log::warning('Post image was not generated', ['user_id' => $user->id, 'error' => $e->getMessage()]);
+            $this->lastError = 'A picture could not be made.';
 
             return null;
         }
@@ -132,24 +193,89 @@ class PostVisualService
             Log::warning('Post image was not generated', [
                 'user_id' => $user->id,
                 'status' => $response->status(),
+                'error' => mb_substr($response->body(), 0, 500),
             ]);
+            $this->lastError = $this->imageFailureMessage($response->body());
 
             return null;
         }
 
-        $encoded = $response->json('data.0.b64_json');
-        if (! is_string($encoded) || $encoded === '') {
-            return null;
-        }
+        $bytes = $this->imageBytes($response->json('output'));
+        if ($bytes === null) {
+            Log::warning('Post image was not generated', [
+                'user_id' => $user->id,
+                'status' => $response->status(),
+                'error' => 'The image response had no picture.',
+            ]);
+            $this->lastError = 'A picture could not be made.';
 
-        $bytes = base64_decode($encoded, true);
-        if (! is_string($bytes) || $bytes === '') {
             return null;
         }
 
         $this->budget->spend($user->id, ApiSpendService::IMAGE_MILLS);
 
         return $bytes;
+    }
+
+    private function imageFailureMessage(string $body): string
+    {
+        if (str_contains($body, 'does not have access to model') || str_contains($body, 'model_not_found')) {
+            return 'This OpenAI project cannot make pictures yet. Allow an image model for the project, then try again.';
+        }
+
+        return 'A picture could not be made.';
+    }
+
+    private function imageBytes(mixed $output): ?string
+    {
+        if (! is_array($output)) {
+            return null;
+        }
+
+        foreach ($output as $item) {
+            if (! is_array($item) || ($item['type'] ?? '') !== 'image_generation_call') {
+                continue;
+            }
+            $encoded = $item['result'] ?? null;
+            if (! is_string($encoded) || $encoded === '') {
+                continue;
+            }
+            $bytes = base64_decode($encoded, true);
+            if (is_string($bytes) && $bytes !== '') {
+                return $bytes;
+            }
+        }
+
+        return null;
+    }
+
+    private function picturePrompt(User $user, AccountProfile $profile, string $caption, string $kind): string
+    {
+        $drafted = null;
+        try {
+            $drafted = $this->ai->draftPicturePrompt($user, $profile, $caption, $kind);
+        } catch (Throwable) {
+            $drafted = null;
+        }
+
+        $prompt = is_string($drafted) && $drafted !== ''
+            ? $drafted
+            : $this->imagePrompt($profile, $caption, $kind);
+
+        return $this->constrainPrompt($prompt, $kind);
+    }
+
+    private function constrainPrompt(string $prompt, string $kind): string
+    {
+        $prompt = trim((string) preg_replace('/\s+/', ' ', $prompt));
+        $prompt = mb_substr($prompt, 0, 900);
+        $tail = match ($kind) {
+            'photo' => ' Photorealistic, natural light, one subject. No words, letters, numbers, logos, or watermarks. Not an illustration.',
+            'flyer' => ' A bold graphic flyer, flat color, high contrast, empty band across the top. No words, letters, numbers, logos, or watermarks. Not a photograph.',
+            default => ' A bold simple illustration, high contrast. No words, letters, numbers, logos, or watermarks. Not a photograph.',
+        };
+
+        return $prompt.$tail;
     }
 
     private function imagePrompt(AccountProfile $profile, string $caption, string $kind = 'illustration'): string
@@ -162,17 +288,16 @@ class PostVisualService
         $audience = mb_substr(trim((string) $profile->audience), 0, 160);
         $moment = mb_substr((string) preg_replace('/\s+/', ' ', $caption), 0, 180);
 
-        $prompt = $kind === 'photo'
-            ? 'A single original photograph for a social account. No words, no letters, no numbers, no logos, no watermarks, and no identifiable real person. Photorealistic, natural light, one clear subject. Not an illustration, not a cartoon, not a screenshot, and not a collage of text. '
-            : 'A single original illustration for a social account. No words, no letters, no numbers, no logos, no watermarks, no crests, and no photograph of a real person. ';
+        $prompt = match ($kind) {
+            'photo' => 'A single original photograph for a social account. Photorealistic, natural light, one clear subject. Not an illustration, not a cartoon, not a screenshot, and not a collage of text. ',
+            'flyer' => 'A single original flyer for a social account. Flat color, one bold shape, high contrast, empty space across the top. Not a photograph and not a collage of text. ',
+            default => 'A single original illustration for a social account. Bold, simple, high contrast. Not a photograph, not a screenshot, and not a collage of text. ',
+        };
         $prompt .= "Show the world of this account: {$about}. ";
         if ($audience !== '') {
             $prompt .= "The people it is for: {$audience}. ";
         }
         $prompt .= "The moment, shown without writing it: {$moment}. ";
-        if ($kind !== 'photo') {
-            $prompt .= 'Bold, simple, high contrast, like a poster illustration. Not a screenshot, not a user interface, and not a collage of text.';
-        }
 
         return $prompt;
     }
@@ -314,5 +439,65 @@ class PostVisualService
         $seed = (string) ($profile->description ?: $profile->resolvedNiche() ?: $caption);
 
         return abs(crc32($seed)) % 360;
+    }
+
+    private function clearUnusedPreviews(User $user): void
+    {
+        $dir = 'post-visuals/'.$user->id.'/previews';
+        if (! Storage::disk('local')->directoryExists($dir)) {
+            return;
+        }
+
+        foreach (Storage::disk('local')->files($dir) as $file) {
+            if (! str_ends_with($file, '.json')) {
+                continue;
+            }
+            $decoded = json_decode((string) Storage::disk('local')->get($file), true);
+            Storage::disk('local')->delete($file);
+            $path = is_array($decoded) ? ($decoded['path'] ?? null) : null;
+            if (! is_string($path) || ! str_starts_with($path, 'post-visuals/'.$user->id.'/')) {
+                continue;
+            }
+            if ($user->posts()->where('media_path', $path)->exists()) {
+                continue;
+            }
+            Storage::disk('local')->delete($path);
+        }
+    }
+
+    /**
+     * @return array{path: string, kind: string}|null
+     */
+    private function previewMeta(User $user, string $id): ?array
+    {
+        if (! $this->validPreviewId($id)) {
+            return null;
+        }
+
+        $metaPath = $this->previewMetaPath($user, $id);
+        if (! Storage::disk('local')->exists($metaPath)) {
+            return null;
+        }
+
+        $decoded = json_decode((string) Storage::disk('local')->get($metaPath), true);
+        $path = is_array($decoded) ? ($decoded['path'] ?? null) : null;
+        if (! is_string($path) || ! str_starts_with($path, 'post-visuals/'.$user->id.'/')) {
+            return null;
+        }
+
+        return [
+            'path' => $path,
+            'kind' => is_string($decoded['kind'] ?? null) ? $decoded['kind'] : '',
+        ];
+    }
+
+    private function previewMetaPath(User $user, string $id): string
+    {
+        return 'post-visuals/'.$user->id.'/previews/'.$id.'.json';
+    }
+
+    private function validPreviewId(string $id): bool
+    {
+        return preg_match('/^[a-f0-9]{32}$/', $id) === 1;
     }
 }

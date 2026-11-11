@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\ApiSpend\ApiSpendService;
 use App\Services\GrowthAgent\SafetyEngineService;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
@@ -254,18 +255,20 @@ class XApiService
 
     private function uploadMedia(ConnectedAccount $account, string $token, string $mediaPath): ?string
     {
-        if (! Storage::disk('local')->exists($mediaPath)) {
+        $bytes = Storage::disk('local')->get($mediaPath);
+        if (! is_string($bytes) || $bytes === '') {
             return null;
         }
 
-        $absolute = Storage::disk('local')->path($mediaPath);
-        $name = str_ends_with(strtolower($mediaPath), '.jpg') ? 'visual.jpg' : 'visual.png';
-        $mime = str_ends_with(strtolower($mediaPath), '.jpg') ? 'image/jpeg' : 'image/png';
+        $mime = str_starts_with($bytes, "\xFF\xD8") ? 'image/jpeg' : 'image/png';
+        $name = $mime === 'image/jpeg' ? 'visual.jpg' : 'visual.png';
 
         try {
-            $response = Http::withToken($token)
-                ->attach('media', (string) file_get_contents($absolute), $name, ['Content-Type' => $mime])
-                ->post('https://api.twitter.com/2/media/upload', [
+            $started = Http::withToken($token)
+                ->acceptJson()
+                ->post('https://api.twitter.com/2/media/upload/initialize', [
+                    'media_type' => $mime,
+                    'total_bytes' => strlen($bytes),
                     'media_category' => 'tweet_image',
                 ]);
         } catch (Throwable $e) {
@@ -277,18 +280,114 @@ class XApiService
             return null;
         }
 
-        if ($response->failed()) {
+        if ($started->failed()) {
+            $this->logMediaRefusal($account, $started);
+
+            return null;
+        }
+
+        $id = $started->json('data.id');
+        $id = is_numeric($id) ? (string) $id : (is_string($id) ? $id : '');
+        if ($id === '') {
+            $this->logMediaRefusal($account, $started);
+
+            return null;
+        }
+
+        $offset = 0;
+        $segment = 0;
+        $length = strlen($bytes);
+        while ($offset < $length) {
+            $chunk = substr($bytes, $offset, 4 * 1024 * 1024);
+            try {
+                $appended = Http::withToken($token)
+                    ->attach('media', $chunk, $name, ['Content-Type' => $mime])
+                    ->post('https://api.twitter.com/2/media/upload/'.$id.'/append', [
+                        'segment_index' => (string) $segment,
+                    ]);
+            } catch (Throwable $e) {
+                Log::warning('X did not take the picture', [
+                    'account_id' => $account->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return null;
+            }
+            if ($appended->failed()) {
+                $this->logMediaRefusal($account, $appended);
+
+                return null;
+            }
+            $offset += strlen($chunk);
+            $segment++;
+        }
+
+        try {
+            $finished = Http::withToken($token)
+                ->acceptJson()
+                ->post('https://api.twitter.com/2/media/upload/'.$id.'/finalize');
+        } catch (Throwable $e) {
             Log::warning('X did not take the picture', [
                 'account_id' => $account->id,
-                'status' => $response->status(),
+                'error' => $e->getMessage(),
             ]);
 
             return null;
         }
 
-        $id = $response->json('data.id') ?? $response->json('media_id_string');
+        if ($finished->failed()) {
+            $this->logMediaRefusal($account, $finished);
 
-        return is_string($id) && $id !== '' ? $id : (is_numeric($id) ? (string) $id : null);
+            return null;
+        }
+
+        if (! $this->mediaReady($token, $id, $finished->json('data.processing_info'))) {
+            return null;
+        }
+
+        return $id;
+    }
+
+    private function mediaReady(string $token, string $id, mixed $processing): bool
+    {
+        if (! is_array($processing) || ! isset($processing['state'])) {
+            return true;
+        }
+
+        $state = (string) $processing['state'];
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            if ($state === 'succeeded') {
+                return true;
+            }
+            if ($state === 'failed') {
+                return false;
+            }
+            $wait = min(5, max(1, (int) ($processing['check_after_secs'] ?? 1)));
+            sleep($wait);
+            $status = Http::withToken($token)->get('https://api.twitter.com/2/media/upload', [
+                'command' => 'STATUS',
+                'media_id' => $id,
+            ]);
+            if ($status->failed()) {
+                return false;
+            }
+            $processing = $status->json('data.processing_info');
+            if (! is_array($processing)) {
+                return true;
+            }
+            $state = (string) ($processing['state'] ?? 'succeeded');
+        }
+
+        return $state === 'succeeded';
+    }
+
+    private function logMediaRefusal(ConnectedAccount $account, Response $response): void
+    {
+        Log::warning('X did not take the picture', [
+            'account_id' => $account->id,
+            'status' => $response->status(),
+            'error' => mb_substr($response->body(), 0, 500),
+        ]);
     }
 
     public function likeTweet(ConnectedAccount $account, string $tweetId): void
@@ -516,7 +615,7 @@ class XApiService
 
         try {
             $posts = $this->mentions($account);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $errors[] = $e->getMessage();
         }
 
@@ -576,7 +675,7 @@ class XApiService
         ] as $url) {
             try {
                 $response = Http::withToken($token)->timeout(8)->get($url);
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 continue;
             }
 
@@ -633,7 +732,7 @@ class XApiService
             $userId = (string) ($account->platform_account_id ?: $this->authenticatedUserId($token));
             $loaded = $userId === '' ? ['rows' => [], 'complete' => true, 'views_known' => true] : $this->ownPostsAndComments($token, $userId);
             $rows = $loaded['rows'];
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return [];
         }
 
@@ -938,7 +1037,7 @@ class XApiService
     {
         try {
             $activity = $this->accountActivity($account);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return [];
         }
 
@@ -1042,7 +1141,7 @@ class XApiService
                     'user.fields' => 'username,public_metrics',
                 ],
             );
-        } catch (\Throwable) {
+        } catch (Throwable) {
             Cache::put($cacheKey, ['fetched_at' => now()->toIso8601String(), 'topics' => [], 'skipped' => []], now()->addMinutes(30));
 
             return [];
@@ -1073,7 +1172,7 @@ class XApiService
             if ($lang !== '' && $lang !== 'en') {
                 continue;
             }
-            $created = isset($row['created_at']) ? \Illuminate\Support\Carbon::parse($row['created_at']) : null;
+            $created = isset($row['created_at']) ? Carbon::parse($row['created_at']) : null;
             $minutesAgo = $created ? (int) abs($created->diffInMinutes(now())) : null;
             $ageLimit = 12 * 60;
             if ($minutesAgo !== null && $minutesAgo > $ageLimit) {
@@ -1340,7 +1439,7 @@ class XApiService
             }
             $created = $topic['created_at'] ?? null;
             if (is_string($created) && $created !== '') {
-                $topic['minutes_ago'] = (int) abs(\Illuminate\Support\Carbon::parse($created)->diffInMinutes(now()));
+                $topic['minutes_ago'] = (int) abs(Carbon::parse($created)->diffInMinutes(now()));
             }
             $topics[$i] = $topic;
         }
@@ -1407,7 +1506,7 @@ class XApiService
             $reposts = (int) ($metrics['retweet_count'] ?? 0);
             $replies = (int) ($metrics['reply_count'] ?? 0);
             $impressions = (int) ($metrics['impression_count'] ?? 0);
-            $created = isset($row['created_at']) ? \Illuminate\Support\Carbon::parse($row['created_at']) : now();
+            $created = isset($row['created_at']) ? Carbon::parse($row['created_at']) : now();
 
             $posts[] = [
                 'id' => (string) ($row['id'] ?? ''),

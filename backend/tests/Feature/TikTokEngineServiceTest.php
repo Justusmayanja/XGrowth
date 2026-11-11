@@ -45,6 +45,8 @@ class TikTokEngineServiceTest extends TestCase
         $this->assertFalse($clip->package['publish']['uploaded']);
         $this->assertSame('pending', $clip->package['render']['provider']);
         $this->assertSame('confirm', $clip->package['publish']['mode']);
+        $this->assertSame('motion', $clip->package['week']['format']);
+        $this->assertSame('teach', $clip->package['week']['job']);
         $this->assertSame('Africa/Kampala', $clip->package['timezone']);
         $this->assertFalse($clip->package['timezone_assumed']);
         $this->assertNotSame('', $clip->hook);

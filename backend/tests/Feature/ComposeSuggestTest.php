@@ -12,6 +12,7 @@ use App\Services\Admin\PlatformSettingsService;
 use App\Services\TrendEngine\OpportunityScorerService;
 use App\Services\TrendEngine\TrendEngineService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use OpenAI\Laravel\Facades\OpenAI;
 use OpenAI\Resources\Chat;
 use OpenAI\Responses\Chat\CreateResponse;
@@ -193,6 +194,81 @@ class ComposeSuggestTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('variants.0.content', 'Rice, eggs, and soy sauce. Dinner for 40p.');
+    }
+
+    public function test_a_reference_photo_is_the_subject_of_the_draft(): void
+    {
+        config(['openai.api_key' => 'test-key']);
+        $this->disableWebSearch();
+        OpenAI::fake([
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['variants' => [[
+                        'content' => 'Rice, eggs, and soy sauce. Dinner for 40p.',
+                        'angle' => 'What is on the plate',
+                        'virality_score' => 80,
+                        'estimated_reach' => 'high',
+                    ]]])],
+                ]],
+            ]),
+        ]);
+
+        $this->actingAs($this->userWithProfile(), 'sanctum')
+            ->post('/api/content/generate', [
+                'mode' => 'suggest',
+                'content_type' => 'tweet',
+                'reference' => $this->photoUpload(),
+            ])
+            ->assertOk()
+            ->assertJsonPath('variants.0.content', 'Rice, eggs, and soy sauce. Dinner for 40p.');
+
+        OpenAI::assertSent(Chat::class, function (string $method, array $parameters): bool {
+            $content = $parameters['messages'][1]['content'] ?? null;
+            if (! is_array($content)) {
+                return false;
+            }
+            $text = (string) ($content[0]['text'] ?? '');
+            $url = (string) ($content[1]['image_url']['url'] ?? '');
+
+            return str_contains($text, 'The attached photo is the subject')
+                && str_contains($text, 'A photo is attached. It is the reference')
+                && ! str_contains($text, 'No topic was given')
+                && str_starts_with($url, 'data:image/png;base64,');
+        });
+    }
+
+    public function test_a_photo_can_stand_in_for_a_written_topic(): void
+    {
+        config(['openai.api_key' => 'test-key']);
+        $this->disableWebSearch();
+        OpenAI::fake([
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['variants' => [[
+                        'content' => 'Rice, eggs, and soy sauce. Dinner for 40p.',
+                        'angle' => 'What is on the plate',
+                        'virality_score' => 80,
+                        'estimated_reach' => 'high',
+                    ]]])],
+                ]],
+            ]),
+        ]);
+
+        $this->actingAs($this->userWithProfile(), 'sanctum')
+            ->post('/api/content/generate', [
+                'mode' => 'describe',
+                'content_type' => 'tweet',
+                'reference' => $this->photoUpload(),
+            ])
+            ->assertOk()
+            ->assertJsonMissingValidationErrors('topic');
+    }
+
+    private function photoUpload(): UploadedFile
+    {
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+
+        return UploadedFile::fake()->createWithContent('plate.png', $png === false ? '' : $png);
     }
 
     private function disableWebSearch(): void

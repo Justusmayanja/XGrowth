@@ -34,7 +34,7 @@ class ApiSpendService
 
     public const TWEET_RESERVE_MILLS = 8;
 
-    /** One standard square illustration. A flyer does not spend this. */
+    /** One square image from the image model. A drawn fallback does not spend this. */
     public const IMAGE_MILLS = 40;
 
     public const SEARCH_RESERVE_MILLS = 25;

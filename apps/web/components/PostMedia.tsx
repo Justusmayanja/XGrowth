@@ -3,7 +3,15 @@
 import { useEffect, useState } from "react";
 import { getToken } from "@/lib/api";
 
-export function PostMedia({ postId, className = "" }: { postId: number; className?: string }) {
+export function AuthImage({
+  path,
+  className = "",
+  alt = "",
+}: {
+  path: string;
+  className?: string;
+  alt?: string;
+}) {
   const [src, setSrc] = useState<string | null>(null);
 
   useEffect(() => {
@@ -13,7 +21,7 @@ export function PostMedia({ postId, className = "" }: { postId: number; classNam
     const headers: Record<string, string> = {};
     if (token) headers.Authorization = `Bearer ${token}`;
 
-    fetch(`/api/content/posts/${postId}/media`, { headers })
+    fetch(path, { headers })
       .then((response) => (response.ok ? response.blob() : null))
       .then((blob) => {
         if (!blob || cancelled) return;
@@ -26,15 +34,19 @@ export function PostMedia({ postId, className = "" }: { postId: number; classNam
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [postId]);
+  }, [path]);
 
   if (!src) return null;
 
   return (
     <img
       src={src}
-      alt=""
+      alt={alt}
       className={`mb-3 max-h-80 w-full rounded-md object-cover ${className}`}
     />
   );
+}
+
+export function PostMedia({ postId, className = "" }: { postId: number; className?: string }) {
+  return <AuthImage path={`/api/content/posts/${postId}/media`} className={className} />;
 }

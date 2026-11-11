@@ -138,7 +138,12 @@ export async function api<T = unknown>(
   return data as T;
 }
 
-export async function apiForm<T = unknown>(path: string, body: FormData, timeoutMs = 60000): Promise<T> {
+export async function apiForm<T = unknown>(
+  path: string,
+  body: FormData,
+  timeoutMs = 60000,
+  timeoutMessage = "The upload timed out. Try a shorter video.",
+): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -152,7 +157,7 @@ export async function apiForm<T = unknown>(path: string, body: FormData, timeout
     response = await fetch(`${apiBase}${path}`, { method: "POST", headers, body, signal: controller.signal });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new Error("The upload timed out. Try a shorter video.");
+      throw new Error(timeoutMessage);
     }
     throw new Error(unreachableMessage());
   } finally {

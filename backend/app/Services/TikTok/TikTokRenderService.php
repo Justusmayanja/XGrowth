@@ -13,6 +13,7 @@ use App\Support\SpeechDrivers;
 use App\Support\TikTokCatalog;
 use App\Support\TikTokContentPosting;
 use App\Support\TikTokVideoCatalog;
+use App\Support\TikTokWeek;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -107,7 +108,10 @@ class TikTokRenderService
             $spec['captions'] = (bool) $preferences->toArray()['captions']['enabled'];
             $spec['music'] = $preferences->musicEnabled() ? TikTokVideoPreferences::licensedMusic() : [];
             $directory = $work->begin($clip->id);
-            $files = $this->picture($user, $directory, $spec);
+            $format = (string) ($started->package['week']['format'] ?? TikTokWeek::MOTION);
+            $files = $format === TikTokWeek::SCENE
+                ? app(KlingSceneRenderer::class)->render($user, $directory, $spec, $this->speech())
+                : $this->picture($user, $directory, $spec);
             $stored = $this->store($clip->fresh() ?? $clip, $user, $files);
         } catch (Throwable $e) {
             Log::warning('TikTok render failed', [
@@ -121,6 +125,8 @@ class TikTokRenderService
             $plain = in_array($message, [
                 TikTokCatalog::RENDER_VOICE_UNAVAILABLE,
                 TikTokCatalog::RENDER_BUSY,
+                TikTokCatalog::RENDER_SCENE_UNAVAILABLE,
+                TikTokCatalog::RENDER_SCENE_FAILED,
                 GeminiCatalog::FAILED,
                 GeminiCatalog::QUOTA,
             ], true) ? $message : GeminiCatalog::FAILED;
@@ -210,6 +216,10 @@ class TikTokRenderService
             return 'This account cannot make a video right now.';
         }
         $preferences = TikTokVideoPreferences::forUser($user);
+        $format = (string) ($clip->package['week']['format'] ?? TikTokWeek::MOTION);
+        if ($format === TikTokWeek::SCENE && ! app(KlingVideoClient::class)->configured()) {
+            return TikTokCatalog::RENDER_SCENE_UNAVAILABLE;
+        }
         if ($preferences->type() !== TikTokVideoCatalog::TYPE_MOTION || ! TikTokVideoCatalog::typeAvailable($preferences->type())) {
             return 'This video style is not available yet.';
         }

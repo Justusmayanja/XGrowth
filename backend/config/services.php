@@ -47,6 +47,11 @@ return [
         'redirect' => env('X_REDIRECT_URI', 'http://127.0.0.1:8000/api/auth/x/callback'),
     ],
 
+    'kling' => [
+        'key' => env('KLING_API_KEY'),
+        'base_url' => env('KLING_API_BASE', 'https://api-singapore.klingai.com'),
+    ],
+
     'tiktok' => [
         'client_key' => env('TIKTOK_CLIENT_KEY'),
         'client_secret' => env('TIKTOK_CLIENT_SECRET'),
@@ -79,8 +84,8 @@ return [
         'base_url' => env('ELEVENLABS_BASE_URL', 'https://api.elevenlabs.io'),
         'model' => env('ELEVENLABS_MODEL', ElevenLabsCatalog::DEFAULT_MODEL),
         'voices' => [
-            'female' => env('ELEVENLABS_VOICE_FEMALE'),
-            'male' => env('ELEVENLABS_VOICE_MALE'),
+            'female' => env('ELEVENLABS_VOICE_FEMALE', '21m00Tcm4TlvDq8ikWAM'),
+            'male' => env('ELEVENLABS_VOICE_MALE', 'pNInz6obpgDQGcFmaJgB'),
         ],
         'output_format' => env('ELEVENLABS_OUTPUT_FORMAT', ElevenLabsCatalog::DEFAULT_OUTPUT_FORMAT),
         'timeout' => (int) env('ELEVENLABS_TIMEOUT', 60),

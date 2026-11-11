@@ -104,6 +104,9 @@ export function ClipCard({ clip, collapsed = false, aside }: { clip: TikTokClip;
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 space-y-2">
             <StatusChip clip={clip} />
+            {clip.week?.label && (
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{clip.week.label}</p>
+            )}
             <h3 className="text-balance text-xl font-medium break-words sm:text-2xl">{clip.hook || clip.topic || "Clip"}</h3>
             <ClipTimeline clip={clip} />
           </div>

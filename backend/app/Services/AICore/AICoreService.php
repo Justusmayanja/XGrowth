@@ -28,6 +28,64 @@ class AICoreService
     }
 
     /**
+     * One paragraph for the image model. The picture shows the post without painting its words.
+     */
+    public function draftPicturePrompt(User $user, AccountProfile $profile, string $caption, string $kind): ?string
+    {
+        if (! $this->isConfigured()) {
+            return null;
+        }
+
+        $about = trim((string) ($profile->description ?: $profile->resolvedNiche()));
+        $audience = trim((string) $profile->audience);
+        $moment = trim((string) preg_replace('/\s+/', ' ', $caption));
+        $style = match ($kind) {
+            'photo' => 'Photorealistic photograph, natural light, one clear subject. Not a drawing and not a poster full of type.',
+            'flyer' => 'A designed flyer: one bold graphic idea, flat color, high contrast, generous empty space across the top. Not a photograph and not a collage of text.',
+            default => 'An original illustration: simple shapes, high contrast, one idea. Not a photograph and not a user interface.',
+        };
+
+        $system = 'You write a single prompt for an image model. You describe what the picture shows. You never write the social post itself.';
+        $userPrompt = "Style: {$style}\n";
+        $userPrompt .= "Who the account is, do not quote this: {$about}\n";
+        if ($audience !== '') {
+            $userPrompt .= "Who it is for, do not quote this: {$audience}\n";
+        }
+        $userPrompt .= "The post to picture, do not quote it and do not render it as text: {$moment}\n\n";
+        $userPrompt .= <<<'PROMPT'
+Return JSON:
+{"prompt":"one paragraph the image model can paint, under 600 characters"}
+
+Describe a specific scene. Name the objects, the light, and the colors. Do not ask for words, letters, numbers, logos, or watermarks in the picture.
+PROMPT;
+
+        try {
+            $this->usage->assertCanGenerate($user);
+            $result = $this->chatJson($system, $userPrompt, 0.7);
+        } catch (RuntimeException) {
+            return null;
+        }
+
+        $prompt = trim((string) preg_replace('/\s+/', ' ', (string) ($result['parsed']['prompt'] ?? '')));
+        if (mb_strlen($prompt) < 20) {
+            return null;
+        }
+
+        $this->usage->record($user, [
+            'feature' => 'image_prompt',
+            'model' => $this->model(),
+            'input_tokens' => $result['input_tokens'],
+            'output_tokens' => $result['output_tokens'],
+            'total_tokens' => $result['total_tokens'],
+            'web_search_calls' => 0,
+            'used_web_search' => false,
+            'metadata' => ['kind' => $kind],
+        ], false);
+
+        return mb_substr($prompt, 0, 800);
+    }
+
+    /**
      * @param  array{
      *     user: User,
      *     topic: string,
@@ -72,15 +130,27 @@ class AICoreService
         );
 
         $suggest = $params['suggest'] ?? null;
-        $joinLive = (bool) ($params['join_live'] ?? $suggest);
+        $imageDataUrl = is_string($params['reference_image'] ?? null) && str_starts_with($params['reference_image'], 'data:image/')
+            ? $params['reference_image']
+            : null;
+        $hasReference = $imageDataUrl !== null;
+        $joinLive = (bool) ($params['join_live'] ?? $suggest) && ! $hasReference;
 
         $userPrompt = 'Today is '.now()->toFormattedDateString().".\n";
-        $userPrompt .= $suggest
-            ? "Generate exactly {$variantCount} distinct {$contentType} drafts. No topic was given: choose the best thing for this account to post right now. Each draft must take a different angle.\n\n"
-            : "Generate exactly {$variantCount} distinct {$contentType} draft options.\n\n";
+        if ($suggest && $hasReference) {
+            $userPrompt .= "Generate exactly {$variantCount} distinct {$contentType} drafts. The attached photo is the subject. Each draft must take a different angle on that photo.\n\n";
+        } elseif ($suggest) {
+            $userPrompt .= "Generate exactly {$variantCount} distinct {$contentType} drafts. No topic was given: choose the best thing for this account to post right now. Each draft must take a different angle.\n\n";
+        } else {
+            $userPrompt .= "Generate exactly {$variantCount} distinct {$contentType} draft options.\n\n";
+        }
 
         if (! $suggest && ! $joinLive && is_string($topic) && trim($topic) !== '') {
             $userPrompt .= "The subject the person asked for: {$topic}\nWrite about that subject. Do not turn it into a restatement of the account notes.\n\n";
+        }
+
+        if ($hasReference) {
+            $userPrompt .= "A photo is attached. It is the reference for these drafts. Write about what is actually in the photo, from this account's point of view. Do not invent things that are not in the photo. Do not write a dry list of what you see.\n\n";
         }
 
         $userPrompt .= $this->voiceNotes($params, $niche, $tone, $goal);
@@ -110,7 +180,7 @@ class AICoreService
             $userPrompt .= 'Planner hint, do not copy its words: '.$params['planner_hint']."\n";
         }
 
-        if ($suggest) {
+        if ($suggest && ! $hasReference) {
             $userPrompt .= $this->suggestInstructions($suggest);
         }
 
@@ -150,7 +220,7 @@ Return JSON:
 Use virality_score as an integer from 0-100 and estimated_reach as "low", "medium", or "high".
 PROMPT;
 
-        $result = $this->requestVariants($systemPrompt, $userPrompt, $useWebSearch);
+        $result = $this->requestVariants($systemPrompt, $userPrompt, $useWebSearch, $imageDataUrl);
         $variants = $this->normalizeVariants($result['parsed']['variants'] ?? []);
 
         if ($variants === []) {
@@ -163,7 +233,7 @@ PROMPT;
                 $retryPrompt .= "- {$phrase}\n";
             }
             $retryPrompt .= 'Previous draft: '.mb_substr((string) ($variants[0]['content'] ?? ''), 0, 280)."\n";
-            $retried = $this->requestVariants($systemPrompt, $retryPrompt, $useWebSearch);
+            $retried = $this->requestVariants($systemPrompt, $retryPrompt, $useWebSearch, $imageDataUrl);
             $rewritten = $this->normalizeVariants($retried['parsed']['variants'] ?? []);
             if ($rewritten !== []) {
                 $result = $retried;
@@ -173,7 +243,7 @@ PROMPT;
 
         if ($this->voice->applies($contentType) && $this->voice->anyRobotic($variants)) {
             try {
-                $rewrite = $this->chatJson($systemPrompt, $userPrompt."\n\n".$this->voice->rewriteNote());
+                $rewrite = $this->chatJson($systemPrompt, $userPrompt."\n\n".$this->voice->rewriteNote(), 0.8, $imageDataUrl);
                 $rewritten = $this->normalizeVariants($rewrite['parsed']['variants'] ?? []);
                 if ($rewritten !== [] && ! $this->voice->anyRobotic($rewritten)) {
                     $result['input_tokens'] += $rewrite['input_tokens'];
@@ -354,13 +424,13 @@ PROMPT;
      *     web_search_calls: int
      * }
      */
-    private function requestVariants(string $systemPrompt, string $userPrompt, bool $useWebSearch): array
+    private function requestVariants(string $systemPrompt, string $userPrompt, bool $useWebSearch, ?string $imageDataUrl = null): array
     {
         if ($useWebSearch) {
-            return $this->responsesJson($systemPrompt, $userPrompt, withWebSearch: true);
+            return $this->responsesJson($systemPrompt, $userPrompt, withWebSearch: true, imageDataUrl: $imageDataUrl);
         }
 
-        return $this->chatJson($systemPrompt, $userPrompt);
+        return $this->chatJson($systemPrompt, $userPrompt, imageDataUrl: $imageDataUrl);
     }
 
     /**
@@ -963,6 +1033,31 @@ PROMPT;
     }
 
     /**
+     * @return string|array<int, mixed>
+     */
+    private function userContent(string $text, ?string $imageDataUrl, bool $responses): string|array
+    {
+        if ($imageDataUrl === null) {
+            return $text;
+        }
+
+        if ($responses) {
+            return [[
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'input_text', 'text' => $text],
+                    ['type' => 'input_image', 'image_url' => $imageDataUrl],
+                ],
+            ]];
+        }
+
+        return [
+            ['type' => 'text', 'text' => $text],
+            ['type' => 'image_url', 'image_url' => ['url' => $imageDataUrl]],
+        ];
+    }
+
+    /**
      * @return array{
      *     parsed: array<string, mixed>,
      *     input_tokens: int,
@@ -971,14 +1066,14 @@ PROMPT;
      *     web_search_calls: int
      * }
      */
-    private function chatJson(string $system, string $user, float $temperature = 0.8): array
+    private function chatJson(string $system, string $user, float $temperature = 0.8, ?string $imageDataUrl = null): array
     {
         try {
             $response = OpenAI::chat()->create([
                 'model' => $this->model(),
                 'messages' => [
                     ['role' => 'system', 'content' => $system],
-                    ['role' => 'user', 'content' => $user],
+                    ['role' => 'user', 'content' => $this->userContent($user, $imageDataUrl, false)],
                 ],
                 'response_format' => ['type' => 'json_object'],
                 'temperature' => $temperature,
@@ -1013,12 +1108,12 @@ PROMPT;
      *     web_search_calls: int
      * }
      */
-    private function responsesJson(string $system, string $user, bool $withWebSearch = false): array
+    private function responsesJson(string $system, string $user, bool $withWebSearch = false, ?string $imageDataUrl = null): array
     {
         $parameters = [
             'model' => $this->model(),
             'instructions' => $system,
-            'input' => $user,
+            'input' => $this->userContent($user, $imageDataUrl, true),
             'temperature' => 0.8,
         ];
 

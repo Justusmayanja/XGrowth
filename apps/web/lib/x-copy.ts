@@ -19,7 +19,9 @@ export const X_COPY = {
   composeDraftsHelp: "Highest score first. Look at the numbers, then post the one you want.",
   composeScoreHighest: "Highest",
   composeVisualLabel: "Visual",
-  composeVisualHelp: "Text only is the default. A flyer, photo, or illustration gets a short line about the picture. The post keeps the take.",
+  composeVisualHelp:
+    "Text only is the default. Mackie17 writes a prompt, then a flyer, photo, or illustration is generated and shown here. The post keeps the take.",
+  composeReferenceHelp: "Add a photo and Mackie17 uses it as the reference for the post.",
   composeBrief: "Joins a conversation already in this feed, from this account's point of view.",
   composeSuggestHelp:
     "Suggest starts from conversations in this feed. Posts already on the account shape the voice, not the topic.",

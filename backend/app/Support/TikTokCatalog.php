@@ -244,6 +244,10 @@ class TikTokCatalog
 
     public const RENDER_VOICE_UNAVAILABLE = "Voice isn't available right now. Try again later, or add your own video.";
 
+    public const RENDER_SCENE_UNAVAILABLE = 'This scene video needs a Kling key before it can be made.';
+
+    public const RENDER_SCENE_FAILED = 'The scene video did not come back. Try again.';
+
     public static function renderLabel(string $status): string
     {
         return match ($status) {

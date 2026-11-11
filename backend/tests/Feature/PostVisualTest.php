@@ -4,11 +4,16 @@ namespace Tests\Feature;
 
 use App\Models\AccountProfile;
 use App\Models\ConnectedAccount;
+use App\Models\PlatformSetting;
 use App\Models\User;
+use App\Services\Admin\PlatformSettingsService;
+use App\Services\Content\FlyerPng;
 use App\Services\Content\PostVisualService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use OpenAI\Laravel\Facades\OpenAI;
+use OpenAI\Responses\Chat\CreateResponse;
 use Tests\TestCase;
 
 class PostVisualTest extends TestCase
@@ -137,7 +142,7 @@ class PostVisualTest extends TestCase
         $this->assertNull($user->posts()->first()?->media_path);
     }
 
-    public function test_a_chosen_flyer_is_not_swapped_for_an_illustration(): void
+    public function test_a_chosen_flyer_is_not_replaced_with_a_drawn_card_when_none_is_made(): void
     {
         $user = User::factory()->create();
         $profile = AccountProfile::create([
@@ -145,10 +150,7 @@ class PostVisualTest extends TestCase
             'description' => 'Cheap weeknight meals for one',
         ]);
 
-        $made = app(PostVisualService::class)->make($user, $profile, 'Dinner for 40p.', 'flyer');
-
-        $this->assertNotNull($made);
-        $this->assertSame('flyer', $made['kind']);
+        $this->assertNull(app(PostVisualService::class)->make($user, $profile, 'Dinner for 40p.', 'flyer'));
 
         $this->actingAs($user, 'sanctum')
             ->postJson('/api/content/drafts', [
@@ -157,9 +159,9 @@ class PostVisualTest extends TestCase
                 'visual_kind' => 'flyer',
             ])
             ->assertCreated()
-            ->assertJsonPath('media_attached', true);
+            ->assertJsonPath('media_attached', false);
 
-        Storage::disk('local')->deleteDirectory('post-visuals/'.$user->id);
+        $this->assertNull($user->posts()->first()?->media_path);
     }
 
     public function test_an_illustration_is_not_replaced_with_a_flyer_when_none_is_made(): void
@@ -215,14 +217,17 @@ class PostVisualTest extends TestCase
             'media_path' => $made['path'],
         ]);
 
-        $uploads = 0;
-        Http::fake(function ($request) use (&$uploads) {
+        $denyNext = false;
+        Http::fake(function ($request) use (&$denyNext) {
             if (str_contains($request->url(), '/2/media/upload')) {
-                $uploads++;
+                if ($denyNext) {
+                    return Http::response(['detail' => 'no'], 403);
+                }
+                if (str_contains($request->url(), '/finalize')) {
+                    $denyNext = true;
+                }
 
-                return $uploads === 1
-                    ? Http::response(['data' => ['id' => '555']], 200)
-                    : Http::response(['detail' => 'no'], 403);
+                return Http::response(['data' => ['id' => '555']], 200);
             }
 
             if (str_contains($request->url(), '/2/tweets')) {
@@ -265,5 +270,205 @@ class PostVisualTest extends TestCase
         });
 
         Storage::disk('local')->deleteDirectory('post-visuals/'.$user->id);
+    }
+
+    public function test_a_flyer_is_returned_with_the_drafts_and_saved_with_that_picture(): void
+    {
+        config(['openai.api_key' => 'test-key', 'openai.allow_image_http' => true]);
+        $this->disableWebSearch();
+        OpenAI::fake([
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['variants' => [[
+                        'content' => 'Rice, eggs, and soy sauce. Dinner for 40p.',
+                        'angle' => 'Cheapest meal of the week',
+                        'virality_score' => 80,
+                        'estimated_reach' => 'high',
+                    ]]])],
+                ]],
+            ]),
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode([
+                        'prompt' => 'A red pot of rice on a dark table, one line of steam, warm light.',
+                    ])],
+                ]],
+            ]),
+        ]);
+        $png = (new FlyerPng(24, 220, 30, 30))->png();
+        Http::fake([
+            'api.openai.com/v1/responses' => Http::response([
+                'output' => [[
+                    'type' => 'image_generation_call',
+                    'status' => 'completed',
+                    'result' => base64_encode($png),
+                ]],
+            ]),
+        ]);
+
+        $user = User::factory()->create();
+        AccountProfile::create([
+            'user_id' => $user->id,
+            'purpose' => 'side_hustle',
+            'platforms' => 'x',
+            'goal' => 'monetize,grow_followers',
+            'custom_niche' => 'Budget home cooking',
+            'description' => 'Cheap weeknight meals for one, with honest shortcuts.',
+            'audience' => 'Students cooking on a budget',
+            'tone' => 'funny',
+            'onboarding_completed' => true,
+        ]);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->postJson('/api/content/generate', [
+                'mode' => 'describe',
+                'topic' => 'A cheap dinner',
+                'content_type' => 'tweet',
+                'visual_kind' => 'flyer',
+            ])
+            ->assertOk()
+            ->assertJsonPath('visual.kind', 'flyer');
+
+        $id = $response->json('visual.id');
+        $this->assertIsString($id);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $id);
+
+        $preview = $this->actingAs($user, 'sanctum')
+            ->get('/api/content/visual-previews/'.$id)
+            ->assertOk();
+        $this->assertStringStartsWith("\x89PNG", $preview->streamedContent());
+
+        $this->actingAs(User::factory()->create(), 'sanctum')
+            ->get('/api/content/visual-previews/'.$id)
+            ->assertNotFound();
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/content/drafts', [
+                'content' => $response->json('variants.0.content'),
+                'content_type' => 'tweet',
+                'visual_kind' => 'flyer',
+                'visual_preview' => $id,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('media_attached', true);
+
+        $post = $user->posts()->first();
+        $this->assertNotNull($post?->media_path);
+        $saved = $this->actingAs($user, 'sanctum')
+            ->get('/api/content/posts/'.$post->id.'/media')
+            ->assertOk();
+        $this->assertStringStartsWith("\x89PNG", $saved->streamedContent());
+
+        $this->actingAs($user, 'sanctum')
+            ->get('/api/content/visual-previews/'.$id)
+            ->assertNotFound();
+
+        Http::assertSent(function ($request) {
+            $prompt = (string) ($request['input'] ?? '');
+            $tool = $request['tools'][0] ?? [];
+
+            return str_contains($request->url(), '/v1/responses')
+                && ($tool['type'] ?? null) === 'image_generation'
+                && ($tool['model'] ?? null) === config('openai.image_model')
+                && str_contains($prompt, 'A red pot of rice on a dark table')
+                && str_contains($prompt, 'No words, letters, numbers, logos, or watermarks');
+        });
+
+        Storage::disk('local')->deleteDirectory('post-visuals/'.$user->id);
+    }
+
+    public function test_a_photo_that_cannot_be_made_still_returns_the_words(): void
+    {
+        config(['openai.api_key' => 'test-key']);
+        $this->disableWebSearch();
+        OpenAI::fake([
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['variants' => [[
+                        'content' => 'Rice, eggs, and soy sauce. Dinner for 40p.',
+                        'angle' => 'Cheapest meal of the week',
+                        'virality_score' => 80,
+                        'estimated_reach' => 'high',
+                    ]]])],
+                ]],
+            ]),
+        ]);
+
+        $user = User::factory()->create();
+        AccountProfile::create([
+            'user_id' => $user->id,
+            'description' => 'Cheap weeknight meals for one',
+            'custom_niche' => 'home cooking',
+            'onboarding_completed' => true,
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/content/generate', [
+                'mode' => 'describe',
+                'topic' => 'A cheap dinner',
+                'content_type' => 'tweet',
+                'visual_kind' => 'photo',
+            ])
+            ->assertOk()
+            ->assertJsonPath('variants.0.content', 'Rice, eggs, and soy sauce. Dinner for 40p.')
+            ->assertJsonPath('visual_error', 'A picture could not be made.')
+            ->assertJsonMissingPath('visual');
+    }
+
+    public function test_a_blocked_image_model_is_explained(): void
+    {
+        config(['openai.api_key' => 'test-key', 'openai.allow_image_http' => true]);
+        $this->disableWebSearch();
+        OpenAI::fake([
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['variants' => [[
+                        'content' => 'Rice, eggs, and soy sauce. Dinner for 40p.',
+                        'angle' => 'Cheapest meal of the week',
+                        'virality_score' => 80,
+                        'estimated_reach' => 'high',
+                    ]]])],
+                ]],
+            ]),
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode([
+                        'prompt' => 'A bowl of rice on a wooden table.',
+                    ])],
+                ]],
+            ]),
+        ]);
+        Http::fake([
+            'api.openai.com/v1/responses' => Http::response([
+                'error' => [
+                    'message' => 'Project does not have access to model gpt-image-2.6-flare',
+                    'code' => 'model_not_found',
+                ],
+            ], 403),
+        ]);
+
+        $user = User::factory()->create();
+        AccountProfile::create([
+            'user_id' => $user->id,
+            'description' => 'Cheap weeknight meals for one',
+            'onboarding_completed' => true,
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/content/generate', [
+                'mode' => 'describe',
+                'topic' => 'A cheap dinner',
+                'content_type' => 'tweet',
+                'visual_kind' => 'illustration',
+            ])
+            ->assertOk()
+            ->assertJsonPath('variants.0.content', 'Rice, eggs, and soy sauce. Dinner for 40p.')
+            ->assertJsonPath('visual_error', 'This OpenAI project cannot make pictures yet. Allow an image model for the project, then try again.');
+    }
+
+    private function disableWebSearch(): void
+    {
+        PlatformSetting::query()->where('key', 'web_search_enabled')->update(['value' => '0']);
+        app(PlatformSettingsService::class)->clearCache();
     }
 }

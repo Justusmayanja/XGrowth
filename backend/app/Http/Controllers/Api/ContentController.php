@@ -5,21 +5,24 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AccountProfile;
 use App\Models\Post;
+use App\Models\Trend;
 use App\Models\User;
 use App\Services\AICore\AiContextBuilder;
 use App\Services\AICore\AICoreService;
+use App\Services\ApiSpend\ApiSpendService;
 use App\Services\Content\PostVisualService;
-use App\Services\TrendEngine\OpportunityScorerService;
-use App\Services\TrendEngine\TrendEngineService;
 use App\Services\GrowthAgent\SafetyEngineService;
 use App\Services\GrowthAgent\ViralityPredictorService;
 use App\Services\GrowthAgent\XGoalPlan;
+use App\Services\TrendEngine\OpportunityScorerService;
+use App\Services\TrendEngine\TrendEngineService;
 use App\Services\XApi\XApiService;
 use App\Support\SetupCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
@@ -44,16 +47,33 @@ class ContentController extends Controller
 
         $validated = $request->validate([
             'mode' => ['nullable', 'in:suggest,describe'],
-            'topic' => ['required_unless:mode,suggest', 'nullable', 'string', 'max:1000'],
+            'topic' => ['nullable', 'string', 'max:1000'],
             'tone' => ['nullable', 'string', 'max:50'],
             'content_type' => ['nullable', 'in:'.self::CONTENT_TYPES],
             'use_web_search' => ['nullable', 'boolean'],
+            'visual_kind' => ['nullable', 'in:none,text,flyer,photo,illustration'],
+            'reference' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:5120'],
+        ], [
+            'reference.mimes' => 'Use a JPEG, PNG, or WebP photo.',
+            'reference.max' => 'That photo is too large. Use one under 5 MB.',
         ]);
 
         $profile = $request->user()->accountProfile;
         $tone = $validated['tone'] ?? $profile?->primaryTone() ?? 'professional';
         $suggest = ($validated['mode'] ?? 'describe') === 'suggest';
-        $topic = $suggest ? null : trim((string) $validated['topic']);
+        $typed = trim((string) ($validated['topic'] ?? ''));
+        $reference = $this->referenceDataUrl($request);
+        if ($request->hasFile('reference') && $reference === null) {
+            throw ValidationException::withMessages([
+                'reference' => 'Use a JPEG, PNG, or WebP photo.',
+            ]);
+        }
+        if (! $suggest && $typed === '' && $reference === null) {
+            throw ValidationException::withMessages([
+                'topic' => 'Say what you want to post about.',
+            ]);
+        }
+        $topic = $suggest || $typed === '' ? null : $typed;
         $niche = $profile?->resolvedNiche() ?? 'your niche';
         $contentType = $validated['content_type'] ?? 'tweet';
         $platform = SetupCatalog::platformForContentType($contentType);
@@ -87,7 +107,8 @@ class ContentController extends Controller
                 'audience' => $profile?->audience,
                 'description' => $profile?->description,
                 'use_web_search' => $search,
-                'join_live' => $suggest,
+                'join_live' => $suggest && $reference === null,
+                'reference_image' => $reference,
                 'recent_posts' => $context['recent'],
                 'suggest' => $suggest ? $context : null,
             ]);
@@ -105,7 +126,7 @@ class ContentController extends Controller
             $result['variants'] = $this->scoreVariants($request->user(), $profile, $result['variants'], $topic);
         }
 
-        return response()->json($result);
+        return response()->json($this->attachVisual($request, $result, $validated, $contentType, $platform));
     }
 
     /**
@@ -123,7 +144,7 @@ class ContentController extends Controller
         }
 
         $account = $user->connectedAccounts()->where('platform', 'x')->where('is_active', true)->first();
-        $spoken = $account ? app(\App\Services\XApi\XApiService::class)->voiceSamples($account) : [];
+        $spoken = $account ? app(XApiService::class)->voiceSamples($account) : [];
         $recent = array_values(array_unique(array_merge(
             $spoken,
             $user->posts()
@@ -150,12 +171,20 @@ class ContentController extends Controller
             'virality_predicted' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'with_visual' => ['nullable', 'boolean'],
             'visual_kind' => ['nullable', 'in:none,text,flyer,photo,illustration'],
+            'visual_preview' => ['nullable', 'regex:/^[a-f0-9]{32}$/'],
         ]);
 
         $contentType = $validated['content_type'] ?? 'tweet';
         $mediaPath = null;
+        $previewId = $validated['visual_preview'] ?? null;
+        $preview = is_string($previewId) && $previewId !== ''
+            ? $this->visuals->readPreview($request->user(), $previewId)
+            : null;
+        if ($preview !== null) {
+            $mediaPath = $preview['path'];
+        }
         $visualKind = $this->requestedVisualKind($validated);
-        if ($visualKind !== null && in_array($contentType, ['tweet', 'quote'], true)) {
+        if ($mediaPath === null && $visualKind !== null && in_array($contentType, ['tweet', 'quote'], true)) {
             try {
                 $made = $this->visuals->make(
                     $request->user(),
@@ -190,6 +219,9 @@ class ContentController extends Controller
         }
 
         $post = Post::create($attributes);
+        if ($preview !== null && is_string($previewId) && $previewId !== '') {
+            $this->visuals->forgetPreview($request->user(), $previewId);
+        }
 
         return response()->json([
             'post' => $post,
@@ -225,7 +257,7 @@ class ContentController extends Controller
             return response()->json(['message' => $safety->postHoldReason($request->user(), $accountId, false) ?: 'The daily post limit is reached.'], 429);
         }
 
-        if (app(\App\Services\ApiSpend\ApiSpendService::class)->containsLink($post->content)) {
+        if (app(ApiSpendService::class)->containsLink($post->content)) {
             return response()->json(['message' => 'Links stay out of this app. Remove the link and post the words.'], 422);
         }
 
@@ -356,6 +388,16 @@ class ContentController extends Controller
         return Storage::disk('local')->response($post->media_path);
     }
 
+    public function visualPreview(Request $request, string $preview): Response
+    {
+        $held = $this->visuals->readPreview($request->user(), $preview);
+        if ($held === null) {
+            abort(404);
+        }
+
+        return Storage::disk('local')->response($held['path']);
+    }
+
     /**
      * @param  list<array<string, mixed>>  $variants
      * @return list<array<string, mixed>>
@@ -416,7 +458,7 @@ class ContentController extends Controller
     }
 
     /**
-     * @return array{trend: \App\Models\Trend|null, score: float|null}
+     * @return array{trend: Trend|null, score: float|null}
      */
     private function bestMoment(User $user, ?string $topic): array
     {
@@ -457,5 +499,85 @@ class ContentController extends Controller
         }
 
         return ! empty($validated['with_visual']) ? 'auto' : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function attachVisual(Request $request, array $result, array $validated, string $contentType, string $platform): array
+    {
+        $kind = $this->requestedVisualKind([
+            'visual_kind' => is_string($validated['visual_kind'] ?? null) ? $validated['visual_kind'] : null,
+        ]);
+        if ($kind === null || $kind === 'auto' || $platform !== 'x' || ! in_array($contentType, ['tweet', 'quote'], true)) {
+            return $result;
+        }
+
+        $caption = trim((string) ($result['variants'][0]['content'] ?? ''));
+        if ($caption === '') {
+            return $result;
+        }
+
+        $refusal = app(ApiSpendService::class)->refusal($request->user()->id, ApiSpendService::IMAGE_MILLS);
+        if ($refusal !== null) {
+            $result['visual_error'] = $refusal;
+
+            return $result;
+        }
+
+        set_time_limit(120);
+
+        try {
+            $preview = $this->visuals->preview(
+                $request->user(),
+                $request->user()->accountProfile,
+                $caption,
+                $kind,
+            );
+        } catch (Throwable $e) {
+            report($e);
+            $preview = null;
+        }
+
+        if ($preview === null) {
+            $result['visual_error'] = $this->visuals->lastError ?: 'A picture could not be made.';
+
+            return $result;
+        }
+
+        $result['visual'] = [
+            'id' => $preview['id'],
+            'kind' => $preview['kind'],
+        ];
+
+        return $result;
+    }
+
+    private function referenceDataUrl(Request $request): ?string
+    {
+        $file = $request->file('reference');
+        if ($file === null || ! $file->isValid()) {
+            return null;
+        }
+
+        $path = $file->getRealPath();
+        if (! is_string($path) || $path === '') {
+            return null;
+        }
+
+        $info = @getimagesize($path);
+        $mime = is_array($info) ? (string) ($info['mime'] ?? '') : '';
+        if (! in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
+            return null;
+        }
+
+        $bytes = file_get_contents($path);
+        if (! is_string($bytes) || $bytes === '') {
+            return null;
+        }
+
+        return 'data:'.$mime.';base64,'.base64_encode($bytes);
     }
 }

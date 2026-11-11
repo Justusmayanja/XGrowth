@@ -28,6 +28,7 @@ export type TikTokClip = {
   status_label: string;
   kind?: string | null;
   kind_label?: string | null;
+  week?: { format: string; job: string; label: string } | null;
   topic: string | null;
   hook: string | null;
   script_lines: string[];
