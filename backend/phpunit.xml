@@ -33,6 +33,8 @@
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
         <env name="TIKTOK_TTS_DRIVER" value="fake"/>
+        <env name="TIKTOK_VIDEO_PROVIDER" value="motion"/>
+        <env name="GEMINI_API_KEY" value=""/>
         <env name="TIKTOK_FFMPEG" value="ffmpeg-not-installed"/>
         <env name="TIKTOK_FFPROBE" value="ffprobe-not-installed"/>
     </php>

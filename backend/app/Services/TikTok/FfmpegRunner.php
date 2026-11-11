@@ -54,6 +54,11 @@ class FfmpegRunner
         return $this->binaryExists('ffmpeg') && $this->binaryExists('ffprobe');
     }
 
+    public function ffprobeAvailable(): bool
+    {
+        return $this->binaryExists('ffprobe');
+    }
+
     /**
      * @return list<string>
      */

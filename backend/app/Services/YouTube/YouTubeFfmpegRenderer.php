@@ -4,8 +4,10 @@ namespace App\Services\YouTube;
 
 use App\Models\User;
 use App\Models\YouTubeVideo;
+use App\Services\TikTok\ElevenLabsSpeechProvider;
 use App\Services\TikTok\FfmpegRunner;
 use App\Services\TikTok\OpenAiSpeechProvider;
+use App\Support\SpeechDrivers;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -479,14 +481,17 @@ class YouTubeFfmpegRenderer
     {
         $path = $work.DIRECTORY_SEPARATOR.'narration.m4a';
         $driver = (string) config('services.youtube.tts_driver', 'local');
-        if ($this->kind($video) === 'narration' && $driver === 'openai') {
+        if ($this->kind($video) === 'narration' && in_array($driver, [SpeechDrivers::OPENAI, SpeechDrivers::ELEVENLABS], true)) {
             $spoken = trim(preg_replace('/\[ON SCREEN:[^\]]*\]/', ' ', (string) $video->script) ?? '');
             $user = $video->user ?? User::query()->find($video->user_id);
             if (! $user instanceof User || $spoken === '') {
                 throw new YouTubeRenderException('The voice could not be made. Nothing is uploaded.');
             }
+            $provider = $driver === SpeechDrivers::ELEVENLABS
+                ? app(ElevenLabsSpeechProvider::class)
+                : app(OpenAiSpeechProvider::class);
             try {
-                app(OpenAiSpeechProvider::class)->speak($user, $spoken, 'female', $path);
+                $provider->speak($user, $spoken, 'female', $path);
             } catch (Throwable) {
                 throw new YouTubeRenderException('The voice could not be made. Switch the speech driver to local, then try again. Nothing is uploaded.');
             }

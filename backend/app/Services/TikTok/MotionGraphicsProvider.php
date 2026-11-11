@@ -3,8 +3,10 @@
 namespace App\Services\TikTok;
 
 use App\Models\User;
-use App\Support\TikTokCatalog;
+use App\Services\Storage\MediaStore;
+use App\Support\TikTokContentPosting;
 use App\Support\TikTokVideoCatalog;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 /**
@@ -42,7 +44,7 @@ class MotionGraphicsProvider
         foreach ($scenes as $scene) {
             $n = (int) ($scene['n'] ?? count($files) + 1);
             $narration = (string) ($scene['narration'] ?? '');
-            $audio = $work.'/audio-'.hash('sha256', $narration.'|'.$voice.'|'.$speech->key()).'.m4a';
+            $audio = $work.'/'.$speech->cacheToken($narration, $voice).'.m4a';
             if (! is_file($audio)) {
                 $speech->speak($user, $narration, $voice, $audio);
             }
@@ -86,7 +88,7 @@ class MotionGraphicsProvider
         try {
             app(TikTokVideoService::class)->acceptProbe($this->probe->inspect($final));
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('TikTok render output failed its own checks', [
+            Log::warning('TikTok render output failed its own checks', [
                 'user_id' => $user->id,
             ]);
             throw new RuntimeException("We couldn't make the video. Try again, or add your own.");
@@ -176,11 +178,11 @@ class MotionGraphicsProvider
             return null;
         }
         $key = $user->id.'/brand/logo.png';
-        $disk = app(\App\Services\Storage\MediaStore::class)->disk();
+        $disk = app(MediaStore::class)->disk();
         if (! $disk->exists($key)) {
             return null;
         }
-        $local = app(\App\Services\Storage\MediaStore::class)->materialize(\App\Support\TikTokContentPosting::DISK, $key);
+        $local = app(MediaStore::class)->materialize(TikTokContentPosting::DISK, $key);
 
         return $local->path;
     }

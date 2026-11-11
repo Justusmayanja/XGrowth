@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { AppShell } from "@/components/AppShell";
+import { AppShell } from "@/components/shell/AppShell";
 import { LoadingMark } from "@/components/LoadingMark";
 import { api, getToken } from "@/lib/api";
 import { openPage } from "@/lib/nav-recovery";

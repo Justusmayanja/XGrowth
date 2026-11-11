@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AccountProfile;
 use App\Models\PlatformSetup;
 use App\Models\User;
+use App\Providers\AppServiceProvider;
 use App\Services\TikTok\FfmpegRunner;
 use App\Services\TikTok\TikTokEngineService;
 use App\Services\TikTok\TikTokScriptWriter;
@@ -34,9 +35,13 @@ class TikTokFfmpegRenderTest extends TestCase
         config([
             'openai.api_key' => '',
             'tiktok_video.tts_driver' => 'fake',
+            'tiktok.render_sync' => true,
             'services.tiktok.ffmpeg' => $ffmpeg,
             'services.tiktok.ffprobe' => $ffprobe,
+            'queue.connections.renders.after_commit' => false,
         ]);
+        $this->app['env'] = 'local';
+        (new AppServiceProvider($this->app))->configureRenderQueue();
 
         $runner = app(FfmpegRunner::class);
         if (! $runner->available() || ! $runner->hasFilter('ass')) {
