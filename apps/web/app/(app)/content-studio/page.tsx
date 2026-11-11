@@ -4,6 +4,7 @@ import Link from "next/link";
 import { PenLine } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { DeskHeading } from "@/components/DeskHeading";
+import { AuthImage } from "@/components/PostMedia";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { api, DRAFT_TIMEOUT_MS } from "@/lib/api";
+import { api, apiForm, DRAFT_TIMEOUT_MS } from "@/lib/api";
 import { CONTENT_FORMATS, contentFormatLabel } from "@/lib/content-formats";
 import { formatsFor, platformOfFormat, usePlatform } from "@/lib/platform";
 import { type AccountProfile, parseMultiValue } from "@/lib/profile";
@@ -63,16 +64,26 @@ function visualSavedLabel(kind: VisualKind): string {
 
 type ComposeMode = "suggest" | "describe";
 
-const MODES: Array<{ value: ComposeMode; label: string }> = [
-  { value: "suggest", label: "Suggest for me" },
-  { value: "describe", label: "I'll describe it" },
-];
-
 type AiUsageStatus = {
   web_search_enabled: boolean;
   ai_generations: { used: number; limit: number; remaining: number };
   web_searches: { used: number; limit: number; remaining: number };
 };
+
+type GeneratedVisual = { id: string; kind: Exclude<VisualKind, "text"> };
+
+type GeneratedDrafts = {
+  variants: Variant[];
+  note: string;
+  usage?: AiUsageStatus;
+  visual?: GeneratedVisual;
+  visual_error?: string;
+};
+
+const MODES: Array<{ value: ComposeMode; label: string }> = [
+  { value: "suggest", label: "Suggest for me" },
+  { value: "describe", label: "I'll describe it" },
+];
 
 export default function ContentStudioPage() {
   const [variants, setVariants] = useState<Variant[]>([]);
@@ -87,9 +98,21 @@ export default function ContentStudioPage() {
   const [usage, setUsage] = useState<AiUsageStatus | null>(null);
 
   const [topic, setTopic] = useState("");
+  const [reference, setReference] = useState<File | null>(null);
+  const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
+  const [visual, setVisual] = useState<GeneratedVisual | null>(null);
+  const [visualError, setVisualError] = useState<string | null>(null);
   const [mode, setMode] = useState<ComposeMode>("suggest");
   const platform = usePlatform();
   const formats = formatsFor(platform);
+  const pictureOn =
+    visualKind !== "text" && platform === "x" && (contentType === "tweet" || contentType === "quote");
+
+  useEffect(() => {
+    return () => {
+      if (referenceUrl) URL.revokeObjectURL(referenceUrl);
+    };
+  }, [referenceUrl]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -137,34 +160,53 @@ export default function ContentStudioPage() {
     }
     const typed = topic.trim();
     const nextMode: ComposeMode = mode === "describe" || typed.length >= 3 ? "describe" : "suggest";
-    if (nextMode === "describe" && typed.length < 3) {
+    if (nextMode === "describe" && typed.length < 3 && !reference) {
       toast.error("Say what you want to post about.");
       return;
     }
     setUseWebSearch(search);
     setLoading(true);
     try {
-      const data = await api<{
-        variants: Variant[];
-        note: string;
-        usage?: AiUsageStatus;
-      }>(
-        "/content/generate",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            mode: nextMode,
-            topic: nextMode === "describe" ? typed : null,
-            tone,
-            content_type: contentType,
-            use_web_search: search && !webSearchDisabled,
-          }),
-        },
-        60000,
-        "Writing took too long. Try again.",
-      );
+      const timeout = pictureOn || reference ? 120000 : 60000;
+      const visualKindToSend = pictureOn ? visualKind : "text";
+      let data: GeneratedDrafts;
+      if (reference) {
+        const body = new FormData();
+        body.append("mode", nextMode);
+        if (nextMode === "describe" && typed !== "") body.append("topic", typed);
+        body.append("tone", tone);
+        body.append("content_type", contentType);
+        body.append("use_web_search", search && !webSearchDisabled ? "1" : "0");
+        body.append("visual_kind", visualKindToSend);
+        body.append("reference", reference);
+        data = await apiForm<GeneratedDrafts>(
+          "/content/generate",
+          body,
+          timeout,
+          "Writing took too long. Try again.",
+        );
+      } else {
+        data = await api<GeneratedDrafts>(
+          "/content/generate",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              mode: nextMode,
+              topic: nextMode === "describe" ? typed : null,
+              tone,
+              content_type: contentType,
+              use_web_search: search && !webSearchDisabled,
+              visual_kind: visualKindToSend,
+            }),
+          },
+          timeout,
+          "Writing took too long. Try again.",
+        );
+      }
       setVariants(data.variants);
       setNote(data.note);
+      setVisual(pictureOn ? (data.visual ?? null) : null);
+      setVisualError(pictureOn && !data.visual ? (data.visual_error ?? "A picture could not be made.") : null);
       if (data.usage) {
         setUsage(data.usage);
       }
@@ -181,9 +223,6 @@ export default function ContentStudioPage() {
     );
   }
 
-  const pictureOn =
-    visualKind !== "text" && platform === "x" && (contentType === "tweet" || contentType === "quote");
-
   async function saveDraft(variant: Variant, index: number) {
     setSavingId(index);
     try {
@@ -197,6 +236,7 @@ export default function ContentStudioPage() {
             virality_predicted: variant.virality_score,
             with_visual: pictureOn,
             visual_kind: pictureOn ? visualKind : "text",
+            visual_preview: pictureOn && visual && index === 0 ? visual.id : undefined,
           }),
         },
         DRAFT_TIMEOUT_MS,
@@ -226,6 +266,7 @@ export default function ContentStudioPage() {
             virality_predicted: variant.virality_score,
             with_visual: pictureOn,
             visual_kind: pictureOn ? visualKind : "text",
+            visual_preview: pictureOn && visual && index === 0 ? visual.id : undefined,
           }),
         },
         DRAFT_TIMEOUT_MS,
@@ -330,6 +371,53 @@ export default function ContentStudioPage() {
                       : "e.g. Why I stopped buying ready meals. Mention the price difference and end with a question."
                   }
                 />
+                <div className="flex flex-wrap items-center gap-3">
+                  <label
+                    htmlFor="reference"
+                    className="inline-flex min-h-9 cursor-pointer items-center rounded-sm border border-border px-3 text-sm focus-within:ring-2 focus-within:ring-ring"
+                  >
+                    {reference ? "Change photo" : "Add a photo"}
+                    <input
+                      id="reference"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      className="sr-only"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (!file) return;
+                        if (!file.type.startsWith("image/")) {
+                          toast.error("Use a JPEG, PNG, or WebP photo.");
+                          return;
+                        }
+                        if (file.size > 5 * 1024 * 1024) {
+                          toast.error("That photo is too large. Use one under 5 MB.");
+                          return;
+                        }
+                        setReference(file);
+                        setReferenceUrl(URL.createObjectURL(file));
+                      }}
+                    />
+                  </label>
+                  {referenceUrl ? (
+                    <>
+                      {/* Local file chosen in this session. It is not a remote image. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={referenceUrl}
+                        alt="Reference photo"
+                        className="h-16 w-16 rounded-md object-cover"
+                      />
+                      <Button type="button" variant="ghost" size="sm" onClick={() => {
+                        setReference(null);
+                        setReferenceUrl(null);
+                      }}>
+                        Remove
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+                <p className="text-xs text-muted-foreground">{X_COPY.composeReferenceHelp}</p>
                 <p className="text-xs text-muted-foreground">
                   {mode === "suggest"
                     ? platform === "youtube"
@@ -375,7 +463,11 @@ export default function ContentStudioPage() {
                   <Label>{X_COPY.composeVisualLabel}</Label>
                   <Select
                     value={visualKind}
-                    onValueChange={(value) => setVisualKind((value as VisualKind) ?? "text")}
+                    onValueChange={(value) => {
+                      setVisualKind((value as VisualKind) ?? "text");
+                      setVisual(null);
+                      setVisualError(null);
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue>{(value: string) => VISUAL_LABELS[value as VisualKind] ?? VISUAL_LABELS.text}</SelectValue>
@@ -397,7 +489,9 @@ export default function ContentStudioPage() {
                   onClick={() => void write(false)}
                 >
                   {loading
-                    ? "Writing…"
+                    ? pictureOn
+                      ? "Writing and making the picture…"
+                      : "Writing…"
                     : mode === "suggest"
                       ? variants.length > 0
                         ? "Suggest different posts"
@@ -461,6 +555,18 @@ export default function ContentStudioPage() {
                       </p>
                     )}
                   </div>
+                  {i === 0 && visual ? (
+                    <div className="mb-3">
+                      <p className="mb-2 text-xs text-muted-foreground">{VISUAL_LABELS[visual.kind]}</p>
+                      <AuthImage
+                        path={`/api/content/visual-previews/${visual.id}`}
+                        alt={`${VISUAL_LABELS[visual.kind]} for this draft`}
+                      />
+                    </div>
+                  ) : null}
+                  {i === 0 && !visual && visualError ? (
+                    <p className="mb-3 text-sm text-muted-foreground">{visualError}</p>
+                  ) : null}
                   <Textarea
                     value={v.content}
                     onChange={(e) => updateVariant(i, e.target.value)}

@@ -104,6 +104,8 @@ Route::middleware(['auth:sanctum', 'not_blocked'])->group(function () {
         Route::delete('/content/drafts/{post}', [ContentController::class, 'destroy']);
         Route::get('/content/posts', [ContentController::class, 'index']);
         Route::get('/content/posts/{post}/media', [ContentController::class, 'media']);
+        Route::get('/content/visual-previews/{preview}', [ContentController::class, 'visualPreview'])
+            ->where('preview', '[a-f0-9]{32}');
 
         Route::get('/tiktok/ideas', [TikTokController::class, 'ideas']);
         Route::get('/tiktok/clips', [TikTokController::class, 'index']);

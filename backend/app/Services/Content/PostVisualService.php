@@ -79,6 +79,51 @@ class PostVisualService
         return ['path' => $path, 'kind' => $used];
     }
 
+    /**
+     * Keep a picture on disk until the draft that shows it is saved.
+     *
+     * @param  'flyer'|'photo'|'illustration'  $kind
+     * @return array{id: string, path: string, kind: string}|null
+     */
+    public function preview(User $user, ?AccountProfile $profile, string $caption, string $kind): ?array
+    {
+        $this->clearUnusedPreviews($user);
+        $made = $this->make($user, $profile, $caption, $kind);
+        if ($made === null) {
+            return null;
+        }
+
+        $id = str_replace('-', '', (string) Str::uuid());
+        Storage::disk('local')->put($this->previewMetaPath($user, $id), json_encode([
+            'path' => $made['path'],
+            'kind' => $made['kind'],
+        ], JSON_THROW_ON_ERROR));
+
+        return ['id' => $id, 'path' => $made['path'], 'kind' => $made['kind']];
+    }
+
+    /**
+     * @return array{path: string, kind: string}|null
+     */
+    public function readPreview(User $user, string $id): ?array
+    {
+        $meta = $this->previewMeta($user, $id);
+        if ($meta === null || ! Storage::disk('local')->exists($meta['path'])) {
+            return null;
+        }
+
+        return $meta;
+    }
+
+    public function forgetPreview(User $user, string $id): void
+    {
+        if (! $this->validPreviewId($id)) {
+            return;
+        }
+
+        Storage::disk('local')->delete($this->previewMetaPath($user, $id));
+    }
+
     private function normalizeKind(?string $kind): ?string
     {
         return match ($kind) {
@@ -113,7 +158,7 @@ class PostVisualService
 
         try {
             $response = Http::withToken($key)
-                ->timeout(25)
+                ->timeout(45)
                 ->post('https://api.openai.com/v1/images/generations', [
                     'model' => 'dall-e-3',
                     'prompt' => $this->imagePrompt($profile, $caption, $kind),
@@ -314,5 +359,65 @@ class PostVisualService
         $seed = (string) ($profile->description ?: $profile->resolvedNiche() ?: $caption);
 
         return abs(crc32($seed)) % 360;
+    }
+
+    private function clearUnusedPreviews(User $user): void
+    {
+        $dir = 'post-visuals/'.$user->id.'/previews';
+        if (! Storage::disk('local')->directoryExists($dir)) {
+            return;
+        }
+
+        foreach (Storage::disk('local')->files($dir) as $file) {
+            if (! str_ends_with($file, '.json')) {
+                continue;
+            }
+            $decoded = json_decode((string) Storage::disk('local')->get($file), true);
+            Storage::disk('local')->delete($file);
+            $path = is_array($decoded) ? ($decoded['path'] ?? null) : null;
+            if (! is_string($path) || ! str_starts_with($path, 'post-visuals/'.$user->id.'/')) {
+                continue;
+            }
+            if ($user->posts()->where('media_path', $path)->exists()) {
+                continue;
+            }
+            Storage::disk('local')->delete($path);
+        }
+    }
+
+    /**
+     * @return array{path: string, kind: string}|null
+     */
+    private function previewMeta(User $user, string $id): ?array
+    {
+        if (! $this->validPreviewId($id)) {
+            return null;
+        }
+
+        $metaPath = $this->previewMetaPath($user, $id);
+        if (! Storage::disk('local')->exists($metaPath)) {
+            return null;
+        }
+
+        $decoded = json_decode((string) Storage::disk('local')->get($metaPath), true);
+        $path = is_array($decoded) ? ($decoded['path'] ?? null) : null;
+        if (! is_string($path) || ! str_starts_with($path, 'post-visuals/'.$user->id.'/')) {
+            return null;
+        }
+
+        return [
+            'path' => $path,
+            'kind' => is_string($decoded['kind'] ?? null) ? $decoded['kind'] : '',
+        ];
+    }
+
+    private function previewMetaPath(User $user, string $id): string
+    {
+        return 'post-visuals/'.$user->id.'/previews/'.$id.'.json';
+    }
+
+    private function validPreviewId(string $id): bool
+    {
+        return preg_match('/^[a-f0-9]{32}$/', $id) === 1;
     }
 }
