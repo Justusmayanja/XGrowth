@@ -294,8 +294,12 @@ class PostVisualTest extends TestCase
         ]);
         $png = (new FlyerPng(24, 220, 30, 30))->png();
         Http::fake([
-            'api.openai.com/v1/images/generations' => Http::response([
-                'data' => [['b64_json' => base64_encode($png)]],
+            'api.openai.com/v1/responses' => Http::response([
+                'output' => [[
+                    'type' => 'image_generation_call',
+                    'status' => 'completed',
+                    'result' => base64_encode($png),
+                ]],
             ]),
         ]);
 
@@ -357,10 +361,12 @@ class PostVisualTest extends TestCase
             ->assertNotFound();
 
         Http::assertSent(function ($request) {
-            $prompt = (string) ($request['prompt'] ?? '');
+            $prompt = (string) ($request['input'] ?? '');
+            $tool = $request['tools'][0] ?? [];
 
-            return str_contains($request->url(), '/v1/images/generations')
-                && ($request['model'] ?? null) === 'dall-e-3'
+            return str_contains($request->url(), '/v1/responses')
+                && ($tool['type'] ?? null) === 'image_generation'
+                && ($tool['model'] ?? null) === config('openai.image_model')
                 && str_contains($prompt, 'A red pot of rice on a dark table')
                 && str_contains($prompt, 'No words, letters, numbers, logos, or watermarks');
         });
@@ -404,6 +410,57 @@ class PostVisualTest extends TestCase
             ->assertJsonPath('variants.0.content', 'Rice, eggs, and soy sauce. Dinner for 40p.')
             ->assertJsonPath('visual_error', 'A picture could not be made.')
             ->assertJsonMissingPath('visual');
+    }
+
+    public function test_a_blocked_image_model_is_explained(): void
+    {
+        config(['openai.api_key' => 'test-key', 'openai.allow_image_http' => true]);
+        $this->disableWebSearch();
+        OpenAI::fake([
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['variants' => [[
+                        'content' => 'Rice, eggs, and soy sauce. Dinner for 40p.',
+                        'angle' => 'Cheapest meal of the week',
+                        'virality_score' => 80,
+                        'estimated_reach' => 'high',
+                    ]]])],
+                ]],
+            ]),
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode([
+                        'prompt' => 'A bowl of rice on a wooden table.',
+                    ])],
+                ]],
+            ]),
+        ]);
+        Http::fake([
+            'api.openai.com/v1/responses' => Http::response([
+                'error' => [
+                    'message' => 'Project does not have access to model gpt-image-2.6-flare',
+                    'code' => 'model_not_found',
+                ],
+            ], 403),
+        ]);
+
+        $user = User::factory()->create();
+        AccountProfile::create([
+            'user_id' => $user->id,
+            'description' => 'Cheap weeknight meals for one',
+            'onboarding_completed' => true,
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/content/generate', [
+                'mode' => 'describe',
+                'topic' => 'A cheap dinner',
+                'content_type' => 'tweet',
+                'visual_kind' => 'illustration',
+            ])
+            ->assertOk()
+            ->assertJsonPath('variants.0.content', 'Rice, eggs, and soy sauce. Dinner for 40p.')
+            ->assertJsonPath('visual_error', 'This OpenAI project cannot make pictures yet. Allow an image model for the project, then try again.');
     }
 
     private function disableWebSearch(): void

@@ -541,7 +541,7 @@ class ContentController extends Controller
         }
 
         if ($preview === null) {
-            $result['visual_error'] = 'A picture could not be made.';
+            $result['visual_error'] = $this->visuals->lastError ?: 'A picture could not be made.';
 
             return $result;
         }

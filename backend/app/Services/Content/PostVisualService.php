@@ -20,6 +20,8 @@ use Throwable;
  */
 class PostVisualService
 {
+    public ?string $lastError = null;
+
     public function __construct(
         private readonly ApiSpendService $budget,
         private readonly AICoreService $ai,
@@ -147,28 +149,42 @@ class PostVisualService
             return null;
         }
 
+        $this->lastError = null;
+
         $key = config('openai.api_key');
         if (! is_string($key) || $key === '') {
+            $this->lastError = 'A picture could not be made.';
+
             return null;
         }
 
         if (! $this->budget->canSpend($user->id, ApiSpendService::IMAGE_MILLS)) {
+            $this->lastError = 'A picture could not be made.';
+
             return null;
         }
 
+        $imageModel = (string) config('openai.image_model', 'gpt-image-2.6-flare');
+
         try {
             $response = Http::withToken($key)
-                ->timeout(45)
-                ->post('https://api.openai.com/v1/images/generations', [
-                    'model' => 'dall-e-3',
-                    'prompt' => $this->picturePrompt($user, $profile, $caption, $kind),
-                    'size' => '1024x1024',
-                    'quality' => 'standard',
-                    'n' => 1,
-                    'response_format' => 'b64_json',
+                ->timeout(90)
+                ->post('https://api.openai.com/v1/responses', [
+                    'model' => (string) config('openai.model', 'gpt-5.4-mini'),
+                    'input' => 'Draw this picture. '.$this->picturePrompt($user, $profile, $caption, $kind),
+                    'tool_choice' => ['type' => 'image_generation'],
+                    'tools' => [[
+                        'type' => 'image_generation',
+                        'model' => $imageModel,
+                        'size' => '1024x1024',
+                        'quality' => 'medium',
+                        'output_format' => 'png',
+                        'action' => 'generate',
+                    ]],
                 ]);
         } catch (Throwable $e) {
             Log::warning('Post image was not generated', ['user_id' => $user->id, 'error' => $e->getMessage()]);
+            $this->lastError = 'A picture could not be made.';
 
             return null;
         }
@@ -177,24 +193,63 @@ class PostVisualService
             Log::warning('Post image was not generated', [
                 'user_id' => $user->id,
                 'status' => $response->status(),
+                'error' => mb_substr($response->body(), 0, 500),
             ]);
+            $this->lastError = $this->imageFailureMessage($response->body());
 
             return null;
         }
 
-        $encoded = $response->json('data.0.b64_json');
-        if (! is_string($encoded) || $encoded === '') {
-            return null;
-        }
+        $bytes = $this->imageBytes($response->json('output'));
+        if ($bytes === null) {
+            Log::warning('Post image was not generated', [
+                'user_id' => $user->id,
+                'status' => $response->status(),
+                'error' => 'The image response had no picture.',
+            ]);
+            $this->lastError = 'A picture could not be made.';
 
-        $bytes = base64_decode($encoded, true);
-        if (! is_string($bytes) || $bytes === '') {
             return null;
         }
 
         $this->budget->spend($user->id, ApiSpendService::IMAGE_MILLS);
 
         return $bytes;
+    }
+
+    private function imageFailureMessage(string $body): string
+    {
+        if (str_contains($body, 'does not have access to model') || str_contains($body, 'model_not_found')) {
+            return 'This OpenAI project cannot make pictures yet. Allow an image model for the project, then try again.';
+        }
+
+        return 'A picture could not be made.';
+    }
+
+    /**
+     * @param  mixed  $output
+     */
+    private function imageBytes(mixed $output): ?string
+    {
+        if (! is_array($output)) {
+            return null;
+        }
+
+        foreach ($output as $item) {
+            if (! is_array($item) || ($item['type'] ?? '') !== 'image_generation_call') {
+                continue;
+            }
+            $encoded = $item['result'] ?? null;
+            if (! is_string($encoded) || $encoded === '') {
+                continue;
+            }
+            $bytes = base64_decode($encoded, true);
+            if (is_string($bytes) && $bytes !== '') {
+                return $bytes;
+            }
+        }
+
+        return null;
     }
 
     private function picturePrompt(User $user, AccountProfile $profile, string $caption, string $kind): string
