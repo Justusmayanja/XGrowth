@@ -9,3 +9,5 @@
 /apps/web/.env.local
 /docs/_share_api.json
 /deploy/node-app
+# Local secrets written by `elevenlabs onboard`
+/.env.local

@@ -1,4 +1,18 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { NextConfig } from "next";
+
+// ElevenLabs onboard writes the key to the repo-root .env.local.
+// Next only auto-loads env files in this app directory.
+for (const envFile of [
+  path.resolve(process.cwd(), ".env.local"),
+  path.resolve(process.cwd(), "../../.env.local"),
+]) {
+  if (fs.existsSync(envFile)) {
+    process.loadEnvFile(envFile);
+    break;
+  }
+}
 
 // OneDrive drops native file events, so the dev server forgets routes and the
 // browser then fails to load the page chunk. Polling keeps the route list intact.
