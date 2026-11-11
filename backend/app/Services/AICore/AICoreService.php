@@ -28,6 +28,64 @@ class AICoreService
     }
 
     /**
+     * One paragraph for the image model. The picture shows the post without painting its words.
+     */
+    public function draftPicturePrompt(User $user, AccountProfile $profile, string $caption, string $kind): ?string
+    {
+        if (! $this->isConfigured()) {
+            return null;
+        }
+
+        $about = trim((string) ($profile->description ?: $profile->resolvedNiche()));
+        $audience = trim((string) $profile->audience);
+        $moment = trim((string) preg_replace('/\s+/', ' ', $caption));
+        $style = match ($kind) {
+            'photo' => 'Photorealistic photograph, natural light, one clear subject. Not a drawing and not a poster full of type.',
+            'flyer' => 'A designed flyer: one bold graphic idea, flat color, high contrast, generous empty space across the top. Not a photograph and not a collage of text.',
+            default => 'An original illustration: simple shapes, high contrast, one idea. Not a photograph and not a user interface.',
+        };
+
+        $system = 'You write a single prompt for an image model. You describe what the picture shows. You never write the social post itself.';
+        $userPrompt = "Style: {$style}\n";
+        $userPrompt .= "Who the account is, do not quote this: {$about}\n";
+        if ($audience !== '') {
+            $userPrompt .= "Who it is for, do not quote this: {$audience}\n";
+        }
+        $userPrompt .= "The post to picture, do not quote it and do not render it as text: {$moment}\n\n";
+        $userPrompt .= <<<'PROMPT'
+Return JSON:
+{"prompt":"one paragraph the image model can paint, under 600 characters"}
+
+Describe a specific scene. Name the objects, the light, and the colors. Do not ask for words, letters, numbers, logos, or watermarks in the picture.
+PROMPT;
+
+        try {
+            $this->usage->assertCanGenerate($user);
+            $result = $this->chatJson($system, $userPrompt, 0.7);
+        } catch (RuntimeException) {
+            return null;
+        }
+
+        $prompt = trim((string) preg_replace('/\s+/', ' ', (string) ($result['parsed']['prompt'] ?? '')));
+        if (mb_strlen($prompt) < 20) {
+            return null;
+        }
+
+        $this->usage->record($user, [
+            'feature' => 'image_prompt',
+            'model' => $this->model(),
+            'input_tokens' => $result['input_tokens'],
+            'output_tokens' => $result['output_tokens'],
+            'total_tokens' => $result['total_tokens'],
+            'web_search_calls' => 0,
+            'used_web_search' => false,
+            'metadata' => ['kind' => $kind],
+        ], false);
+
+        return mb_substr($prompt, 0, 800);
+    }
+
+    /**
      * @param  array{
      *     user: User,
      *     topic: string,

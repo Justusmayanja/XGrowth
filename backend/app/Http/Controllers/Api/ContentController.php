@@ -519,13 +519,11 @@ class ContentController extends Controller
             return $result;
         }
 
-        if ($kind !== 'flyer') {
-            $refusal = app(ApiSpendService::class)->refusal($request->user()->id, ApiSpendService::IMAGE_MILLS);
-            if ($refusal !== null) {
-                $result['visual_error'] = $refusal;
+        $refusal = app(ApiSpendService::class)->refusal($request->user()->id, ApiSpendService::IMAGE_MILLS);
+        if ($refusal !== null) {
+            $result['visual_error'] = $refusal;
 
-                return $result;
-            }
+            return $result;
         }
 
         set_time_limit(120);

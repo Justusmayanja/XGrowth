@@ -4,6 +4,7 @@ namespace App\Services\Content;
 
 use App\Models\AccountProfile;
 use App\Models\User;
+use App\Services\AICore\AICoreService;
 use App\Services\ApiSpend\ApiSpendService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -13,11 +14,16 @@ use Throwable;
 
 /**
  * A picture for an X post, once the last few posts were only words.
- * Caption sits on a top bar. The flyer, photo, or illustration fills the space under it.
+ * Mackie17 writes the image prompt. The image model paints it.
+ * A short line sits on a top bar. The picture fills the space under it.
+ * If the model is unavailable and no kind was chosen, a drawn card is the fallback.
  */
 class PostVisualService
 {
-    public function __construct(private readonly ApiSpendService $budget) {}
+    public function __construct(
+        private readonly ApiSpendService $budget,
+        private readonly AICoreService $ai,
+    ) {}
 
     public function due(User $user, ?int $accountId): bool
     {
@@ -53,19 +59,13 @@ class PostVisualService
     {
         $about = $profile ?? new AccountProfile;
         $requested = $this->normalizeKind($kind) ?? $this->nextKind($user);
-        $bytes = null;
+        $bytes = $this->illustration($user, $about, $caption, $requested);
         $used = $requested;
-
-        if ($requested === 'flyer') {
+        if ($bytes === null && $kind === null) {
             $bytes = $this->flyerPng($about, $caption);
-        } else {
-            $bytes = $this->illustration($user, $about, $caption, $requested);
-            if ($bytes === null && $kind === null) {
-                $bytes = $this->flyerPng($about, $caption);
-                $used = 'flyer';
-            } elseif (is_string($bytes)) {
-                $bytes = $this->captionOnTop($bytes, $caption, $about);
-            }
+            $used = 'flyer';
+        } elseif (is_string($bytes)) {
+            $bytes = $this->captionOnTop($bytes, $caption, $about);
         }
 
         if ($bytes === null) {
@@ -143,7 +143,7 @@ class PostVisualService
 
     private function illustration(User $user, AccountProfile $profile, string $caption, string $kind = 'illustration'): ?string
     {
-        if (app()->runningUnitTests()) {
+        if (app()->runningUnitTests() && config('openai.allow_image_http') !== true) {
             return null;
         }
 
@@ -161,7 +161,7 @@ class PostVisualService
                 ->timeout(45)
                 ->post('https://api.openai.com/v1/images/generations', [
                     'model' => 'dall-e-3',
-                    'prompt' => $this->imagePrompt($profile, $caption, $kind),
+                    'prompt' => $this->picturePrompt($user, $profile, $caption, $kind),
                     'size' => '1024x1024',
                     'quality' => 'standard',
                     'n' => 1,
@@ -197,6 +197,35 @@ class PostVisualService
         return $bytes;
     }
 
+    private function picturePrompt(User $user, AccountProfile $profile, string $caption, string $kind): string
+    {
+        $drafted = null;
+        try {
+            $drafted = $this->ai->draftPicturePrompt($user, $profile, $caption, $kind);
+        } catch (Throwable) {
+            $drafted = null;
+        }
+
+        $prompt = is_string($drafted) && $drafted !== ''
+            ? $drafted
+            : $this->imagePrompt($profile, $caption, $kind);
+
+        return $this->constrainPrompt($prompt, $kind);
+    }
+
+    private function constrainPrompt(string $prompt, string $kind): string
+    {
+        $prompt = trim((string) preg_replace('/\s+/', ' ', $prompt));
+        $prompt = mb_substr($prompt, 0, 900);
+        $tail = match ($kind) {
+            'photo' => ' Photorealistic, natural light, one subject. No words, letters, numbers, logos, or watermarks. Not an illustration.',
+            'flyer' => ' A bold graphic flyer, flat color, high contrast, empty band across the top. No words, letters, numbers, logos, or watermarks. Not a photograph.',
+            default => ' A bold simple illustration, high contrast. No words, letters, numbers, logos, or watermarks. Not a photograph.',
+        };
+
+        return $prompt.$tail;
+    }
+
     private function imagePrompt(AccountProfile $profile, string $caption, string $kind = 'illustration'): string
     {
         $about = trim((string) $profile->description);
@@ -207,17 +236,16 @@ class PostVisualService
         $audience = mb_substr(trim((string) $profile->audience), 0, 160);
         $moment = mb_substr((string) preg_replace('/\s+/', ' ', $caption), 0, 180);
 
-        $prompt = $kind === 'photo'
-            ? 'A single original photograph for a social account. No words, no letters, no numbers, no logos, no watermarks, and no identifiable real person. Photorealistic, natural light, one clear subject. Not an illustration, not a cartoon, not a screenshot, and not a collage of text. '
-            : 'A single original illustration for a social account. No words, no letters, no numbers, no logos, no watermarks, no crests, and no photograph of a real person. ';
+        $prompt = match ($kind) {
+            'photo' => 'A single original photograph for a social account. Photorealistic, natural light, one clear subject. Not an illustration, not a cartoon, not a screenshot, and not a collage of text. ',
+            'flyer' => 'A single original flyer for a social account. Flat color, one bold shape, high contrast, empty space across the top. Not a photograph and not a collage of text. ',
+            default => 'A single original illustration for a social account. Bold, simple, high contrast. Not a photograph, not a screenshot, and not a collage of text. ',
+        };
         $prompt .= "Show the world of this account: {$about}. ";
         if ($audience !== '') {
             $prompt .= "The people it is for: {$audience}. ";
         }
         $prompt .= "The moment, shown without writing it: {$moment}. ";
-        if ($kind !== 'photo') {
-            $prompt .= 'Bold, simple, high contrast, like a poster illustration. Not a screenshot, not a user interface, and not a collage of text.';
-        }
 
         return $prompt;
     }

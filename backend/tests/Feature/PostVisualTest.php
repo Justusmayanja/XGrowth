@@ -7,6 +7,7 @@ use App\Models\ConnectedAccount;
 use App\Models\PlatformSetting;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
+use App\Services\Content\FlyerPng;
 use App\Services\Content\PostVisualService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -141,7 +142,7 @@ class PostVisualTest extends TestCase
         $this->assertNull($user->posts()->first()?->media_path);
     }
 
-    public function test_a_chosen_flyer_is_not_swapped_for_an_illustration(): void
+    public function test_a_chosen_flyer_is_not_replaced_with_a_drawn_card_when_none_is_made(): void
     {
         $user = User::factory()->create();
         $profile = AccountProfile::create([
@@ -149,10 +150,7 @@ class PostVisualTest extends TestCase
             'description' => 'Cheap weeknight meals for one',
         ]);
 
-        $made = app(PostVisualService::class)->make($user, $profile, 'Dinner for 40p.', 'flyer');
-
-        $this->assertNotNull($made);
-        $this->assertSame('flyer', $made['kind']);
+        $this->assertNull(app(PostVisualService::class)->make($user, $profile, 'Dinner for 40p.', 'flyer'));
 
         $this->actingAs($user, 'sanctum')
             ->postJson('/api/content/drafts', [
@@ -161,9 +159,9 @@ class PostVisualTest extends TestCase
                 'visual_kind' => 'flyer',
             ])
             ->assertCreated()
-            ->assertJsonPath('media_attached', true);
+            ->assertJsonPath('media_attached', false);
 
-        Storage::disk('local')->deleteDirectory('post-visuals/'.$user->id);
+        $this->assertNull($user->posts()->first()?->media_path);
     }
 
     public function test_an_illustration_is_not_replaced_with_a_flyer_when_none_is_made(): void
@@ -273,7 +271,7 @@ class PostVisualTest extends TestCase
 
     public function test_a_flyer_is_returned_with_the_drafts_and_saved_with_that_picture(): void
     {
-        config(['openai.api_key' => 'test-key']);
+        config(['openai.api_key' => 'test-key', 'openai.allow_image_http' => true]);
         $this->disableWebSearch();
         OpenAI::fake([
             CreateResponse::fake([
@@ -285,6 +283,19 @@ class PostVisualTest extends TestCase
                         'estimated_reach' => 'high',
                     ]]])],
                 ]],
+            ]),
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode([
+                        'prompt' => 'A red pot of rice on a dark table, one line of steam, warm light.',
+                    ])],
+                ]],
+            ]),
+        ]);
+        $png = (new FlyerPng(24, 220, 30, 30))->png();
+        Http::fake([
+            'api.openai.com/v1/images/generations' => Http::response([
+                'data' => [['b64_json' => base64_encode($png)]],
             ]),
         ]);
 
@@ -344,6 +355,15 @@ class PostVisualTest extends TestCase
         $this->actingAs($user, 'sanctum')
             ->get('/api/content/visual-previews/'.$id)
             ->assertNotFound();
+
+        Http::assertSent(function ($request) {
+            $prompt = (string) ($request['prompt'] ?? '');
+
+            return str_contains($request->url(), '/v1/images/generations')
+                && ($request['model'] ?? null) === 'dall-e-3'
+                && str_contains($prompt, 'A red pot of rice on a dark table')
+                && str_contains($prompt, 'No words, letters, numbers, logos, or watermarks');
+        });
 
         Storage::disk('local')->deleteDirectory('post-visuals/'.$user->id);
     }
