@@ -20,7 +20,7 @@ export const X_COPY = {
   composeScoreHighest: "Highest",
   composeVisualLabel: "Visual",
   composeVisualHelp:
-    "Text only is the default. A flyer uses the account description and a photo you attach. A photo or illustration is generated and shown here. The post keeps the take.",
+    "Text only is the default. A photo is a picture this account would post, and the words describe that picture. A flyer is a poster with the business name, what it does, and a contact only when the description already has one.",
   composeReferenceHelp: "Add a photo and Mackie17 uses it as the reference for the post.",
   composeBrief: "Joins a conversation already in this feed, from this account's point of view.",
   composeSuggestHelp:

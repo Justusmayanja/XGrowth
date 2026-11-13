@@ -1346,6 +1346,9 @@ class GrowthAgentService
                 try {
                     $made = $this->visuals->make($user, $profile, $content, $visualKind);
                     $mediaPath = $made['path'] ?? null;
+                    if (is_string($made['description'] ?? null) && $made['description'] !== '') {
+                        $content = $made['description'];
+                    }
                 } catch (Throwable) {
                     $mediaPath = null;
                 }

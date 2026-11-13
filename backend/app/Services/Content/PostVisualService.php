@@ -75,20 +75,28 @@ class PostVisualService
     {
         $about = $profile ?? new AccountProfile;
         if ($kind === 'flyer') {
-            $bytes = $this->companyFlyer($about, $caption, $reference);
+            $poster = $this->companyFlyer($user, $about, $caption, $reference);
             $path = 'post-visuals/'.$user->id.'/'.str_replace('-', '', (string) Str::uuid()).'.png';
-            Storage::disk('local')->put($path, $bytes);
+            Storage::disk('local')->put($path, $poster['bytes']);
 
-            return ['path' => $path, 'kind' => 'flyer'];
+            return ['path' => $path, 'kind' => 'flyer', 'description' => $poster['description']];
         }
 
         $requested = $this->normalizeKind($kind) ?? $this->nextKind($user);
-        $bytes = $this->illustration($user, $about, $caption, $requested);
+        $scene = null;
+        $description = null;
+        if ($requested === 'photo' && ! $this->skipImageHttp()) {
+            $story = $this->photoStory($user, $about, $caption);
+            $scene = $story['subject'];
+            $description = $story['description'];
+        }
+        $bytes = $this->illustration($user, $about, $caption, $requested, $scene);
         $used = $requested;
         if ($bytes === null && $kind === null) {
             $bytes = $this->flyerPng($about, $caption);
             $used = 'flyer';
-        } elseif (is_string($bytes)) {
+            $description = null;
+        } elseif (is_string($bytes) && $requested !== 'photo') {
             $bytes = $this->captionOnTop($bytes, $caption, $about);
         }
 
@@ -100,7 +108,7 @@ class PostVisualService
         $path = 'post-visuals/'.$user->id.'/'.str_replace('-', '', (string) Str::uuid()).'.'.$extension;
         Storage::disk('local')->put($path, $bytes);
 
-        return ['path' => $path, 'kind' => $used];
+        return ['path' => $path, 'kind' => $used, 'description' => $description];
     }
 
     /**
@@ -123,7 +131,7 @@ class PostVisualService
             'kind' => $made['kind'],
         ], JSON_THROW_ON_ERROR));
 
-        return ['id' => $id, 'path' => $made['path'], 'kind' => $made['kind']];
+        return ['id' => $id, 'path' => $made['path'], 'kind' => $made['kind'], 'description' => $made['description'] ?? null];
     }
 
     /**
@@ -162,7 +170,7 @@ class PostVisualService
     {
         $count = $user->posts()->whereNotNull('media_path')->count();
 
-        return $count % 2 === 0 ? 'illustration' : 'flyer';
+        return $count % 2 === 0 ? 'photo' : 'flyer';
     }
 
     /**
@@ -194,7 +202,7 @@ class PostVisualService
         return $query->count() % 2 === 0 ? 'photo' : 'flyer';
     }
 
-    private function illustration(User $user, AccountProfile $profile, string $caption, string $kind = 'illustration'): ?string
+    private function illustration(User $user, AccountProfile $profile, string $caption, string $kind = 'illustration', ?string $scene = null): ?string
     {
         if (app()->runningUnitTests() && config('openai.allow_image_http') !== true) {
             return null;
@@ -222,7 +230,7 @@ class PostVisualService
                 ->timeout(90)
                 ->post('https://api.openai.com/v1/responses', [
                     'model' => (string) config('openai.model', 'gpt-5.4-mini'),
-                    'input' => 'Draw this picture. '.$this->picturePrompt($user, $profile, $caption, $kind),
+                    'input' => 'Draw this picture. '.$this->picturePrompt($user, $profile, $caption, $kind, $scene),
                     'tool_choice' => ['type' => 'image_generation'],
                     'tools' => [[
                         'type' => 'image_generation',
@@ -300,8 +308,11 @@ class PostVisualService
         return null;
     }
 
-    private function picturePrompt(User $user, AccountProfile $profile, string $caption, string $kind): string
+    private function picturePrompt(User $user, AccountProfile $profile, string $caption, string $kind, ?string $scene = null): string
     {
+        if (is_string($scene) && trim($scene) !== '') {
+            return $this->constrainPrompt($scene, $kind);
+        }
         $drafted = null;
         try {
             $drafted = $this->ai->draftPicturePrompt($user, $profile, $caption, $kind);
@@ -354,24 +365,11 @@ class PostVisualService
     }
 
     /**
-     * A short line about the picture, not a copy of the post.
-     * The tweet stays the take. This is only a brief label, like on X.
+     * The only words on a flyer or a photo. The account description stays off the card.
      */
     public function overlayLine(string $caption, ?AccountProfile $profile): string
     {
-        $tweet = $this->plain($caption);
-        foreach ([$this->fromAccount($profile), $this->fromNiche($profile)] as $line) {
-            if ($line !== '' && ! $this->sameSense($line, $tweet)) {
-                return $line;
-            }
-        }
-
-        $topic = $this->shortTopic($tweet);
-        if ($topic !== '' && ! $this->sameSense($topic, $tweet)) {
-            return $topic;
-        }
-
-        return $this->fromAccount($profile) ?: $this->fromNiche($profile) ?: 'Today';
+        return $this->plain($caption);
     }
 
     public function headline(string $caption, ?AccountProfile $profile = null): string
@@ -379,56 +377,91 @@ class PostVisualService
         return $this->overlayLine($caption, $profile);
     }
 
-    private function companyFlyer(AccountProfile $profile, string $caption, ?string $reference): string
+    /**
+     * @return array{bytes: string, description: string}
+     */
+    private function companyFlyer(User $user, AccountProfile $profile, string $caption, ?string $reference): array
     {
-        $copy = $this->companyCopy($profile, $caption);
-        $printed = StudioCard::flyer(
-            $this->hue($profile, $caption),
-            $copy['name'],
-            $copy['lines'],
-            $reference,
-        );
-        if (is_string($printed) && $printed !== '') {
-            return $printed;
+        $facts = BusinessPoster::from((string) $profile->description, (string) $profile->resolvedNiche());
+        $brief = $this->posterBrief($user, $profile, $caption);
+        $name = is_string($brief['name'] ?? null) && trim($brief['name']) !== '' ? trim($brief['name']) : $facts['name'];
+        $offer = is_string($brief['offer'] ?? null) && trim($brief['offer']) !== '' ? trim($brief['offer']) : $facts['offer'];
+        $contact = BusinessPoster::keptContact((string) ($brief['contact'] ?? ''), (string) $profile->description);
+        if ($contact === '') {
+            $contact = $facts['contact'];
+        }
+        if ($name === '') {
+            $name = $facts['name'] !== '' ? $facts['name'] : 'Today';
         }
 
-        $photo = $this->decodeImage($reference);
+        $printed = StudioCard::flyer($this->paletteSeed($profile), $name, $offer, $contact, $reference);
+        if (! is_string($printed) || $printed === '') {
+            $photo = $this->decodeImage($reference);
+            $printed = FlyerPng::company(
+                $this->hue($profile, $caption),
+                $name,
+                array_values(array_filter([$offer, $contact])),
+                $photo['rgb'] ?? null,
+                $photo['width'] ?? 0,
+                $photo['height'] ?? 0,
+            );
+        }
 
-        return FlyerPng::company(
-            $this->hue($profile, $caption),
-            $copy['name'],
-            $copy['lines'],
-            $photo['rgb'] ?? null,
-            $photo['width'] ?? 0,
-            $photo['height'] ?? 0,
-        );
+        $description = $offer !== '' ? $offer : $this->plain($caption);
+
+        return ['bytes' => $printed, 'description' => $description];
     }
 
     /**
-     * @return array{name: string, lines: list<string>}
+     * @return array{subject: string, description: string}
      */
-    private function companyCopy(AccountProfile $profile, string $caption): array
+    private function photoStory(User $user, AccountProfile $profile, string $caption): array
     {
-        $description = $this->plain((string) $profile->description);
-        $audience = $this->plain((string) $profile->audience);
-        $name = $this->fromAccount($profile);
-        if ($name === '') {
-            $name = $this->fromNiche($profile) ?: 'Today';
+        $brief = $this->posterBrief($user, $profile, $caption, 'photo');
+        $about = trim((string) ($profile->description ?: $profile->resolvedNiche()));
+        $subject = trim((string) ($brief['subject'] ?? ''));
+        if (mb_strlen($subject) < 20) {
+            $subject = 'A photograph this account would post of one specific subject a follower would recognise. '.$about;
+        }
+        $description = trim((string) ($brief['description'] ?? ''));
+        if (mb_strlen($description) < 12) {
+            $description = $this->plain($caption);
         }
 
-        $lines = [];
-        $detail = $description !== '' ? $description : $this->plain($caption);
-        if ($detail !== '') {
-            $lines[] = $detail;
-        }
-        if ($audience !== '') {
-            $lines[] = $audience;
+        return ['subject' => $subject, 'description' => $description];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function posterBrief(User $user, AccountProfile $profile, string $caption, string $kind = 'flyer'): array
+    {
+        if ($this->skipImageHttp() && config('openai.allow_visual_choice') !== true) {
+            return [];
         }
 
-        return [
-            'name' => mb_substr($name, 0, 48),
-            'lines' => array_slice($lines, 0, 3),
-        ];
+        try {
+            $brief = $this->ai->posterBrief($user, $profile, $caption, $kind);
+        } catch (Throwable) {
+            return [];
+        }
+
+        return is_array($brief) ? $brief : [];
+    }
+
+    private function skipImageHttp(): bool
+    {
+        return app()->runningUnitTests() && config('openai.allow_image_http') !== true;
+    }
+
+    private function paletteSeed(AccountProfile $profile): string
+    {
+        $seed = $this->plain((string) $profile->description);
+        if ($seed === '') {
+            $seed = $this->plain((string) $profile->resolvedNiche());
+        }
+
+        return $seed !== '' ? $seed : 'account';
     }
 
     /**
@@ -495,11 +528,7 @@ class PostVisualService
 
     private function captionOnTop(string $bytes, string $caption, AccountProfile $profile): string
     {
-        $printed = StudioCard::titled(
-            $this->hue($profile, $caption),
-            $this->overlayLine($caption, $profile),
-            $bytes,
-        );
+        $printed = StudioCard::titled($bytes, $this->overlayLine($caption, $profile));
         if (is_string($printed) && $printed !== '') {
             return $printed;
         }
@@ -516,83 +545,6 @@ class PostVisualService
             $decoded['width'],
             $decoded['height'],
         );
-    }
-
-    private function fromAccount(?AccountProfile $profile): string
-    {
-        $source = $this->plain((string) ($profile?->description ?? ''));
-        if ($source === '') {
-            return '';
-        }
-
-        $clause = trim((string) (preg_split('/[,.]/u', $source)[0] ?? ''));
-
-        return $this->fewWords($clause, 4);
-    }
-
-    private function fromNiche(?AccountProfile $profile): string
-    {
-        $niche = $this->plain((string) ($profile?->resolvedNiche() ?? ''));
-        if ($niche === '' || $niche === 'general') {
-            return '';
-        }
-
-        return $this->fewWords($niche, 4);
-    }
-
-    private function shortTopic(string $tweet): string
-    {
-        $stop = ['the', 'and', 'for', 'that', 'this', 'with', 'from', 'have', 'just', 'about', 'your', 'you', 'are', 'was', 'not', 'but', 'they', 'their', 'is', 'it'];
-        $words = [];
-        foreach (preg_split('/\s+/', $this->plain($tweet)) ?: [] as $word) {
-            if (mb_strlen($word) < 3 || in_array(mb_strtolower($word), $stop, true)) {
-                continue;
-            }
-            $words[] = $word;
-            if (count($words) === 2) {
-                break;
-            }
-        }
-
-        $line = implode(' ', $words);
-
-        return mb_strlen($line) >= 6 ? $line : '';
-    }
-
-    private function fewWords(string $text, int $max): string
-    {
-        $words = array_values(array_filter(preg_split('/\s+/', $this->plain($text)) ?: [], fn (string $word) => $word !== ''));
-        $stop = ['for', 'with', 'and', 'the', 'a', 'an', 'from', 'that', 'this', 'into', 'on', 'is', 'are'];
-        $keep = [];
-        foreach ($words as $word) {
-            if (count($keep) >= $max) {
-                break;
-            }
-            $lower = mb_strtolower($word);
-            if ($keep !== [] && in_array($lower, $stop, true)) {
-                break;
-            }
-            if ($keep === [] && in_array($lower, $stop, true)) {
-                continue;
-            }
-            $keep[] = $word;
-        }
-
-        return implode(' ', $keep);
-    }
-
-    private function sameSense(string $line, string $tweet): bool
-    {
-        $a = mb_strtolower($this->plain($line));
-        $b = mb_strtolower($this->plain($tweet));
-        if ($a === '' || $b === '') {
-            return false;
-        }
-        if ($a === $b || str_contains($b, $a)) {
-            return true;
-        }
-
-        return false;
     }
 
     private function plain(string $text): string

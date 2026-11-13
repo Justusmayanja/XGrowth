@@ -86,6 +86,77 @@ PROMPT;
     }
 
     /**
+     * A photo is one real subject this account would post, plus the words that sit under it.
+     * A flyer is the business name, what it does, and a contact only when the description already has one.
+     *
+     * @return array<string, string>|null
+     */
+    public function posterBrief(User $user, AccountProfile $profile, string $caption, string $kind): ?array
+    {
+        if (! $this->isConfigured()) {
+            return null;
+        }
+
+        $about = trim((string) ($profile->description ?: $profile->resolvedNiche()));
+        $audience = trim((string) $profile->audience);
+        $post = trim((string) preg_replace('/\s+/', ' ', $caption));
+        $system = 'You plan one picture for a business or a public account. You answer with JSON only. You do not invent a phone number, email, or address.';
+        $userPrompt = "Who the account is: {$about}\n";
+        if ($audience !== '') {
+            $userPrompt .= "Who it is for: {$audience}\n";
+        }
+        $userPrompt .= "The draft, use it only as context: {$post}\n\n";
+        if ($kind === 'photo') {
+            $userPrompt .= <<<'PROMPT'
+Plan a photograph the way a person posts a photo and then writes about it.
+Pick one subject this account would actually photograph. A club names a real coach, player, or ground. A lender shows a lending moment: a shop, papers, a phone call about a loan. A restaurant shows a dish or the room.
+The description is the post under the photo. It talks about that subject. It is not a bio and it is not text to paint on the picture.
+
+Return JSON:
+{"subject":"the photograph, naming the person, place, or object","description":"the post, under 220 characters"}
+PROMPT;
+        } else {
+            $userPrompt .= <<<'PROMPT'
+Plan a printed poster for this business.
+name is the business name taken from the description.
+offer is one sentence of what they do, taken from the description.
+contact is a phone, email, site, or @handle only if those exact characters appear in the description. Otherwise contact is an empty string.
+
+Return JSON:
+{"name":"","offer":"","contact":""}
+PROMPT;
+        }
+
+        try {
+            $this->usage->assertCanGenerate($user);
+            $result = $this->chatJson($system, $userPrompt, 0.4);
+        } catch (RuntimeException) {
+            return null;
+        }
+
+        $parsed = $result['parsed'];
+        $this->usage->record($user, [
+            'feature' => 'poster_brief',
+            'model' => $this->model(),
+            'input_tokens' => $result['input_tokens'],
+            'output_tokens' => $result['output_tokens'],
+            'total_tokens' => $result['total_tokens'],
+            'web_search_calls' => 0,
+            'used_web_search' => false,
+            'metadata' => ['kind' => $kind],
+        ], false);
+
+        $clean = [];
+        foreach (['subject', 'description', 'name', 'offer', 'contact'] as $key) {
+            if (is_string($parsed[$key] ?? null)) {
+                $clean[$key] = trim($parsed[$key]);
+            }
+        }
+
+        return $clean;
+    }
+
+    /**
      * Photo or flyer for an auto post that is already due a picture.
      * The reserved kind keeps the mix. The model may switch when the post is a poor fit.
      */

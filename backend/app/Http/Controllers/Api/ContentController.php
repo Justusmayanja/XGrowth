@@ -552,6 +552,9 @@ class ContentController extends Controller
             'id' => $preview['id'],
             'kind' => $preview['kind'],
         ];
+        if (is_string($preview['description'] ?? null) && $preview['description'] !== '' && isset($result['variants'][0])) {
+            $result['variants'][0]['content'] = $preview['description'];
+        }
 
         return $result;
     }

@@ -47,19 +47,16 @@ type Variant = {
   pick?: "post" | "leave" | "hold";
 };
 
-type VisualKind = "text" | "flyer" | "photo" | "illustration";
+type VisualKind = "text" | "flyer" | "photo";
 
 const VISUAL_LABELS: Record<VisualKind, string> = {
   text: "Text only",
   flyer: "Flyer",
   photo: "Photo",
-  illustration: "Illustration",
 };
 
 function visualSavedLabel(kind: VisualKind): string {
-  if (kind === "illustration") return "an illustration";
-  if (kind === "photo") return "a photo";
-  return "a flyer";
+  return kind === "photo" ? "a photo" : "a flyer";
 }
 
 type ComposeMode = "suggest" | "describe";
@@ -476,7 +473,6 @@ export default function ContentStudioPage() {
                       <SelectItem value="text">Text only</SelectItem>
                       <SelectItem value="flyer">Flyer</SelectItem>
                       <SelectItem value="photo">Photo</SelectItem>
-                      <SelectItem value="illustration">Illustration</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">{X_COPY.composeVisualHelp}</p>

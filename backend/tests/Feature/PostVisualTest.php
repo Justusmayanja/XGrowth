@@ -10,6 +10,7 @@ use App\Services\Admin\PlatformSettingsService;
 use App\Services\Content\FlyerPng;
 use App\Services\Content\PngRgb;
 use App\Services\Content\PostVisualService;
+use App\Services\Content\StudioCard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -124,18 +125,15 @@ class PostVisualTest extends TestCase
         $tweet = 'The meal deal is the expensive option.';
         $line = app(PostVisualService::class)->overlayLine($tweet, $profile);
 
-        $this->assertSame('Cheap weeknight meals', $line);
-        $this->assertNotSame($tweet, $line);
-        $this->assertLessThanOrEqual(4, count(preg_split('/\s+/', $line) ?: []));
+        $this->assertSame('The meal deal is the expensive option', $line);
 
-        $nicheOnly = AccountProfile::create([
+        $club = AccountProfile::create([
             'user_id' => User::factory()->create()->id,
-            'description' => $tweet,
-            'custom_niche' => 'Budget home cooking',
+            'description' => 'Man United content to engage the crowd',
         ]);
         $this->assertSame(
-            'Budget home cooking',
-            app(PostVisualService::class)->overlayLine($tweet, $nicheOnly),
+            'The match was the point',
+            app(PostVisualService::class)->overlayLine('The match was the point.', $club),
         );
     }
 
@@ -223,7 +221,7 @@ class PostVisualTest extends TestCase
         $this->assertIsString($bytes);
         $decoded = PngRgb::decode($bytes);
         $this->assertNotNull($decoded);
-        $this->assertSame(FlyerPng::SIZE, $decoded['width']);
+        $this->assertSame(StudioCard::available() ? StudioCard::SIZE : FlyerPng::SIZE, $decoded['width']);
 
         $this->actingAs($user, 'sanctum')
             ->postJson('/api/content/drafts', [
@@ -254,11 +252,13 @@ class PostVisualTest extends TestCase
         $decoded = PngRgb::decode((string) Storage::disk('local')->get($made['path']));
         $this->assertNotNull($decoded);
         $height = $decoded['height'];
-        $top = $this->redShare($decoded['rgb'], $decoded['width'], 0, (int) ($height * 0.18));
-        $lowerStart = (int) ($height * ($height >= 1000 ? 0.62 : 0.35));
-        $lowerEnd = (int) ($height * ($height >= 1000 ? 0.9 : 0.7));
-        $this->assertLessThan(0.2, $top);
-        $this->assertGreaterThan(0.7, $this->redShare($decoded['rgb'], $decoded['width'], $lowerStart, $lowerEnd));
+        if ($height >= 1000) {
+            $this->assertGreaterThan(0.7, $this->redShare($decoded['rgb'], $decoded['width'], (int) ($height * 0.08), (int) ($height * 0.5)));
+            $this->assertLessThan(0.2, $this->redShare($decoded['rgb'], $decoded['width'], (int) ($height * 0.9), $height));
+        } else {
+            $this->assertLessThan(0.2, $this->redShare($decoded['rgb'], $decoded['width'], 0, (int) ($height * 0.18)));
+            $this->assertGreaterThan(0.7, $this->redShare($decoded['rgb'], $decoded['width'], (int) ($height * 0.35), (int) ($height * 0.7)));
+        }
 
         Storage::disk('local')->deleteDirectory('post-visuals/'.$user->id);
     }
