@@ -534,6 +534,7 @@ class ContentController extends Controller
                 $request->user()->accountProfile,
                 $caption,
                 $kind,
+                $kind === 'flyer' ? $this->referenceBytes($request) : null,
             );
         } catch (Throwable $e) {
             report($e);
@@ -578,5 +579,22 @@ class ContentController extends Controller
         }
 
         return 'data:'.$mime.';base64,'.base64_encode($bytes);
+    }
+
+    private function referenceBytes(Request $request): ?string
+    {
+        $file = $request->file('reference');
+        if ($file === null || ! $file->isValid()) {
+            return null;
+        }
+
+        $path = $file->getRealPath();
+        if (! is_string($path) || $path === '') {
+            return null;
+        }
+
+        $bytes = file_get_contents($path);
+
+        return is_string($bytes) && $bytes !== '' ? $bytes : null;
     }
 }

@@ -259,13 +259,74 @@ class XApiService
             return null;
         }
 
-        $mime = str_starts_with($bytes, "\xFF\xD8") ? 'image/jpeg' : 'image/png';
-        $name = $mime === 'image/jpeg' ? 'visual.jpg' : 'visual.png';
+        [$bytes, $mime, $name] = $this->uploadBody($bytes);
 
+        foreach (['https://api.x.com/2/media/upload', 'https://api.twitter.com/2/media/upload'] as $url) {
+            $id = $this->simpleUpload($account, $token, $url, $bytes, $mime, $name);
+            if ($id !== null) {
+                return $id;
+            }
+        }
+
+        return $this->chunkedUpload($account, $token, $bytes, $mime, $name);
+    }
+
+    /**
+     * @return array{0: string, 1: string, 2: string}
+     */
+    private function uploadBody(string $bytes): array
+    {
+        if (extension_loaded('gd')) {
+            $image = @imagecreatefromstring($bytes);
+            if ($image !== false) {
+                ob_start();
+                $wrote = imagejpeg($image, null, 88);
+                $jpeg = ob_get_clean();
+                imagedestroy($image);
+                if ($wrote && is_string($jpeg) && str_starts_with($jpeg, "\xFF\xD8")) {
+                    return [$jpeg, 'image/jpeg', 'visual.jpg'];
+                }
+            }
+        }
+
+        $jpeg = str_starts_with($bytes, "\xFF\xD8");
+
+        return [$bytes, $jpeg ? 'image/jpeg' : 'image/png', $jpeg ? 'visual.jpg' : 'visual.png'];
+    }
+
+    private function simpleUpload(ConnectedAccount $account, string $token, string $url, string $bytes, string $mime, string $name): ?string
+    {
+        try {
+            $response = Http::withToken($token)
+                ->attach('media', $bytes, $name, ['Content-Type' => $mime])
+                ->post($url, [
+                    'media_category' => 'tweet_image',
+                    'media_type' => $mime,
+                ]);
+        } catch (Throwable $e) {
+            Log::warning('X did not take the picture', [
+                'account_id' => $account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        if ($response->failed()) {
+            $this->logMediaRefusal($account, $response);
+
+            return null;
+        }
+
+        return $this->mediaId($response);
+    }
+
+    private function chunkedUpload(ConnectedAccount $account, string $token, string $bytes, string $mime, string $name): ?string
+    {
         try {
             $started = Http::withToken($token)
                 ->acceptJson()
-                ->post('https://api.twitter.com/2/media/upload/initialize', [
+                ->post('https://api.x.com/2/media/upload/initialize', [
                     'media_type' => $mime,
                     'total_bytes' => strlen($bytes),
                     'media_category' => 'tweet_image',
@@ -285,8 +346,7 @@ class XApiService
             return null;
         }
 
-        $id = $started->json('data.id');
-        $id = is_numeric($id) ? (string) $id : (is_string($id) ? $id : '');
+        $id = $this->mediaId($started) ?? '';
         if ($id === '') {
             $this->logMediaRefusal($account, $started);
 
@@ -301,7 +361,7 @@ class XApiService
             try {
                 $appended = Http::withToken($token)
                     ->attach('media', $chunk, $name, ['Content-Type' => $mime])
-                    ->post('https://api.twitter.com/2/media/upload/'.$id.'/append', [
+                    ->post('https://api.x.com/2/media/upload/'.$id.'/append', [
                         'segment_index' => (string) $segment,
                     ]);
             } catch (Throwable $e) {
@@ -324,7 +384,7 @@ class XApiService
         try {
             $finished = Http::withToken($token)
                 ->acceptJson()
-                ->post('https://api.twitter.com/2/media/upload/'.$id.'/finalize');
+                ->post('https://api.x.com/2/media/upload/'.$id.'/finalize');
         } catch (Throwable $e) {
             Log::warning('X did not take the picture', [
                 'account_id' => $account->id,
@@ -340,11 +400,25 @@ class XApiService
             return null;
         }
 
-        if (! $this->mediaReady($token, $id, $finished->json('data.processing_info'))) {
+        $processing = json_decode($finished->body(), true);
+        $processing = is_array($processing) ? ($processing['data']['processing_info'] ?? null) : null;
+        if (! $this->mediaReady($token, $id, $processing)) {
             return null;
         }
 
         return $id;
+    }
+
+    private function mediaId(Response $response): ?string
+    {
+        $json = json_decode($response->body(), true, 512, JSON_BIGINT_AS_STRING);
+        if (! is_array($json)) {
+            return null;
+        }
+
+        $id = $json['data']['id'] ?? $json['media_id_string'] ?? null;
+
+        return is_scalar($id) && (string) $id !== '' ? (string) $id : null;
     }
 
     private function mediaReady(string $token, string $id, mixed $processing): bool
@@ -363,7 +437,7 @@ class XApiService
             }
             $wait = min(5, max(1, (int) ($processing['check_after_secs'] ?? 1)));
             sleep($wait);
-            $status = Http::withToken($token)->get('https://api.twitter.com/2/media/upload', [
+            $status = Http::withToken($token)->get('https://api.x.com/2/media/upload', [
                 'command' => 'STATUS',
                 'media_id' => $id,
             ]);

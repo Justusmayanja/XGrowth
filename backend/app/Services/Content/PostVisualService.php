@@ -13,10 +13,9 @@ use Illuminate\Support\Str;
 use Throwable;
 
 /**
- * A picture for an X post, once the last few posts were only words.
- * Mackie17 writes the image prompt. The image model paints it.
- * A short line sits on a top bar. The picture fills the space under it.
- * If the model is unavailable and no kind was chosen, a drawn card is the fallback.
+ * A picture for an X post.
+ * Auto posts alternate words, a photograph with a title, and a typeset flyer.
+ * Mackie17 writes the photo prompt from the account. The flyer is set in type.
  */
 class PostVisualService
 {
@@ -29,37 +28,60 @@ class PostVisualService
 
     public function due(User $user, ?int $accountId): bool
     {
-        $base = $user->posts()->where('content_type', 'tweet');
-        if ($accountId) {
-            $base->where(function ($query) use ($accountId) {
-                $query->where('connected_account_id', $accountId)
-                    ->orWhereNull('connected_account_id');
-            });
-        }
-
-        $recent = (clone $base)->latest('id')->limit(4)->get(['media_path']);
-        if ($recent->count() < 4) {
+        $recent = $this->recentPosts($user, $accountId, 2);
+        if ($recent->isEmpty()) {
             return false;
         }
 
-        if ($recent->contains(fn ($post) => filled($post->media_path))) {
+        if (filled($recent->first()->media_path)) {
             return false;
         }
 
-        $today = (clone $base)
-            ->whereNotNull('media_path')
-            ->where('created_at', '>=', now()->startOfDay());
+        if ($recent->count() < 2) {
+            return true;
+        }
 
-        return ! $today->exists();
+        return ! filled($recent->last()->media_path);
+    }
+
+    /**
+     * text, photo, or flyer for the next auto post.
+     * Words, then a picture, then words. The picture alternates, and the model can switch the kind.
+     */
+    public function plan(User $user, ?AccountProfile $profile, string $caption, ?int $accountId = null): string
+    {
+        if (! $this->due($user, $accountId)) {
+            return 'text';
+        }
+
+        $slot = $this->slotKind($user, $accountId);
+        $thought = null;
+        if (! app()->runningUnitTests() || config('openai.allow_visual_choice') === true) {
+            try {
+                $thought = $this->ai->chooseAutoVisual($user, $profile ?? new AccountProfile, $caption, $slot);
+            } catch (Throwable) {
+                $thought = null;
+            }
+        }
+
+        return in_array($thought, ['photo', 'flyer'], true) ? $thought : $slot;
     }
 
     /**
      * @param  'flyer'|'photo'|'illustration'|null  $kind
      * @return array{path: string, kind: string}|null
      */
-    public function make(User $user, ?AccountProfile $profile, string $caption, ?string $kind = null): ?array
+    public function make(User $user, ?AccountProfile $profile, string $caption, ?string $kind = null, ?string $reference = null): ?array
     {
         $about = $profile ?? new AccountProfile;
+        if ($kind === 'flyer') {
+            $bytes = $this->companyFlyer($about, $caption, $reference);
+            $path = 'post-visuals/'.$user->id.'/'.str_replace('-', '', (string) Str::uuid()).'.png';
+            Storage::disk('local')->put($path, $bytes);
+
+            return ['path' => $path, 'kind' => 'flyer'];
+        }
+
         $requested = $this->normalizeKind($kind) ?? $this->nextKind($user);
         $bytes = $this->illustration($user, $about, $caption, $requested);
         $used = $requested;
@@ -87,10 +109,10 @@ class PostVisualService
      * @param  'flyer'|'photo'|'illustration'  $kind
      * @return array{id: string, path: string, kind: string}|null
      */
-    public function preview(User $user, ?AccountProfile $profile, string $caption, string $kind): ?array
+    public function preview(User $user, ?AccountProfile $profile, string $caption, string $kind, ?string $reference = null): ?array
     {
         $this->clearUnusedPreviews($user);
-        $made = $this->make($user, $profile, $caption, $kind);
+        $made = $this->make($user, $profile, $caption, $kind, $reference);
         if ($made === null) {
             return null;
         }
@@ -141,6 +163,35 @@ class PostVisualService
         $count = $user->posts()->whereNotNull('media_path')->count();
 
         return $count % 2 === 0 ? 'illustration' : 'flyer';
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, \App\Models\Post>
+     */
+    private function recentPosts(User $user, ?int $accountId, int $limit)
+    {
+        $query = $user->posts()->where('content_type', 'tweet');
+        if ($accountId) {
+            $query->where(function ($inner) use ($accountId) {
+                $inner->where('connected_account_id', $accountId)
+                    ->orWhereNull('connected_account_id');
+            });
+        }
+
+        return $query->latest('id')->limit($limit)->get(['media_path']);
+    }
+
+    private function slotKind(User $user, ?int $accountId): string
+    {
+        $query = $user->posts()->where('content_type', 'tweet')->whereNotNull('media_path');
+        if ($accountId) {
+            $query->where(function ($inner) use ($accountId) {
+                $inner->where('connected_account_id', $accountId)
+                    ->orWhereNull('connected_account_id');
+            });
+        }
+
+        return $query->count() % 2 === 0 ? 'photo' : 'flyer';
     }
 
     private function illustration(User $user, AccountProfile $profile, string $caption, string $kind = 'illustration'): ?string
@@ -274,7 +325,7 @@ class PostVisualService
         $prompt = mb_substr($prompt, 0, 900);
         $tail = match ($kind) {
             'photo' => ' Photorealistic, natural light, one subject. No words, letters, numbers, logos, or watermarks. Not an illustration.',
-            'flyer' => ' A bold graphic flyer, flat color, high contrast, empty band across the top. No words, letters, numbers, logos, or watermarks. Not a photograph.',
+            'flyer' => ' A flat graphic panel for a printed flyer. Bold shapes, flat color, high contrast. No words, letters, numbers, logos, or watermarks. Not a photograph.',
             default => ' A bold simple illustration, high contrast. No words, letters, numbers, logos, or watermarks. Not a photograph.',
         };
 
@@ -331,6 +382,115 @@ class PostVisualService
         return $this->overlayLine($caption, $profile);
     }
 
+    private function companyFlyer(AccountProfile $profile, string $caption, ?string $reference): string
+    {
+        $copy = $this->companyCopy($profile, $caption);
+        $printed = StudioCard::flyer(
+            $this->hue($profile, $caption),
+            $copy['name'],
+            $copy['lines'],
+            $reference,
+        );
+        if (is_string($printed) && $printed !== '') {
+            return $printed;
+        }
+
+        $photo = $this->decodeImage($reference);
+
+        return FlyerPng::company(
+            $this->hue($profile, $caption),
+            $copy['name'],
+            $copy['lines'],
+            $photo['rgb'] ?? null,
+            $photo['width'] ?? 0,
+            $photo['height'] ?? 0,
+        );
+    }
+
+    /**
+     * @return array{name: string, lines: list<string>}
+     */
+    private function companyCopy(AccountProfile $profile, string $caption): array
+    {
+        $description = $this->plain((string) $profile->description);
+        $audience = $this->plain((string) $profile->audience);
+        $name = $this->fromAccount($profile);
+        if ($name === '') {
+            $name = $this->fromNiche($profile) ?: 'Today';
+        }
+
+        $lines = [];
+        $detail = $description !== '' ? $description : $this->plain($caption);
+        if ($detail !== '') {
+            $lines[] = $detail;
+        }
+        if ($audience !== '') {
+            $lines[] = $audience;
+        }
+
+        return [
+            'name' => mb_substr($name, 0, 48),
+            'lines' => array_slice($lines, 0, 3),
+        ];
+    }
+
+    /**
+     * @return array{rgb: string, width: int, height: int}|null
+     */
+    private function decodeImage(?string $bytes): ?array
+    {
+        if (! is_string($bytes) || $bytes === '') {
+            return null;
+        }
+
+        if (str_starts_with($bytes, 'data:image/')) {
+            $encoded = substr($bytes, (int) strpos($bytes, ',') + 1);
+            $decoded = base64_decode($encoded, true);
+            $bytes = is_string($decoded) ? $decoded : '';
+        }
+
+        if ($bytes === '') {
+            return null;
+        }
+
+        if (extension_loaded('gd')) {
+            $image = @imagecreatefromstring($bytes);
+            if ($image !== false) {
+                $width = imagesx($image);
+                $height = imagesy($image);
+                if ($width > 720 || $height > 720) {
+                    $scale = 720 / max($width, $height);
+                    $resized = imagescale($image, max(1, (int) round($width * $scale)), max(1, (int) round($height * $scale)));
+                    imagedestroy($image);
+                    if ($resized === false) {
+                        return PngRgb::decode($bytes);
+                    }
+                    $image = $resized;
+                    $width = imagesx($image);
+                    $height = imagesy($image);
+                }
+                $rgb = '';
+                $trueColor = imageistruecolor($image);
+                for ($y = 0; $y < $height; $y++) {
+                    for ($x = 0; $x < $width; $x++) {
+                        $color = imagecolorat($image, $x, $y);
+                        if ($trueColor) {
+                            $rgb .= chr(($color >> 16) & 255).chr(($color >> 8) & 255).chr($color & 255);
+                        } else {
+                            $palette = imagecolorsforindex($image, $color);
+                            $rgb .= chr((int) $palette['red']).chr((int) $palette['green']).chr((int) $palette['blue']);
+                        }
+                    }
+                }
+                imagedestroy($image);
+
+                return ['rgb' => $rgb, 'width' => $width, 'height' => $height];
+            }
+        }
+
+        return PngRgb::decode($bytes);
+    }
+
     private function flyerPng(AccountProfile $profile, string $caption): string
     {
         return FlyerPng::make($this->hue($profile, $caption), $this->overlayLine($caption, $profile), '');
@@ -338,6 +498,15 @@ class PostVisualService
 
     private function captionOnTop(string $bytes, string $caption, AccountProfile $profile): string
     {
+        $printed = StudioCard::titled(
+            $this->hue($profile, $caption),
+            $this->overlayLine($caption, $profile),
+            $bytes,
+        );
+        if (is_string($printed) && $printed !== '') {
+            return $printed;
+        }
+
         $decoded = PngRgb::decode($bytes);
         if ($decoded === null) {
             return $bytes;

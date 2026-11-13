@@ -41,7 +41,7 @@ class AICoreService
         $moment = trim((string) preg_replace('/\s+/', ' ', $caption));
         $style = match ($kind) {
             'photo' => 'Photorealistic photograph, natural light, one clear subject. Not a drawing and not a poster full of type.',
-            'flyer' => 'A designed flyer: one bold graphic idea, flat color, high contrast, generous empty space across the top. Not a photograph and not a collage of text.',
+            'flyer' => 'A flat graphic panel for a printed flyer: bold shapes, flat color, high contrast, no camera and no type. Not a photograph.',
             default => 'An original illustration: simple shapes, high contrast, one idea. Not a photograph and not a user interface.',
         };
 
@@ -83,6 +83,56 @@ PROMPT;
         ], false);
 
         return mb_substr($prompt, 0, 800);
+    }
+
+    /**
+     * Photo or flyer for an auto post that is already due a picture.
+     * The reserved kind keeps the mix. The model may switch when the post is a poor fit.
+     */
+    public function chooseAutoVisual(User $user, AccountProfile $profile, string $caption, string $slot): ?string
+    {
+        if (! $this->isConfigured() || ! in_array($slot, ['photo', 'flyer'], true)) {
+            return null;
+        }
+
+        $about = trim((string) ($profile->description ?: $profile->resolvedNiche()));
+        $audience = trim((string) $profile->audience);
+        $post = trim((string) preg_replace('/\s+/', ' ', $caption));
+        $system = 'You choose the picture for one auto post. You answer with JSON only.';
+        $userPrompt = "Who the account is: {$about}\n";
+        if ($audience !== '') {
+            $userPrompt .= "Who it is for: {$audience}\n";
+        }
+        $userPrompt .= "The post: {$post}\n\n";
+        $userPrompt .= "This turn is reserved for a {$slot}. Keep it unless the post is a poor fit for that kind.\n";
+        $userPrompt .= "photo: a real photograph of this account's world. A short title is set on it afterwards. Use it for a thing, a place, a result, or the work itself.\n";
+        $userPrompt .= "flyer: a printed card with the account name and details, set in type. Use it for an offer, an introduction, a proof, or a reason to follow.\n\n";
+        $userPrompt .= 'Return JSON with one key, visual, set to photo or flyer.';
+
+        try {
+            $this->usage->assertCanGenerate($user);
+            $result = $this->chatJson($system, $userPrompt, 0.4);
+        } catch (RuntimeException) {
+            return null;
+        }
+
+        $visual = $result['parsed']['visual'] ?? null;
+        if (! in_array($visual, ['photo', 'flyer'], true)) {
+            return null;
+        }
+
+        $this->usage->record($user, [
+            'feature' => 'auto_visual',
+            'model' => $this->model(),
+            'input_tokens' => $result['input_tokens'],
+            'output_tokens' => $result['output_tokens'],
+            'total_tokens' => $result['total_tokens'],
+            'web_search_calls' => 0,
+            'used_web_search' => false,
+            'metadata' => ['slot' => $slot, 'visual' => $visual],
+        ], false);
+
+        return $visual;
     }
 
     /**

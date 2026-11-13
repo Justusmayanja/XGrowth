@@ -8,6 +8,7 @@ use App\Models\PlatformSetting;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use App\Services\Content\FlyerPng;
+use App\Services\Content\PngRgb;
 use App\Services\Content\PostVisualService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -45,6 +46,70 @@ class PostVisualTest extends TestCase
         ]);
 
         $this->assertFalse($visuals->due($user, null));
+    }
+
+    public function test_auto_posting_mixes_a_photo_and_a_flyer_between_words(): void
+    {
+        config(['openai.api_key' => '']);
+        $user = User::factory()->create();
+        $profile = AccountProfile::create([
+            'user_id' => $user->id,
+            'description' => 'Cheap weeknight meals for one',
+        ]);
+        $visuals = app(PostVisualService::class);
+
+        $this->assertSame('text', $visuals->plan($user, $profile, 'First one.'));
+
+        $user->posts()->create([
+            'content' => 'First one.',
+            'content_type' => 'tweet',
+            'status' => 'posted',
+        ]);
+        $this->assertSame('photo', $visuals->plan($user, $profile, 'Show the pot.'));
+
+        $user->posts()->create([
+            'content' => 'Show the pot.',
+            'content_type' => 'tweet',
+            'status' => 'posted',
+            'media_path' => 'post-visuals/1/photo.png',
+        ]);
+        $this->assertSame('text', $visuals->plan($user, $profile, 'Still the words.'));
+
+        $user->posts()->create([
+            'content' => 'Still the words.',
+            'content_type' => 'tweet',
+            'status' => 'posted',
+        ]);
+        $user->posts()->create([
+            'content' => 'And another.',
+            'content_type' => 'tweet',
+            'status' => 'posted',
+        ]);
+        $this->assertSame('flyer', $visuals->plan($user, $profile, 'Why this account.'));
+    }
+
+    public function test_auto_posting_can_switch_the_picture_when_the_post_asks_for_it(): void
+    {
+        config(['openai.api_key' => 'test-key', 'openai.allow_visual_choice' => true]);
+        OpenAI::fake([
+            CreateResponse::fake([
+                'choices' => [[
+                    'message' => ['content' => json_encode(['visual' => 'flyer'])],
+                ]],
+            ]),
+        ]);
+        $user = User::factory()->create();
+        $profile = AccountProfile::create([
+            'user_id' => $user->id,
+            'description' => 'Cheap weeknight meals for one',
+        ]);
+        $user->posts()->create([
+            'content' => 'First one.',
+            'content_type' => 'tweet',
+            'status' => 'posted',
+        ]);
+
+        $this->assertSame('flyer', app(PostVisualService::class)->plan($user, $profile, 'Here is what we cook.'));
     }
 
     public function test_the_picture_line_is_a_brief_about_the_image_not_the_post(): void
@@ -150,7 +215,15 @@ class PostVisualTest extends TestCase
             'description' => 'Cheap weeknight meals for one',
         ]);
 
-        $this->assertNull(app(PostVisualService::class)->make($user, $profile, 'Dinner for 40p.', 'flyer'));
+        $made = app(PostVisualService::class)->make($user, $profile, 'Dinner for 40p.', 'flyer');
+
+        $this->assertNotNull($made);
+        $this->assertSame('flyer', $made['kind']);
+        $bytes = Storage::disk('local')->get($made['path']);
+        $this->assertIsString($bytes);
+        $decoded = PngRgb::decode($bytes);
+        $this->assertNotNull($decoded);
+        $this->assertSame(FlyerPng::SIZE, $decoded['width']);
 
         $this->actingAs($user, 'sanctum')
             ->postJson('/api/content/drafts', [
@@ -159,9 +232,35 @@ class PostVisualTest extends TestCase
                 'visual_kind' => 'flyer',
             ])
             ->assertCreated()
-            ->assertJsonPath('media_attached', false);
+            ->assertJsonPath('media_attached', true);
 
-        $this->assertNull($user->posts()->first()?->media_path);
+        $this->assertNotNull($user->posts()->first()?->media_path);
+        Storage::disk('local')->deleteDirectory('post-visuals/'.$user->id);
+    }
+
+    public function test_a_flyer_places_the_attached_photo_under_the_account_name(): void
+    {
+        $user = User::factory()->create();
+        $profile = AccountProfile::create([
+            'user_id' => $user->id,
+            'description' => 'Cheap weeknight meals for one',
+            'audience' => 'Students cooking on a budget',
+        ]);
+        $photo = (new FlyerPng(32, 220, 30, 30))->png();
+
+        $made = app(PostVisualService::class)->make($user, $profile, 'Dinner for 40p.', 'flyer', $photo);
+
+        $this->assertNotNull($made);
+        $decoded = PngRgb::decode((string) Storage::disk('local')->get($made['path']));
+        $this->assertNotNull($decoded);
+        $height = $decoded['height'];
+        $top = $this->redShare($decoded['rgb'], $decoded['width'], 0, (int) ($height * 0.18));
+        $lowerStart = (int) ($height * ($height >= 1000 ? 0.62 : 0.35));
+        $lowerEnd = (int) ($height * ($height >= 1000 ? 0.9 : 0.7));
+        $this->assertLessThan(0.2, $top);
+        $this->assertGreaterThan(0.7, $this->redShare($decoded['rgb'], $decoded['width'], $lowerStart, $lowerEnd));
+
+        Storage::disk('local')->deleteDirectory('post-visuals/'.$user->id);
     }
 
     public function test_an_illustration_is_not_replaced_with_a_flyer_when_none_is_made(): void
@@ -217,17 +316,14 @@ class PostVisualTest extends TestCase
             'media_path' => $made['path'],
         ]);
 
-        $denyNext = false;
-        Http::fake(function ($request) use (&$denyNext) {
+        $uploads = 0;
+        Http::fake(function ($request) use (&$uploads) {
             if (str_contains($request->url(), '/2/media/upload')) {
-                if ($denyNext) {
-                    return Http::response(['detail' => 'no'], 403);
-                }
-                if (str_contains($request->url(), '/finalize')) {
-                    $denyNext = true;
-                }
+                $uploads++;
 
-                return Http::response(['data' => ['id' => '555']], 200);
+                return $uploads === 1
+                    ? Http::response(['data' => ['id' => '555']], 200)
+                    : Http::response(['detail' => 'no'], 403);
             }
 
             if (str_contains($request->url(), '/2/tweets')) {
@@ -363,16 +459,7 @@ class PostVisualTest extends TestCase
             ->get('/api/content/visual-previews/'.$id)
             ->assertNotFound();
 
-        Http::assertSent(function ($request) {
-            $prompt = (string) ($request['input'] ?? '');
-            $tool = $request['tools'][0] ?? [];
-
-            return str_contains($request->url(), '/v1/responses')
-                && ($tool['type'] ?? null) === 'image_generation'
-                && ($tool['model'] ?? null) === config('openai.image_model')
-                && str_contains($prompt, 'A red pot of rice on a dark table')
-                && str_contains($prompt, 'No words, letters, numbers, logos, or watermarks');
-        });
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/v1/responses'));
 
         Storage::disk('local')->deleteDirectory('post-visuals/'.$user->id);
     }
@@ -464,6 +551,38 @@ class PostVisualTest extends TestCase
             ->assertOk()
             ->assertJsonPath('variants.0.content', 'Rice, eggs, and soy sauce. Dinner for 40p.')
             ->assertJsonPath('visual_error', 'This OpenAI project cannot make pictures yet. Allow an image model for the project, then try again.');
+    }
+
+    private function whitePixels(string $rgb, int $width, int $y0, int $y1): int
+    {
+        $count = 0;
+        for ($y = $y0; $y < $y1; $y += 2) {
+            for ($x = 0; $x < $width; $x += 2) {
+                $i = ($y * $width + $x) * 3;
+                if (ord($rgb[$i]) > 240 && ord($rgb[$i + 1]) > 240 && ord($rgb[$i + 2]) > 240) {
+                    $count++;
+                }
+            }
+        }
+
+        return $count;
+    }
+
+    private function redShare(string $rgb, int $width, int $y0, int $y1): float
+    {
+        $red = 0;
+        $seen = 0;
+        for ($y = $y0; $y < $y1; $y += 8) {
+            for ($x = 0; $x < $width; $x += 8) {
+                $i = ($y * $width + $x) * 3;
+                $seen++;
+                if (ord($rgb[$i]) > 180 && ord($rgb[$i + 1]) < 80 && ord($rgb[$i + 2]) < 80) {
+                    $red++;
+                }
+            }
+        }
+
+        return $seen === 0 ? 0.0 : $red / $seen;
     }
 
     private function disableWebSearch(): void

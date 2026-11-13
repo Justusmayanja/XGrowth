@@ -1341,9 +1341,10 @@ class GrowthAgentService
             $this->lastDraftPrediction = $winner;
 
             $mediaPath = null;
-            if ($this->visuals->due($user, $accountId)) {
+            $visualKind = $this->visuals->plan($user, $profile, $content, $accountId);
+            if ($visualKind !== 'text') {
                 try {
-                    $made = $this->visuals->make($user, $profile, $content);
+                    $made = $this->visuals->make($user, $profile, $content, $visualKind);
                     $mediaPath = $made['path'] ?? null;
                 } catch (Throwable) {
                     $mediaPath = null;

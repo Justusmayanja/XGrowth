@@ -46,6 +46,48 @@ class FlyerPng
         return $canvas->png();
     }
 
+    /**
+     * @param  list<string>  $lines
+     */
+    public static function company(int $hue, string $name, array $lines, ?string $rgb = null, int $width = 0, int $height = 0): string
+    {
+        $size = self::SIZE;
+        [$page, $pageG, $pageB] = self::hsl($hue, 28, 16);
+        $canvas = new self($size, $page, $pageG, $pageB);
+
+        [$accentR, $accentG, $accentB] = self::hsl($hue, 72, 56);
+        if ($rgb === null || $width < 1 || $height < 1) {
+            $canvas->fillCircle(540, 360, 190, $accentR, $accentG, $accentB);
+            [$shadeR, $shadeG, $shadeB] = self::hsl(($hue + 36) % 360, 34, 24);
+            $canvas->fillCircle(150, 430, 130, $shadeR, $shadeG, $shadeB);
+        } else {
+            $canvas->cover($rgb, $width, $height, 36, 176, $size - 72, 360);
+        }
+
+        [$bandR, $bandG, $bandB] = self::hsl($hue, 38, 9);
+        $canvas->fillRect(0, 0, $size, 160, $bandR, $bandG, $bandB);
+        $canvas->fillRect(0, 552, $size, $size - 552, $bandR, $bandG, $bandB);
+        $canvas->fillRect(0, 160, $size, 8, $accentR, $accentG, $accentB);
+
+        $y = 40;
+        foreach (array_slice(self::wrap($name !== '' ? $name : 'Today', 16), 0, 2) as $line) {
+            $canvas->drawText($line, $y, 4, 255, 255, 255, 'left');
+            $y += 46;
+        }
+
+        $y = 578;
+        foreach (array_slice($lines, 0, 3) as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+            $canvas->drawText($line, $y, 3, 236, 232, 222, 'left');
+            $y += 36;
+        }
+
+        return $canvas->png();
+    }
+
     public static function withPhoto(int $hue, string $headline, string $rgb, int $width, int $height): string
     {
         $size = self::SIZE;
