@@ -277,9 +277,6 @@ class PostVisualService
         return 'A picture could not be made.';
     }
 
-    /**
-     * @param  mixed  $output
-     */
     private function imageBytes(mixed $output): ?string
     {
         if (! is_array($output)) {

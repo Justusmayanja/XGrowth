@@ -1,5 +1,8 @@
 <?php
 
+use App\Support\ElevenLabsCatalog;
+use App\Support\GeminiCatalog;
+
 return [
 
     /*
@@ -44,15 +47,6 @@ return [
         'redirect' => env('X_REDIRECT_URI', 'http://127.0.0.1:8000/api/auth/x/callback'),
     ],
 
-    'elevenlabs' => [
-        'key' => env('ELEVENLABS_API_KEY'),
-        'model' => env('ELEVENLABS_MODEL', 'eleven_multilingual_v2'),
-        'voices' => [
-            'female' => env('ELEVENLABS_VOICE_FEMALE', '21m00Tcm4TlvDq8ikWAM'),
-            'male' => env('ELEVENLABS_VOICE_MALE', 'pNInz6obpgDQGcFmaJgB'),
-        ],
-    ],
-
     'kling' => [
         'key' => env('KLING_API_KEY'),
         'base_url' => env('KLING_API_BASE', 'https://api-singapore.klingai.com'),
@@ -83,6 +77,24 @@ return [
         'fake_transcript' => env('YOUTUBE_FAKE_TRANSCRIPT', ''),
         'upload_audit_approved' => filter_var(env('YOUTUBE_UPLOAD_AUDIT_APPROVED', false), FILTER_VALIDATE_BOOLEAN),
         'upload_daily_budget' => (int) env('YOUTUBE_UPLOAD_DAILY_BUDGET', 100),
+    ],
+
+    'elevenlabs' => [
+        'key' => env('ELEVENLABS_API_KEY'),
+        'base_url' => env('ELEVENLABS_BASE_URL', 'https://api.elevenlabs.io'),
+        'model' => env('ELEVENLABS_MODEL', ElevenLabsCatalog::DEFAULT_MODEL),
+        'voices' => [
+            'female' => env('ELEVENLABS_VOICE_FEMALE', '21m00Tcm4TlvDq8ikWAM'),
+            'male' => env('ELEVENLABS_VOICE_MALE', 'pNInz6obpgDQGcFmaJgB'),
+        ],
+        'output_format' => env('ELEVENLABS_OUTPUT_FORMAT', ElevenLabsCatalog::DEFAULT_OUTPUT_FORMAT),
+        'timeout' => (int) env('ELEVENLABS_TIMEOUT', 60),
+    ],
+
+    'gemini' => [
+        'key' => env('GEMINI_API_KEY'),
+        'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com'),
+        'video_model' => env('GEMINI_VIDEO_MODEL', GeminiCatalog::MODEL),
     ],
 
     'slack' => [

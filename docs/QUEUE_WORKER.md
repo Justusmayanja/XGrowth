@@ -14,6 +14,14 @@ Short jobs stay on the database queue. `schedule:run` drains that queue for at m
 
 If Redis cannot accept the job, `run()` and `confirm()` leave the clip status unchanged and the render is marked failed with "Our video maker is busy. Try again."
 
+## Local sync
+
+`TIKTOK_RENDER_SYNC=true` forces the `renders` connection to `sync` when `APP_ENV` is not `production`. `tiktok:run`, `POST /api/tiktok/run`, and setup completion then render the MP4 before the request returns. The request holds for the whole encode, often a couple of minutes. Opening the dashboard still starts nothing. `/dev/tiktok-states` shows layout only and will not play a generated file.
+
+If the flag is true in production, it is ignored and one warning is logged: `TIKTOK_RENDER_SYNC ignored in production`. Production uses the Redis worker below.
+
+Set `TIKTOK_FFMPEG` and `TIKTOK_FFPROBE` to the full binary path when they are not on `PATH`.
+
 ## Worker
 
 One or two processes. Restart them on deploy with `php artisan queue:restart`.
@@ -40,4 +48,4 @@ stdout_logfile=/var/log/mackie17-renders.log
 
 `stopwaitsecs` stays above the job timeout so a deploy does not kill a render mid-file. Run `php artisan queue:restart` after the new code is in place, then let Supervisor start the new processes.
 
-The app server should be in the EU, close to the Wasabi `eu-central-1` bucket. ffmpeg is the Ubuntu apt package (`ffmpeg`), not the snap build.
+ffmpeg is the Ubuntu apt package (`ffmpeg`), not the snap build.

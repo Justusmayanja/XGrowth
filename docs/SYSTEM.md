@@ -450,7 +450,7 @@ Defined in `backend/routes/console.php`.
 | `php artisan tiktok:render {--clip=} {--force}` | Queue one motion render |
 | `php artisan tiktok:sweep-renders` | Fail stale renders |
 | `php artisan tiktok:storage-check` | Write, read, and delete a private canary object |
-| `php artisan tiktok:migrate-videos {--from=local} {--to=s3} {--dry-run}` | Copy legacy files onto the shared disk. The source is left in place. |
+| `php artisan tiktok:migrate-videos {--from=local} {--to=media} {--dry-run}` | Copy legacy files onto the shared disk. The source is left in place. |
 
 Render jobs use the Redis connection `renders` (`retry_after` 900, above the 600 second job timeout). The database queue and the 50 second scheduler drain stay for short jobs. See `docs/QUEUE_WORKER.md`.
 

@@ -8,11 +8,15 @@ use App\Models\TikTokClipVideo;
 use App\Models\User;
 use App\Services\ApiSpend\ApiSpendService;
 use App\Services\Storage\MediaStore;
+use App\Support\GeminiCatalog;
+use App\Support\SpeechDrivers;
 use App\Support\TikTokCatalog;
 use App\Support\TikTokContentPosting;
 use App\Support\TikTokVideoCatalog;
 use App\Support\TikTokWeek;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 use Throwable;
 
 class TikTokRenderService
@@ -21,6 +25,7 @@ class TikTokRenderService
         private readonly TikTokRenderState $state,
         private readonly SceneBuilder $scenes,
         private readonly MotionGraphicsProvider $motion,
+        private readonly GeminiVideoProvider $gemini,
         private readonly ApiSpendService $budget,
         private readonly MediaStore $media,
         private readonly TikTokVideoService $videos,
@@ -106,7 +111,7 @@ class TikTokRenderService
             $format = (string) ($started->package['week']['format'] ?? TikTokWeek::MOTION);
             $files = $format === TikTokWeek::SCENE
                 ? app(KlingSceneRenderer::class)->render($user, $directory, $spec, $this->speech())
-                : $this->motion->render($user, $directory, $spec, $this->speech());
+                : $this->picture($user, $directory, $spec);
             $stored = $this->store($clip->fresh() ?? $clip, $user, $files);
         } catch (Throwable $e) {
             Log::warning('TikTok render failed', [
@@ -122,9 +127,9 @@ class TikTokRenderService
                 TikTokCatalog::RENDER_BUSY,
                 TikTokCatalog::RENDER_SCENE_UNAVAILABLE,
                 TikTokCatalog::RENDER_SCENE_FAILED,
-            ], true)
-                ? $message
-                : "We couldn't make the video. Try again, or add your own.";
+                GeminiCatalog::FAILED,
+                GeminiCatalog::QUOTA,
+            ], true) ? $message : GeminiCatalog::FAILED;
             try {
                 $this->state->fail($fresh, $plain);
             } catch (Throwable) {
@@ -247,13 +252,27 @@ class TikTokRenderService
         return $video !== null && $video->ready && $video->source === 'user' && $video->purged_at === null;
     }
 
+    /**
+     * @param  array<string, mixed>  $spec
+     * @return array{video: string, preview: string, poster: string}
+     */
+    private function picture(User $user, string $directory, array $spec): array
+    {
+        $picture = (string) config('tiktok_video.picture', 'motion');
+        if ($picture === 'gemini') {
+            return $this->gemini->render($user, $directory, $spec);
+        }
+        if ($picture === 'motion' || $picture === '') {
+            return $this->motion->render($user, $directory, $spec, $this->speech());
+        }
+        Log::warning('Unknown TIKTOK_VIDEO_PROVIDER');
+
+        throw new RuntimeException(GeminiCatalog::FAILED);
+    }
+
     private function speech(): SpeechProvider
     {
-        return match ((string) config('tiktok_video.tts_driver')) {
-            'openai' => app(OpenAiSpeechProvider::class),
-            'elevenlabs' => app(ElevenLabsSpeechProvider::class),
-            default => app(FakeSpeechProvider::class),
-        };
+        return SpeechDrivers::make((string) config('tiktok_video.tts_driver', SpeechDrivers::FAKE));
     }
 
     /**
@@ -272,7 +291,7 @@ class TikTokRenderService
         foreach (['video' => $files['video'], 'preview' => $files['preview'], 'poster' => $files['poster']] as $name => $path) {
             $in = fopen($path, 'rb');
             if ($in === false) {
-                throw new \RuntimeException("We couldn't make the video. Try again, or add your own.");
+                throw new RuntimeException("We couldn't make the video. Try again, or add your own.");
             }
             try {
                 $this->media->putStream($keys[$name], $in);
@@ -283,7 +302,7 @@ class TikTokRenderService
 
         $keep = false;
         try {
-            \Illuminate\Support\Facades\DB::transaction(function () use ($clip, $files, $keys, &$keep) {
+            DB::transaction(function () use ($clip, $files, $keys, &$keep) {
                 $fresh = TikTokClip::query()->whereKey($clip->id)->lockForUpdate()->first();
                 if (! $fresh || $fresh->status === TikTokCatalog::DISCARDED) {
                     return;

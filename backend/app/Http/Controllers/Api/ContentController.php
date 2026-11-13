@@ -5,16 +5,17 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AccountProfile;
 use App\Models\Post;
+use App\Models\Trend;
 use App\Models\User;
 use App\Services\AICore\AiContextBuilder;
 use App\Services\AICore\AICoreService;
 use App\Services\ApiSpend\ApiSpendService;
 use App\Services\Content\PostVisualService;
-use App\Services\TrendEngine\OpportunityScorerService;
-use App\Services\TrendEngine\TrendEngineService;
 use App\Services\GrowthAgent\SafetyEngineService;
 use App\Services\GrowthAgent\ViralityPredictorService;
 use App\Services\GrowthAgent\XGoalPlan;
+use App\Services\TrendEngine\OpportunityScorerService;
+use App\Services\TrendEngine\TrendEngineService;
 use App\Services\XApi\XApiService;
 use App\Support\SetupCatalog;
 use Illuminate\Http\JsonResponse;
@@ -143,7 +144,7 @@ class ContentController extends Controller
         }
 
         $account = $user->connectedAccounts()->where('platform', 'x')->where('is_active', true)->first();
-        $spoken = $account ? app(\App\Services\XApi\XApiService::class)->voiceSamples($account) : [];
+        $spoken = $account ? app(XApiService::class)->voiceSamples($account) : [];
         $recent = array_values(array_unique(array_merge(
             $spoken,
             $user->posts()
@@ -256,7 +257,7 @@ class ContentController extends Controller
             return response()->json(['message' => $safety->postHoldReason($request->user(), $accountId, false) ?: 'The daily post limit is reached.'], 429);
         }
 
-        if (app(\App\Services\ApiSpend\ApiSpendService::class)->containsLink($post->content)) {
+        if (app(ApiSpendService::class)->containsLink($post->content)) {
             return response()->json(['message' => 'Links stay out of this app. Remove the link and post the words.'], 422);
         }
 
@@ -457,7 +458,7 @@ class ContentController extends Controller
     }
 
     /**
-     * @return array{trend: \App\Models\Trend|null, score: float|null}
+     * @return array{trend: Trend|null, score: float|null}
      */
     private function bestMoment(User $user, ?string $topic): array
     {

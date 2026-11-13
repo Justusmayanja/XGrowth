@@ -97,7 +97,7 @@ function Meter({ label, used, limit, detail, empty = false }: { label: string; u
   );
 }
 
-function DeskRail({ tiktok }: { tiktok: TikTokDesk }) {
+function DeskRail({ tiktok, hideIdeas = false }: { tiktok: TikTokDesk; hideIdeas?: boolean }) {
   const billing = useBillingStatus();
   const zone = tiktok.timezone.value || "UTC";
   const renews = tiktok.allowance.period_end ? formatWhen(tiktok.allowance.period_end, zone) : "when the period ends";
@@ -129,11 +129,13 @@ function DeskRail({ tiktok }: { tiktok: TikTokDesk }) {
           </p>
         </CardContent>
       </Card>
+      {!hideIdeas && (
       <Card>
         <CardContent className="pt-6">
           <IdeasList ideas={tiktok.ideas} />
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }
@@ -434,6 +436,7 @@ export function TikTokBody({
     confirmReason = "TikTok is not on this account.";
   }
 
+  const deciding = clip?.status === "waiting" || clip?.status === "queued";
   const showResults = clip?.status === "queued" || clip?.status === "posted";
   const showFile = clip?.status === "waiting" || clip?.status === "queued";
   const tracked = clip?.status === "queued" || clip?.status === "uploading" || clip?.status === "in_drafts" || clip?.status === "upload_failed";
@@ -443,7 +446,7 @@ export function TikTokBody({
       <div aria-live="polite" className="sr-only">
         {live}
       </div>
-      <PipelineStrip pipeline={tiktok.pipeline} current={currentStep(tiktok)} />
+      {!deciding && <PipelineStrip pipeline={tiktok.pipeline} current={currentStep(tiktok)} />}
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 space-y-6">
 
@@ -555,7 +558,7 @@ export function TikTokBody({
           )}
           <ClipCard
             clip={clip}
-            collapsed={clip.status === "queued" || clip.status === "posted" || clip.status === "in_drafts" || clip.status === "uploading"}
+            collapsed={clip.status === "waiting" || clip.status === "queued" || clip.status === "posted" || clip.status === "in_drafts" || clip.status === "uploading"}
             aside={showFile ? <ClipVideo clip={clip} review={review} replacing={replacing} onReplace={() => setReplacing(true)} onUploaded={() => { setReplacing(false); void reload(); }} onChanged={() => void reload()} /> : undefined}
           />
           {clip.status === "waiting" && (clip.timezone_assumed || tiktok.timezone.assumed) && (
@@ -627,6 +630,12 @@ export function TikTokBody({
       )}
 
       {!learned && tiktok.recent.length > 0 && (
+        deciding ? (
+          <p className="text-sm text-muted-foreground">
+            Last result: <span className="text-foreground">{tiktok.recent[0].topic || tiktok.recent[0].hook}</span>
+            {tiktok.recent[0].learning_note ? ` — ${tiktok.recent[0].learning_note}` : ""}
+          </p>
+        ) : (
         <section aria-label="Recent results">
           <h2 className="text-sm font-medium">Recent results</h2>
           <ul className="mt-3 space-y-3">
@@ -638,9 +647,10 @@ export function TikTokBody({
             ))}
           </ul>
         </section>
+        )
       )}
       </div>
-      <DeskRail tiktok={tiktok} />
+      <DeskRail tiktok={tiktok} hideIdeas={deciding} />
       </div>
     </div>
   );

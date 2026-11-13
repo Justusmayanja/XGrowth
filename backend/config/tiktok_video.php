@@ -7,6 +7,9 @@ return [
 
     'tts_driver' => env('TIKTOK_TTS_DRIVER', 'fake'),
 
+    // motion draws frames locally. gemini asks Gemini Omni for the picture and its soundtrack.
+    'picture' => env('TIKTOK_VIDEO_PROVIDER', 'motion'),
+
     'voices' => [
         'female' => env('TIKTOK_TTS_VOICE_FEMALE', 'nova'),
         'male' => env('TIKTOK_TTS_VOICE_MALE', 'onyx'),

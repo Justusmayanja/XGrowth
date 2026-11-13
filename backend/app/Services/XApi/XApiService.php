@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\ApiSpend\ApiSpendService;
 use App\Services\GrowthAgent\SafetyEngineService;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
@@ -688,7 +689,7 @@ class XApiService
 
         try {
             $posts = $this->mentions($account);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $errors[] = $e->getMessage();
         }
 
@@ -748,7 +749,7 @@ class XApiService
         ] as $url) {
             try {
                 $response = Http::withToken($token)->timeout(8)->get($url);
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 continue;
             }
 
@@ -805,7 +806,7 @@ class XApiService
             $userId = (string) ($account->platform_account_id ?: $this->authenticatedUserId($token));
             $loaded = $userId === '' ? ['rows' => [], 'complete' => true, 'views_known' => true] : $this->ownPostsAndComments($token, $userId);
             $rows = $loaded['rows'];
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return [];
         }
 
@@ -1110,7 +1111,7 @@ class XApiService
     {
         try {
             $activity = $this->accountActivity($account);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return [];
         }
 
@@ -1214,7 +1215,7 @@ class XApiService
                     'user.fields' => 'username,public_metrics',
                 ],
             );
-        } catch (\Throwable) {
+        } catch (Throwable) {
             Cache::put($cacheKey, ['fetched_at' => now()->toIso8601String(), 'topics' => [], 'skipped' => []], now()->addMinutes(30));
 
             return [];
@@ -1245,7 +1246,7 @@ class XApiService
             if ($lang !== '' && $lang !== 'en') {
                 continue;
             }
-            $created = isset($row['created_at']) ? \Illuminate\Support\Carbon::parse($row['created_at']) : null;
+            $created = isset($row['created_at']) ? Carbon::parse($row['created_at']) : null;
             $minutesAgo = $created ? (int) abs($created->diffInMinutes(now())) : null;
             $ageLimit = 12 * 60;
             if ($minutesAgo !== null && $minutesAgo > $ageLimit) {
@@ -1512,7 +1513,7 @@ class XApiService
             }
             $created = $topic['created_at'] ?? null;
             if (is_string($created) && $created !== '') {
-                $topic['minutes_ago'] = (int) abs(\Illuminate\Support\Carbon::parse($created)->diffInMinutes(now()));
+                $topic['minutes_ago'] = (int) abs(Carbon::parse($created)->diffInMinutes(now()));
             }
             $topics[$i] = $topic;
         }
@@ -1579,7 +1580,7 @@ class XApiService
             $reposts = (int) ($metrics['retweet_count'] ?? 0);
             $replies = (int) ($metrics['reply_count'] ?? 0);
             $impressions = (int) ($metrics['impression_count'] ?? 0);
-            $created = isset($row['created_at']) ? \Illuminate\Support\Carbon::parse($row['created_at']) : now();
+            $created = isset($row['created_at']) ? Carbon::parse($row['created_at']) : now();
 
             $posts[] = [
                 'id' => (string) ($row['id'] ?? ''),

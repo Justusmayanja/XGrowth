@@ -10,6 +10,7 @@ use App\Models\TikTokClip;
 use App\Models\User;
 use App\Services\Admin\PlatformSettingsService;
 use App\Support\TikTokCatalog;
+use App\Support\TikTokVideoCatalog;
 use App\Support\TikTokWeek;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -196,7 +197,7 @@ class TikTokEngineService
             if (! $user) {
                 return;
             }
-            if (TikTokVideoPreferences::forUser($user)->generate() === \App\Support\TikTokVideoCatalog::GENERATE_ON_CONFIRM) {
+            if (TikTokVideoPreferences::forUser($user)->generate() === TikTokVideoCatalog::GENERATE_ON_CONFIRM) {
                 return;
             }
             app(TikTokRenderService::class)->dispatch($clip);
@@ -215,7 +216,7 @@ class TikTokEngineService
             if (! $user) {
                 return;
             }
-            if (TikTokVideoPreferences::forUser($user)->generate() !== \App\Support\TikTokVideoCatalog::GENERATE_ON_CONFIRM) {
+            if (TikTokVideoPreferences::forUser($user)->generate() !== TikTokVideoCatalog::GENERATE_ON_CONFIRM) {
                 return;
             }
             app(TikTokRenderService::class)->dispatch($clip);

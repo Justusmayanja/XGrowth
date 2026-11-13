@@ -1,4 +1,4 @@
-# Phase 9: TikTok motion-graphics video generation, Wasabi storage, render-ahead
+# Phase 9: TikTok motion-graphics video generation, server storage, render-ahead
 
 You are a senior Laravel + Next.js engineer with video-pipeline experience, working in the Mackie17 repo (Laravel app "Xpulse", Next.js in `apps/web`). Phases 1-8 are merged: clip engine, confirm/results API, allowance, desk, OAuth linking, user video upload (chunked, ffprobe-validated), draft sending (`SendTikTokDraft`), dashboard shell.
 
@@ -8,7 +8,7 @@ You are a senior Laravel + Next.js engineer with video-pipeline experience, work
 
 ## 0. Scope
 
-In: Wasabi storage migration, local working-directory pattern, queue worker and render jobs, scene building, TTS, captions, ffmpeg motion-graphics provider, preview/poster/signed URLs, video preferences and brand/profile opt-ins, desk UI for render states, render-ahead scheduling, sweepers, ops visibility, docs.
+In: private media on the server disk, local working-directory pattern, queue worker and render jobs, scene building, TTS, captions, ffmpeg motion-graphics provider, preview/poster/signed URLs, video preferences and brand/profile opt-ins, desk UI for render states, render-ahead scheduling, sweepers, ops visibility, docs.
 
 Out (do not build): cartoon, avatar, stock providers (show them as "Coming soon" only); Direct Post; any new TikTok scope; changes to X or YouTube; word-level caption alignment; music sourcing.
 
@@ -32,30 +32,29 @@ Work in the milestones in section 3, in order. Each milestone must meet its exit
 - No shell strings. Run ffmpeg/ffprobe with Symfony `Process` and an **argument array**. User text never goes into a filter string or command line. It goes into generated files (ASS, text) after sanitising.
 - Never log or return storage keys, signed URLs, TTS payloads, or account text.
 - The dashboard GET stays side-effect free. It must never start a render.
-- New dependency allowed: `league/flysystem-aws-s3-v3` only. No new tables. Reversible migrations only.
+- No new tables. Reversible migrations only. Files stay on the server disk.
 - No fabricated licensing claims, no downloading music, fonts, or images from the internet. Use only fonts with an open licence that you can verify (for example Inter under OFL) and include the licence file.
 - Keep every honesty-critical string already in the app. Never write "Posted", "Scheduled", or "Live" for anything that is not. If a required copy change conflicts, stop and ask.
 - If the repo contradicts this brief, stop and ask.
 
 ## 3. Milestones
 
-### M1. Wasabi storage and the working-directory pattern
+### M1. Server storage and the working-directory pattern
 
 **Config**
-- `.env.example` and `config/filesystems.php`: keep the disk name `tiktok_videos`. Driver comes from `TIKTOK_VIDEO_DRIVER=local|s3` (default `local`, so dev and tests stay unchanged). S3 settings: `WASABI_KEY`, `WASABI_SECRET`, `WASABI_BUCKET`, `WASABI_REGION=eu-central-1`, `WASABI_ENDPOINT=https://s3.eu-central-1.wasabisys.com`, `use_path_style_endpoint=true`, `visibility=private`, `throw=true`, generous HTTP timeouts. Verify Wasabi's endpoint format in their docs and mark anything UNVERIFIED.
+- `.env.example` and `config/filesystems.php`: keep the disk name `tiktok_videos`. It is a prefix on the private `media` disk, whose root is `storage/app/private/media` on this server.
 - Object layout: `{user_id}/{clip_id}/source.mp4` (final, 1080x1920), `preview.mp4`, `poster.jpg`; `{user_id}/brand/logo.{ext}`. Server-generated names only.
 
-**Local working directory (never on Wasabi)**
+**Local working directory**
 - `TikTokWorkspace`: `begin(clipId): string` creates `storage/app/tiktok-work/{uuid}/`, `localCopy(TikTokClipVideo): string` downloads an object to a temp file, `cleanup()` always runs in `finally`. A sweeper deletes work dirs older than 6 hours.
 - Intermediates (scene clips, audio, ASS files, concat lists) stay local and are deleted when the job ends.
 
 **Adapt existing code**
-- Chunked browser upload: assemble in a **local staging dir**, run ffprobe there, then stream to the disk with `writeStream`, then delete staging. Only validated files reach Wasabi.
+- Chunked browser upload: assemble in a **local staging dir**, run ffprobe there, then stream to the disk with `writeStream`, then delete staging. Only validated files are stored.
 - `SendTikTokDraft`: download via `localCopy` (100 MB cap makes this fine), chunk from the temp file, clean up in `finally`.
 - Discard, replace, the 7-day sweep, and the orphan sweep must work on the `s3` driver. Orphan listing is per-user-prefix, never a whole-bucket scan.
-- `tiktok:migrate-videos --from=local --to=s3 [--dry-run]`: copies existing objects, verifies checksum against `tiktok_clip_videos.checksum`, updates nothing until verified, and never deletes the source automatically.
-- `tiktok:storage-check`: writes a canary object, reads it, creates a signed URL, fetches its headers, deletes it, prints latency per step. Exits non-zero on failure.
-- `docs/WASABI_SETUP.md`: create a private bucket in `eu-central-1`; a dedicated sub-user whose policy is limited to that bucket; keys into `.env`; **versioning off**; no public ACLs; CORS allowing `GET, HEAD` and the `Range` header from the web origin; note the minimum-storage-duration and egress fair-use terms as "verify current policy"; note that the render workers are fastest when hosted in the EU near the bucket.
+- `tiktok:migrate-videos --from=local --to=media [--dry-run]`: copies existing objects, verifies checksum against `tiktok_clip_videos.checksum`, updates nothing until verified, and never deletes the source automatically.
+- `tiktok:storage-check`: writes a canary object, reads it, deletes it, prints latency per step. Exits non-zero on failure.
 
 **Exit:** with `TIKTOK_VIDEO_DRIVER=local`, the whole existing suite is green. With a faked S3 disk (Flysystem in-memory or `Storage::fake`), upload, send, discard and sweeps pass. `tiktok:storage-check` runs against local and reports.
 
@@ -221,7 +220,7 @@ Keep the existing design language. Reuse primitives. No new dependencies. Honest
 1. Run the full chain with `TIKTOK_TTS_DRIVER=fake` on local storage: run → clip → render → ready → preview → confirm. Show `ffprobe` output of `source.mp4` and `preview.mp4`, file sizes, and the poster.
 2. Extract a contact sheet of 6 frames from the final video (ffmpeg `tile`) for a statement, stat, list, qa and outro scene, and attach it. State whether text stays inside the safe zones and is readable.
 3. Repeat with real OpenAI TTS if `OPENAI_API_KEY` is set (one clip).
-4. Wasabi: only if credentials exist. Run `tiktok:storage-check`, then one render with `TIKTOK_VIDEO_DRIVER=s3`, and report latency. If not possible, say so and do not claim it was verified.
+4. Run `tiktok:storage-check` against the server disk and report the result.
 5. Throttle the browser to "Fast 3G" and report time-to-poster and time-to-first-frame for the preview.
 6. Walk the desk at 360px: rendering, ready, failed (kill the worker), regenerate, replace with own upload, confirm.
 
@@ -231,7 +230,7 @@ Keep the existing design language. Reuse primitives. No new dependencies. Honest
 - [ ] Confirm is still the only consent. Nothing reaches TikTok before it, and rendering never changes allowance, status, or scopes.
 - [ ] `render.ready` is true only for a stored, validated file. Failures leave it false with a plain reason and an upload fallback.
 - [ ] Disabled profile fields (location, contact, logo) never reach the script writer, scenes, or renderer.
-- [ ] Wasabi is the storage via config only. Local disk still works. Intermediates never touch Wasabi.
+- [ ] Videos are stored on the server disk. Intermediates stay in the work directory and are deleted when the job ends.
 - [ ] The queue worker, sweeper, and ops warnings exist and are documented.
 - [ ] User text can never reach a command line or break the ASS structure.
 - [ ] Full suite green, `tsc` clean, new tests pass, existing X/YouTube behaviour unchanged.
@@ -240,10 +239,10 @@ Keep the existing design language. Reuse primitives. No new dependencies. Honest
 
 1. Files created or changed, by milestone.
 2. ffmpeg version and the capabilities you detected (libass, drawtext, xfade, gradients).
-3. Which Wasabi, OpenAI speech, and TikTok API details were verified against docs and which are UNVERIFIED.
+3. Which OpenAI speech and TikTok API details were verified against docs and which are UNVERIFIED.
 4. Differences between this brief and the repo, and what you chose, including the `settings` merge fix.
 5. Test, type-check, lint, and build results.
 6. The contact sheet, ffprobe output, and desk screenshots, or the reason they could not be produced.
-7. Remaining risks (worker capacity, Wasabi terms, TTS quality) and open questions.
+7. Remaining risks (worker capacity, disk space, TTS quality) and open questions.
 
 If you hit ambiguity at any step, stop and ask instead of inventing a convention.

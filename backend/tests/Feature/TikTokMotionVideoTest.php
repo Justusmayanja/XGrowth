@@ -353,7 +353,7 @@ class TikTokMotionVideoTest extends TestCase
         Storage::fake('tiktok_videos_local');
 
         $this->artisan('tiktok:storage-check')->assertSuccessful();
-        $this->artisan('tiktok:migrate-videos', ['--from' => 'local', '--to' => 's3', '--dry-run' => true])
+        $this->artisan('tiktok:migrate-videos', ['--from' => 'local', '--to' => 'media', '--dry-run' => true])
             ->expectsOutputToContain('The source files were left in place.')
             ->assertSuccessful();
     }

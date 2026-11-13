@@ -5,6 +5,7 @@ namespace App\Services\TikTok;
 use App\Models\User;
 use App\Services\AICore\AiUsageService;
 use App\Services\ApiSpend\ApiSpendService;
+use App\Support\SpeechDrivers;
 use App\Support\TikTokCatalog;
 use OpenAI\Laravel\Facades\OpenAI;
 use RuntimeException;
@@ -19,7 +20,22 @@ class OpenAiSpeechProvider implements SpeechProvider
 
     public function key(): string
     {
-        return 'openai';
+        return SpeechDrivers::OPENAI;
+    }
+
+    public function reserveMills(string $text): int
+    {
+        $text = SceneText::plain($text, 500);
+
+        return max(10, (int) ceil(mb_strlen($text) * 0.015));
+    }
+
+    public function cacheToken(string $text, string $voice): string
+    {
+        $text = SceneText::plain($text, 500);
+        $voiceId = (string) config('tiktok_video.voices.'.$voice, config('tiktok_video.voices.female'));
+
+        return 'audio-'.hash('sha256', implode('|', [$this->key(), (string) config('tiktok_video.tts_model'), $voiceId, 'mp3', $text]));
     }
 
     public function speak(User $user, string $text, string $voice, string $path): float
@@ -31,7 +47,7 @@ class OpenAiSpeechProvider implements SpeechProvider
         if (! $this->usage->canUse($user, AiUsageService::ACTION_GENERATION)) {
             throw new RuntimeException(TikTokCatalog::RENDER_VOICE_UNAVAILABLE);
         }
-        $reserve = max(10, (int) ceil(mb_strlen($text) * 0.015));
+        $reserve = $this->reserveMills($text);
         if (! $this->budget->canSpend($user->id, $reserve)) {
             throw new RuntimeException(TikTokCatalog::RENDER_VOICE_UNAVAILABLE);
         }

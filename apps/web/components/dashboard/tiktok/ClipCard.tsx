@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Check, CircleCheck, Clock, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { lineText, type TikTokClip } from "@/lib/tiktok";
+import { type TikTokClip } from "@/lib/tiktok";
 import { ClipTimeline } from "./video/ClipTimeline";
 
 async function copyText(text: string) {
@@ -96,8 +96,6 @@ export function ClipCard({ clip, collapsed = false, aside }: { clip: TikTokClip;
   const [open, setOpen] = useState(!collapsed);
   const [full, setFull] = useState(false);
   const script = lines.join("\n");
-  const screens = clip.on_screen_text.map(lineText).filter(Boolean);
-  const shots = clip.shots.map(lineText).filter(Boolean);
   const shown = long && !full ? lines.slice(0, 3) : lines;
 
   return (
@@ -160,36 +158,6 @@ export function ClipCard({ clip, collapsed = false, aside }: { clip: TikTokClip;
                   <CopyControl text={clip.caption} label="Copy caption" />
                 </div>
                 <CaptionText caption={clip.caption} />
-              </Section>
-            )}
-
-            {screens.length > 0 && (
-              <Section label="On screen">
-                <ul className="space-y-1">
-                  {screens.map((line) => (
-                    <li key={line} className="text-sm break-words">
-                      {line}
-                    </li>
-                  ))}
-                </ul>
-              </Section>
-            )}
-
-            {shots.length > 0 && (
-              <Section label="Shots">
-                <ol className="space-y-1">
-                  {shots.map((line, index) => (
-                    <li key={`${index}-${line}`} className="text-sm break-words text-muted-foreground">
-                      {index + 1}. {line}
-                    </li>
-                  ))}
-                </ol>
-              </Section>
-            )}
-
-            {clip.sound_note && (
-              <Section label="Sound">
-                <p className="text-sm break-words text-muted-foreground">{clip.sound_note}</p>
               </Section>
             )}
             </div>}

@@ -660,10 +660,20 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
     return <XDeskView desk={desk} chosen={chosen} goals={goals} onAccount={chooseAccount} />;
   }
 
+  const deciding = platform === "tiktok" && (desk.tiktok?.clip?.status === "waiting" || desk.tiktok?.clip?.status === "queued");
+
   return (
     <div className="space-y-6">
       {header}
 
+      {deciding && !desk.connected && (
+        <p className="text-sm text-muted-foreground">
+          TikTok is not connected. You can watch this clip here. Sending it waits until you connect.
+        </p>
+      )}
+
+      {!deciding && (
+      <>
       <Card>
         <CardContent className="grid gap-0 divide-y divide-border p-0 md:grid-cols-3 md:divide-x md:divide-y-0">
           <div className="p-5">
@@ -755,6 +765,8 @@ export function PlatformDesk({ platform }: { platform: Platform }) {
           </Card>
         ))}
       </div>
+      </>
+      )}
 
       {platform === "tiktok" && desk.tiktok && <TikTokBody tiktok={desk.tiktok} onReload={load} />}
       {platform === "youtube" && <YouTubeBody desk={desk as YouTubeDesk} onChange={load} />}
